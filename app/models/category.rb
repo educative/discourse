@@ -43,7 +43,7 @@ class Category < ActiveRecord::Base
   validates :name, if: Proc.new { |c| c.new_record? || c.will_save_change_to_name? },
                    presence: true,
                    uniqueness: { scope: :parent_category_id, case_sensitive: false },
-                   length: { in: 1..50 }
+                   length: { in: 1..255 }
   validates :num_featured_topics, numericality: { only_integer: true, greater_than: 0 }
   validate :parent_category_validator
 
