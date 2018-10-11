@@ -33,9 +33,11 @@ class Guardian
   end
 
   attr_accessor :can_see_emails
+  attr_reader :request
 
-  def initialize(user = nil)
+  def initialize(user = nil, request = nil)
     @user = user.presence || AnonymousUser.new
+    @request = request
   end
 
   def user
@@ -357,7 +359,8 @@ class Guardian
 
   def can_export_entity?(entity)
     return false unless @user
-    return true if is_staff?
+    return true if is_admin?
+    return entity != 'user_list' if is_moderator?
 
     # Regular users can only export their archives
     return false unless entity == "user_archive"

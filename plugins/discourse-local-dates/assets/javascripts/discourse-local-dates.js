@@ -11,19 +11,27 @@
         clearTimeout(this.timeout);
       }
 
-      var relativeTime = moment.utc(
-        options.date + " " + options.time,
-        "YYYY-MM-DD HH:mm:ss"
-      );
+      var relativeTime;
+      if (options.forceTimezone) {
+        relativeTime = moment
+          .tz(options.date + " " + options.time, options.forceTimezone)
+          .utc();
+      } else {
+        relativeTime = moment.utc(options.date + " " + options.time);
+      }
 
-      if (options.recurring && relativeTime < moment().utc()) {
-        var parts = options.recurring.split(".");
-        var count = parseInt(parts[0], 10);
-        var type = parts[1];
-        var diff = moment().diff(relativeTime, type);
-        var add = Math.ceil(diff + count);
+      if (relativeTime < moment().utc()) {
+        if (options.recurring) {
+          var parts = options.recurring.split(".");
+          var count = parseInt(parts[0], 10);
+          var type = parts[1];
+          var diff = moment().diff(relativeTime, type);
+          var add = Math.ceil(diff + count);
 
-        relativeTime = relativeTime.add(add, type);
+          relativeTime = relativeTime.add(add, type);
+        } else {
+          $element.addClass("past");
+        }
       }
 
       var previews = options.timezones.split("|").map(function(timezone) {
@@ -45,7 +53,10 @@
         }
       });
 
-      var relativeTime = relativeTime.tz(moment.tz.guess());
+      var relativeTime = relativeTime.tz(
+        options.forceTimezone || moment.tz.guess()
+      );
+
       if (
         options.format !== "YYYY-MM-DD HH:mm:ss" &&
         relativeTime.isBetween(
@@ -65,18 +76,18 @@
 
       var joinedPreviews = previews.join("\n");
 
+      var displayedTime = relativeTime.replace(
+        "TZ",
+        _formatTimezone(options.forceTimezone || moment.tz.guess()).join(": ")
+      );
+
       $element
         .html(html)
         .attr("title", joinedPreviews)
         .attr("data-tooltip", joinedPreviews)
-        .addClass("cooked")
+        .addClass("cooked-date")
         .find(".relative-time")
-        .text(
-          relativeTime.replace(
-            "TZ",
-            _formatTimezone(moment.tz.guess()).join(": ")
-          )
-        );
+        .text(displayedTime);
 
       if (repeat) {
         this.timeout = setTimeout(function() {
@@ -94,6 +105,7 @@
       options.time = $this.attr("data-time");
       options.recurring = $this.attr("data-recurring");
       options.timezones = $this.attr("data-timezones") || "Etc/UTC";
+      options.forceTimezone = $this.attr("data-force-timezone");
 
       processElement($this, options);
     });

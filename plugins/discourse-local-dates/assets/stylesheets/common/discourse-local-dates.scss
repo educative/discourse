@@ -2,7 +2,7 @@
   display: inline-block;
   vertical-align: top;
 
-  &.cooked {
+  &.cooked-date {
     color: $primary;
     font-weight: bold;
     cursor: pointer;
@@ -18,6 +18,10 @@
 
     &:hover .d-icon-globe {
       color: $primary-high;
+    }
+
+    &.past {
+      font-weight: normal;
     }
   }
 }
