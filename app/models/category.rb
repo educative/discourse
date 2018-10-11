@@ -43,7 +43,7 @@ class Category < ActiveRecord::Base
   validates :name, if: Proc.new { |c| c.new_record? || c.will_save_change_to_name? },
                    presence: true,
                    uniqueness: { scope: :parent_category_id, case_sensitive: false },
-                   length: { in: 1..50 }
+                   length: { in: 1..255 }
   validates :num_featured_topics, numericality: { only_integer: true, greater_than: 0 }
   validate :parent_category_validator
 
@@ -626,7 +626,7 @@ end
 # Table name: categories
 #
 #  id                                :integer          not null, primary key
-#  name                              :string(50)       not null
+#  name                              :string(255)       not null
 #  color                             :string(6)        default("0088CC"), not null
 #  topic_id                          :integer
 #  topic_count                       :integer          default(0), not null
@@ -654,7 +654,7 @@ end
 #  topics_day                        :integer          default(0)
 #  posts_day                         :integer          default(0)
 #  allow_badges                      :boolean          default(TRUE), not null
-#  name_lower                        :string(50)       not null
+#  name_lower                        :string(255)       not null
 #  auto_close_based_on_last_post     :boolean          default(FALSE)
 #  topic_template                    :text
 #  contains_messages                 :boolean
