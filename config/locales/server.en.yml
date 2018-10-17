@@ -166,6 +166,7 @@ en:
         other: 'You specified the invalid choices %{name}'
       default_categories_already_selected: "You cannot select a category used in another list."
       s3_upload_bucket_is_required: "You cannot enable uploads to S3 unless you've provided the 's3_upload_bucket'."
+      s3_backup_requires_s3_settings: "You cannot use S3 as backup location unless you've provided the '%{setting_name}'."
     conflicting_google_user_id: 'The Google Account ID for this account has changed; staff intervention is required for security reasons. Please contact staff and point them to <br><a href="https://meta.discourse.org/t/76575">https://meta.discourse.org/t/76575</a>'
 
   activemodel:
@@ -194,6 +195,10 @@ en:
     backup_file_should_be_tar_gz: "The backup file should be a .tar.gz archive."
     not_enough_space_on_disk: "There is not enough space on disk to upload this backup."
     invalid_filename: "The backup filename contains invalid characters. Valid characters are a-z 0-9 . - _."
+    file_exists: "The file you are trying to upload already exists."
+    location:
+      local: "Local"
+      s3: "Amazon S3"
 
   invalid_params: "You supplied invalid parameters to the request: %{message}"
   not_logged_in: "You need to be logged in to do that."
@@ -1314,6 +1319,7 @@ en:
     enable_sso_provider: "Implement Discourse SSO provider protocol at the /session/sso_provider endpoint, requires sso_secret to be set"
     sso_url: "URL of single sign on endpoint (must include http:// or https://)"
     sso_secret: "Secret string used to cryptographically authenticate SSO information, be sure it is 10 characters or longer"
+    sso_provider_secrets: "A list of domain-secret pairs that are using Discourse as a SSO provider. Make sure SSO secret is 10 characters or longer. Wildcard symbol * can be used to match any domain or only a part of it (e.g. *.example.com)."
     sso_overrides_bio: "Overrides user bio in user profile and prevents user from changing it"
     sso_overrides_groups: "Synchronize all manual group membership with groups specified in the groups sso attribute (WARNING: if you do not specify groups all manual group membership will be cleared for user)"
     sso_overrides_email: "Overrides local email with external site email from SSO payload on every login, and prevent local changes. (WARNING: discrepancies can occur due to normalization of local emails)"
@@ -1359,7 +1365,6 @@ en:
     maximum_backups: "The maximum amount of backups to keep on disk. Older backups are automatically deleted"
     automatic_backups_enabled: "Run automatic backups as defined in backup frequency"
     backup_frequency: "The number of days between backups."
-    enable_s3_backups: "Upload backups to S3 when complete. IMPORTANT: requires valid S3 credentials entered in Files settings."
     s3_backup_bucket: "The remote bucket to hold backups. WARNING: Make sure it is a private bucket."
     s3_endpoint: "The endpoint can be modified to backup to an S3 compatible service like DigitalOcean Spaces or Minio. WARNING: Use default if using AWS S3"
     s3_force_path_style: "Enforce path-style addressing for your custom endpoint. IMPORTANT: Required for using Minio uploads and backups."
@@ -1367,6 +1372,7 @@ en:
     s3_disable_cleanup: "Disable the removal of backups from S3 when removed locally."
     backup_time_of_day: "Time of day UTC when the backup should occur."
     backup_with_uploads: "Include uploads in scheduled backups. Disabling this will only backup the database."
+    backup_location: "Location where backups are stored. IMPORTANT: S3 requires valid S3 credentials entered in Files settings."
 
     active_user_rate_limit_secs: "How frequently we update the 'last_seen_at' field, in seconds"
     verbose_localization: "Show extended localization tips in the UI"
@@ -1857,6 +1863,11 @@ en:
       max_username_length_exists: "You cannot set the maximum username length below the longest username (%{username})."
       max_username_length_range: "You cannot set the maximum below the minimum."
 
+    placeholder:
+      sso_provider_secrets:
+        key: "www.example.com"
+        value: "SSO secret"
+        
   search:
     within_post: "#%{post_number} by %{username}"
     types:
@@ -3892,6 +3903,7 @@ en:
     staff_tag_disallowed: "The tag \"%{tag}\" may only be applied by staff."
     staff_tag_remove_disallowed: "The tag \"%{tag}\" may only be removed by staff."
     minimum_required_tags: "You must select at least %{count} tags."
+    upload_row_too_long: "The CSV file should have one tag per line. Optionally the tag can be followed by a comma, then the tag group name."
   rss_by_tag: "Topics tagged %{tag}"
 
   finish_installation:
