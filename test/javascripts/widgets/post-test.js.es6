@@ -206,6 +206,12 @@ widgetTest("anon liking", {
     assert.ok(!!this.$(".actions button.like").length);
     assert.ok(this.$(".actions button.like-count").length === 0);
 
+    assert.equal(
+      this.$("button.like").attr("title"),
+      I18n.t("post.controls.like"),
+      `shows the right button title for anonymous users`
+    );
+
     await click(".actions button.like");
     assert.ok(this.loginShown);
   }
@@ -377,6 +383,16 @@ widgetTest(`flagging: can't flag`, {
   template: '{{mount-widget widget="post" args=args}}',
   beforeEach() {
     this.set("args", { canFlag: false });
+  },
+  test(assert) {
+    assert.ok(this.$("button.create-flag").length === 0);
+  }
+});
+
+widgetTest(`flagging: can't flag when post is hidden`, {
+  template: '{{mount-widget widget="post" args=args}}',
+  beforeEach() {
+    this.set("args", { canFlag: true, hidden: true });
   },
   test(assert) {
     assert.ok(this.$("button.create-flag").length === 0);

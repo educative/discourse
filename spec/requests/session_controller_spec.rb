@@ -286,6 +286,23 @@ RSpec.describe SessionController do
       sso
     end
 
+    it 'does not create superflous auth tokens when already logged in' do
+      user = Fabricate(:user)
+      sign_in(user)
+
+      sso = get_sso("/")
+      sso.email = user.email
+      sso.external_id = 'abc'
+      sso.username = 'sam'
+
+      expect do
+        get "/session/sso_login", params: Rack::Utils.parse_query(sso.payload), headers: headers
+        logged_on_user = Discourse.current_user_provider.new(request.env).current_user
+        expect(logged_on_user.id).to eq(user.id)
+      end.not_to change { UserAuthToken.count }
+
+    end
+
     it 'can take over an account' do
       sso = get_sso("/")
       user = Fabricate(:user)
@@ -589,7 +606,12 @@ RSpec.describe SessionController do
         SiteSetting.enable_sso_provider = true
         SiteSetting.enable_sso = false
         SiteSetting.enable_local_logins = true
-        SiteSetting.sso_provider_secrets = "*|secretforAll\n*.rainbow|wrongSecretForOverRainbow\nwww.random.site|secretForRandomSite\nsomewhere.over.rainbow|secretForOverRainbow"
+        SiteSetting.sso_provider_secrets = [
+          "*|secret,forAll",
+          "*.rainbow|wrongSecretForOverRainbow",
+          "www.random.site|secretForRandomSite",
+          "somewhere.over.rainbow|secretForOverRainbow",
+        ].join("\n")
 
         @sso = SingleSignOn.new
         @sso.nonce = "mynonce"
