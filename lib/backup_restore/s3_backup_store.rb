@@ -5,11 +5,12 @@ module BackupRestore
   class S3BackupStore < BackupStore
     DOWNLOAD_URL_EXPIRES_AFTER_SECONDS ||= 15
     UPLOAD_URL_EXPIRES_AFTER_SECONDS ||= 21_600 # 6 hours
+    MULTISITE_PREFIX = "backups"
 
     def initialize(opts = {})
       s3_options = S3Helper.s3_options(SiteSetting)
       s3_options.merge!(opts[:s3_options]) if opts[:s3_options]
-      @s3_helper = S3Helper.new(SiteSetting.s3_backup_bucket, '', s3_options)
+      @s3_helper = S3Helper.new(s3_bucket_name_with_prefix, '', s3_options)
     end
 
     def remote?
@@ -23,7 +24,11 @@ module BackupRestore
 
     def delete_file(filename)
       obj = @s3_helper.object(filename)
-      obj.delete if obj.exists?
+
+      if obj.exists?
+        obj.delete
+        reset_cache
+      end
     end
 
     def download_file(filename, destination_path, failure_message = nil)
@@ -37,12 +42,14 @@ module BackupRestore
       raise BackupFileExists.new if obj.exists?
 
       obj.upload_file(source_path, content_type: content_type)
+      reset_cache
     end
 
     def generate_upload_url(filename)
       obj = @s3_helper.object(filename)
       raise BackupFileExists.new if obj.exists?
 
+      ensure_cors!
       presigned_url(obj, :put, UPLOAD_URL_EXPIRES_AFTER_SECONDS)
     end
 
@@ -73,7 +80,6 @@ module BackupRestore
     end
 
     def presigned_url(obj, method, expires_in_seconds)
-      ensure_cors!
       obj.presigned_url(method, expires_in: expires_in_seconds)
     end
 
@@ -90,6 +96,18 @@ module BackupRestore
 
     def cleanup_allowed?
       !SiteSetting.s3_disable_cleanup
+    end
+
+    def s3_bucket_name_with_prefix
+      if Rails.configuration.multisite
+        File.join(SiteSetting.s3_backup_bucket, MULTISITE_PREFIX, RailsMultisite::ConnectionManagement.current_db)
+      else
+        SiteSetting.s3_backup_bucket
+      end
+    end
+
+    def free_bytes
+      nil
     end
   end
 end

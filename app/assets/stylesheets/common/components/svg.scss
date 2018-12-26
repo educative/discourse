@@ -9,11 +9,12 @@
   fill: currentColor;
   flex-shrink: 0; // Prevent the icon from shrinking if it's in a flexbox
   overflow: visible;
+}
 
-  &.d-icon-lock {
-    height: 0.9em;
-    width: 0.9em;
-  }
+// Fixes Edge bug with SVG elements not triggering click event
+svg,
+svg use {
+  pointer-events: none;
 }
 
 // Stacked Icons

@@ -35,7 +35,7 @@ class UserNotifications < ActionMailer::Base
 
   def suspicious_login(user, opts = {})
     ipinfo = DiscourseIpInfo.get(opts[:client_ip])
-    location = [ipinfo[:city], ipinfo[:region], ipinfo[:country]].reject(&:blank?).join(", ")
+    location = ipinfo[:location]
     browser = BrowserDetection.browser(opts[:user_agent])
     device = BrowserDetection.device(opts[:user_agent])
     os = BrowserDetection.os(opts[:user_agent])
@@ -575,7 +575,7 @@ class UserNotifications < ActionMailer::Base
       if SiteSetting.private_email?
         message = I18n.t('system_messages.contents_hidden')
       else
-        message = email_post_markdown(post) + (reached_limit ? "\n\n#{I18n.t "user_notifications.reached_limit", count: SiteSetting.max_emails_per_day_per_user}" : "");
+        message = email_post_markdown(post) + (reached_limit ? "\n\n#{I18n.t "user_notifications.reached_limit", count: SiteSetting.max_emails_per_day_per_user}" : "")
       end
 
       first_footer_classes = "hilight"

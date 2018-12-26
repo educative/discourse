@@ -107,7 +107,7 @@ Discourse::Application.routes.draw do
       end
       delete "penalty_history", constraints: AdminConstraint.new
       put "suspend"
-      put "delete_all_posts"
+      put "delete_posts_batch"
       put "unsuspend"
       put "revoke_admin", constraints: AdminConstraint.new
       put "grant_admin", constraints: AdminConstraint.new
@@ -159,6 +159,8 @@ Discourse::Application.routes.draw do
         get "send-digest" => "email#send_digest"
         get "smtp_should_reject"
         post "handle_mail"
+        get "advanced-test"
+        post "advanced-test" => "email#advanced_test"
       end
     end
 
@@ -239,6 +241,8 @@ Discourse::Application.routes.draw do
     get "dashboard" => "dashboard_next#index"
     get "dashboard/general" => "dashboard_next#general"
     get "dashboard/moderation" => "dashboard_next#moderation"
+    get "dashboard/security" => "dashboard_next#security"
+    get "dashboard/reports" => "dashboard_next#reports"
 
     get "dashboard-old" => "dashboard#index"
 
@@ -326,12 +330,14 @@ Discourse::Application.routes.draw do
   get "login" => "static#show", id: "login", constraints: { format: /(json|html)/ }
   get "password-reset" => "static#show", id: "password_reset", constraints: { format: /(json|html)/ }
   get "faq" => "static#show", id: "faq", constraints: { format: /(json|html)/ }
-  get "guidelines" => "static#show", id: "guidelines", as: 'guidelines', constraints: { format: /(json|html)/ }
-  get "rules" => "static#show", id: "rules", as: 'rules', constraints: { format: /(json|html)/ }
   get "tos" => "static#show", id: "tos", as: 'tos', constraints: { format: /(json|html)/ }
   get "privacy" => "static#show", id: "privacy", as: 'privacy', constraints: { format: /(json|html)/ }
   get "signup" => "static#show", id: "signup", constraints: { format: /(json|html)/ }
   get "login-preferences" => "static#show", id: "login", constraints: { format: /(json|html)/ }
+
+  %w{guidelines rules conduct}.each do |faq_alias|
+    get faq_alias => "static#show", id: "guidelines", as: faq_alias, constraints: { format: /(json|html)/ }
+  end
 
   get "my/*path", to: 'users#my_redirect'
   get "user_preferences" => "users#user_preferences_redirect"

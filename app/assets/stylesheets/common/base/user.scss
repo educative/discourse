@@ -156,9 +156,9 @@
         list-style-type: none;
       }
 
-      a {
-        padding: 5px 10px;
+      .btn {
         margin-bottom: 10px;
+        line-height: $line-height-medium;
       }
     }
 

@@ -37,6 +37,18 @@ describe CategoriesController do
         expect(json['topic_list_latest']).to include(%{"more_topics_url":"/latest"})
       end
     end
+
+    it "Shows correct title if category list is set for homepage" do
+      SiteSetting.top_menu = "categories|latest"
+      get "/"
+
+      expect(response.body).to have_tag "title", text: "Discourse"
+
+      SiteSetting.short_site_description = "Official community"
+      get "/"
+
+      expect(response.body).to have_tag "title", text: "Discourse - Official community"
+    end
   end
 
   context 'extensibility event' do
@@ -132,7 +144,8 @@ describe CategoriesController do
             permissions: {
               "everyone" => readonly,
               "staff" => create_post
-            }
+            },
+            uploaded_meta_id: 2
           }
 
           expect(response.status).to eq(200)
@@ -145,6 +158,7 @@ describe CategoriesController do
           expect(category.color).to eq("ff0")
           expect(category.auto_close_hours).to eq(72)
           expect(UserHistory.count).to eq(4) # 1 + 3 (bootstrap mode)
+          expect(category.uploaded_meta_id).to eq(2)
         end
       end
     end
@@ -184,7 +198,7 @@ describe CategoriesController do
       c3 = Fabricate(:category)
       c4 = Fabricate(:category)
       if c3.id < c2.id
-        tmp = c3; c2 = c3; c3 = tmp;
+        tmp = c3; c2 = c3; c3 = tmp
       end
       c1.position = 8
       c2.position = 6

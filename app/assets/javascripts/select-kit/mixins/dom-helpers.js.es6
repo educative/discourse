@@ -64,9 +64,13 @@ export default Ember.Mixin.create({
   },
 
   @on("didRender")
+  _schedulePositionRendering() {
+    Ember.run.debounce(this, this._adjustPosition, 50, true);
+  },
+
   _adjustPosition() {
-    this._applyFixedPosition();
     this._applyDirection();
+    this._applyFixedPosition();
     this._positionWrapper();
   },
 
@@ -193,11 +197,15 @@ export default Ember.Mixin.create({
         parentWidth - marginToEdge - bodyWidth + this.get("horizontalOffset") >
         0;
       if (enoughMarginToOppositeEdge) {
-        this.setProperties({ isLeftAligned: true, isRightAligned: false });
+        this.$()
+          .addClass("is-left-aligned")
+          .removeClass("is-right-aligned");
         options.left = this.get("horizontalOffset");
         options.right = "unset";
       } else {
-        this.setProperties({ isLeftAligned: false, isRightAligned: true });
+        this.$()
+          .addClass("is-right-aligned")
+          .removeClass("is-left-aligned");
         options.left = "unset";
         options.right = this.get("horizontalOffset");
       }
@@ -205,14 +213,19 @@ export default Ember.Mixin.create({
 
     const fullHeight =
       this.get("verticalOffset") + bodyHeight + componentHeight;
-    const hasBelowSpace = $(window).height() - offsetBottom - fullHeight > 0;
-    const hasAboveSpace = offsetTop - fullHeight - discourseHeaderHeight > 0;
+    const hasBelowSpace = $(window).height() - offsetBottom - fullHeight >= -1;
+    const hasAboveSpace = offsetTop - fullHeight - discourseHeaderHeight >= -1;
     const headerHeight = this._computedStyle(this.$header()[0], "height");
+
     if (hasBelowSpace || (!hasBelowSpace && !hasAboveSpace)) {
-      this.setProperties({ isBelow: true, isAbove: false });
+      this.$()
+        .addClass("is-below")
+        .removeClass("is-above");
       options.top = headerHeight + this.get("verticalOffset");
     } else {
-      this.setProperties({ isBelow: false, isAbove: true });
+      this.$()
+        .addClass("is-above")
+        .removeClass("is-below");
       options.bottom = headerHeight + this.get("verticalOffset");
     }
 
@@ -260,6 +273,7 @@ export default Ember.Mixin.create({
       display: "inline-block",
       width,
       height,
+      "margin-bottom": this.$().css("margin-bottom"),
       "vertical-align": "middle"
     });
 

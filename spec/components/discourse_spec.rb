@@ -164,9 +164,14 @@ describe Discourse do
     end
 
     def get_readonly_message
+      message = nil
+
       messages = MessageBus.track_publish do
         yield
       end
+
+      expect(messages.any? { |m| m.channel == Site::SITE_JSON_CHANNEL })
+        .to eq(true)
 
       messages.find { |m| m.channel == Discourse.readonly_channel }
     end
@@ -189,12 +194,7 @@ describe Discourse do
 
     describe ".disable_readonly_mode" do
       it "removes a key from redis and publish a message through the message bus" do
-        Discourse.enable_readonly_mode
-
-        message = get_readonly_message do
-          Discourse.disable_readonly_mode
-        end
-
+        message = get_readonly_message { Discourse.disable_readonly_mode }
         assert_readonly_mode_disabled(message, readonly_mode_key)
       end
 
@@ -299,6 +299,24 @@ describe Discourse do
       expect(old_method_caller(k)).to include(k)
 
       expect(Rails.logger.warnings).to eq([old_method_caller(k)])
+    end
+
+    it 'can report the deprecated version' do
+      Discourse.deprecate(SecureRandom.hex, since: "2.1.0.beta1")
+
+      expect(Rails.logger.warnings[0]).to include("(deprecated since Discourse 2.1.0.beta1)")
+    end
+
+    it 'can report the drop version' do
+      Discourse.deprecate(SecureRandom.hex, drop_from: "2.3.0")
+
+      expect(Rails.logger.warnings[0]).to include("(removal in Discourse 2.3.0)")
+    end
+
+    it 'can raise deprecation error' do
+      expect {
+        Discourse.deprecate(SecureRandom.hex, raise_error: true)
+      }.to raise_error(Discourse::Deprecation)
     end
   end
 

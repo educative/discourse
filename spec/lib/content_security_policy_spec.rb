@@ -31,6 +31,7 @@ describe ContentSecurityPolicy do
       script_srcs = parse(policy)['script-src']
       expect(script_srcs).to include(*%w[
         'unsafe-eval'
+        'report-sample'
         http://test.localhost/logs/
         http://test.localhost/sidekiq/
         http://test.localhost/mini-profiler-resources/
@@ -50,8 +51,8 @@ describe ContentSecurityPolicy do
       SiteSetting.gtm_container_id = 'GTM-ABCDEF'
 
       script_srcs = parse(policy)['script-src']
-      expect(script_srcs).to include('https://www.google-analytics.com')
-      expect(script_srcs).to include('https://www.googletagmanager.com')
+      expect(script_srcs).to include('https://www.google-analytics.com/analytics.js')
+      expect(script_srcs).to include('https://www.googletagmanager.com/gtm.js')
     end
 
     it 'whitelists CDN assets when integrated' do
@@ -86,7 +87,9 @@ describe ContentSecurityPolicy do
   it 'can be extended by plugins' do
     plugin = Class.new(Plugin::Instance) do
       attr_accessor :enabled
-      def enabled?; @enabled; end
+      def enabled?
+        @enabled
+      end
     end.new(nil, "#{Rails.root}/spec/fixtures/plugins/csp_extension/plugin.rb")
 
     plugin.activate!

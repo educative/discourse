@@ -1,4 +1,3 @@
-require "disk_space"
 require "mini_mime"
 
 module BackupRestore
@@ -83,7 +82,7 @@ module BackupRestore
       @timestamp = Time.now.strftime("%Y-%m-%d-%H%M%S")
       @tmp_directory = File.join(Rails.root, "tmp", "backups", @current_db, @timestamp)
       @dump_filename = File.join(@tmp_directory, BackupRestore::DUMP_FILE)
-      @archive_directory = BackupRestore::LocalBackupStore.base_directory(@current_db)
+      @archive_directory = BackupRestore::LocalBackupStore.base_directory(db: @current_db)
       filename = @filename_override || "#{SiteSetting.title.parameterize}-#{@timestamp}"
       @archive_basename = File.join(@archive_directory, "#{filename}-#{BackupRestore::VERSION_PREFIX}#{BackupRestore.current_version}")
 
@@ -277,18 +276,18 @@ module BackupRestore
     end
 
     def notify_user
+      return if @success && @user.id == Discourse::SYSTEM_USER_ID
+
       log "Notifying '#{@user.username}' of the end of the backup..."
       status = @success ? :backup_succeeded : :backup_failed
 
-      post = SystemMessage.create_from_system_user(@user, status,
-        logs: Discourse::Utils.pretty_logs(@logs)
+      post = SystemMessage.create_from_system_user(
+        @user, status, logs: Discourse::Utils.pretty_logs(@logs)
       )
 
-      if !@success && @user.id == Discourse::SYSTEM_USER_ID
+      if @user.id == Discourse::SYSTEM_USER_ID
         post.topic.invite_group(@user, Group[:admins])
       end
-
-      post
     rescue => ex
       log "Something went wrong while notifying user.", ex
     end
@@ -304,7 +303,7 @@ module BackupRestore
 
     def refresh_disk_space
       log "Refreshing disk stats..."
-      DiskSpace.reset_cached_stats
+      @store.reset_cache
     rescue => ex
       log "Something went wrong while refreshing disk stats.", ex
     end

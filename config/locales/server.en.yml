@@ -55,6 +55,7 @@ en:
   anonymous: "Anonymous"
   remove_posts_deleted_by_author: "Deleted by author"
   redirect_warning: "We were unable to verify that the link you selected was actually posted to the forum. If you wish to proceed anyway, select the link below."
+  on_another_topic: "On another topic"
 
   themes:
     bad_color_scheme: "Can not update theme, invalid color scheme"
@@ -168,6 +169,7 @@ en:
       default_categories_already_selected: "You cannot select a category used in another list."
       s3_upload_bucket_is_required: "You cannot enable uploads to S3 unless you've provided the 's3_upload_bucket'."
       s3_backup_requires_s3_settings: "You cannot use S3 as backup location unless you've provided the '%{setting_name}'."
+      s3_bucket_reused: "You cannot use the same bucket for 's3_upload_bucket' and 's3_backup_bucket'. Choose a different bucket or use a different path for each bucket."
     conflicting_google_user_id: 'The Google Account ID for this account has changed; staff intervention is required for security reasons. Please contact staff and point them to <br><a href="https://meta.discourse.org/t/76575">https://meta.discourse.org/t/76575</a>'
 
   activemodel:
@@ -189,6 +191,7 @@ en:
     error: "There was an error uploading that file. Please try again later."
 
   topic_invite:
+    failed_to_invite: "The user cannot be invited into this topic without a group membership in either one of the following groups: %{group_names}."
     user_exists: "Sorry, that user has already been invited. You may only invite a user to a topic once."
 
   backup:
@@ -220,15 +223,15 @@ en:
     other: "We're sorry, but new users are temporarily limited to %{count} replies in the same topic."
 
   max_consecutive_replies:
-    one: "No more than 1 reply is allowed. Please edit your previous reply instead, or wait for someone to reply to you."
-    other: "No more than %{count} consecutive replies are allowed. Please edit your previous reply instead, or wait for someone to reply to you."
+    one: "No consecutive replies are allowed. Please edit your previous reply, or wait for someone to reply to you."
+    other: "No more than %{count} consecutive replies are allowed. Please edit your previous reply, or wait for someone to reply to you."
 
   embed:
     start_discussion: "Start Discussion"
     continue: "Continue Discussion"
     error: "Error Embedding"
     referer: "Referer:"
-    mismatch: "The referer did not match any of the following hosts:"
+    mismatch: "The referer was either not sent, or did not match any of the following hosts:"
     no_hosts: "No hosts were set up for embedding."
     configure: "Configure Embedding"
     more_replies:
@@ -273,6 +276,7 @@ en:
   not_accepting_pms: "Sorry, %{username} is not accepting messages at the moment."
   max_pm_recepients: "Sorry, you can send a message to maximum %{recipients_limit} recipients."
   pm_reached_recipients_limit: "Sorry, you can't have more than %{recipients_limit} recipients in a message."
+  removed_direct_reply_full_quotes: "Automatically removed quote of whole previous post."
 
   just_posted_that: "is too similar to what you recently posted"
   invalid_characters: "contains invalid characters"
@@ -890,12 +894,13 @@ en:
         percent: Percent
         day: Day
     post_edits:
-      title: "Post edits"
+      title: "Post Edits"
       labels:
         post: Post
         editor: Editor
         author: Author
         edit_reason: Reason
+      description: "Number of new post edits."
     user_flagging_ratio:
       title: "User Flagging Ratio"
       labels:
@@ -904,8 +909,9 @@ en:
         disagreed_flags: Disagreed flags
         ignored_flags: Ignored flags
         score: Score
+      description: "List of users ordered by ratio of staff response to their flags (disagreed to agreed)."
     moderators_activity:
-      title: "Moderators activity"
+      title: "Moderator Activity"
       labels:
         moderator: Moderator
         flag_count: Flags reviewed
@@ -914,8 +920,9 @@ en:
         post_count: Posts created
         pm_count: PMs created
         revision_count: Revisions
+      description: List of moderator activity including flags reviewed, reading time, topics created, posts created, private messages created, and revisions.
     flags_status:
-      title: "Flags status"
+      title: "Flags Status"
       values:
         agreed: Agreed
         disagreed: Disagreed
@@ -927,39 +934,42 @@ en:
         poster: Poster
         flagger: Flagger
         time_to_resolution: Resolution time
+      description: "List of flags' statuses including type of flag, poster, flagger, and time to resolution."
     visits:
       title: "User Visits"
       xaxis: "Day"
       yaxis: "Number of visits"
+      description: "Number of all unique user visits."
     signups:
       title: "Signups"
       xaxis: "Day"
       yaxis: "Number of signups"
-      description: "New account registrations for this period"
+      description: "New account registrations for this period."
     new_contributors:
       title: "New Contributors"
       xaxis: "Day"
       yaxis: "Number of new contributors"
-      description: "Number of users who made their first post during this period"
+      description: "Number of users who made their first post during this period."
     dau_by_mau:
       title: "DAU/MAU"
       xaxis: "Day"
       yaxis: "DAU/MAU"
-      description: "No. of members that logged in in the last day divided by no of members that logged in in the last month – returns a % which indicates community 'stickiness'. Aim for >30%."
+      description: "Number of members that logged in in the last day divided by number of members that logged in in the last month – returns a % which indicates community 'stickiness'. Aim for >30%."
     daily_engaged_users:
       title: "Daily Engaged Users"
       xaxis: "Day"
       yaxis: "Engaged Users"
-      description: "Number of users that have liked or posted in the last day"
+      description: "Number of users that have liked or posted in the last day."
     profile_views:
       title: "User Profile Views"
       xaxis: "Day"
       yaxis: "Number of user profiles viewed"
+      description: "Total new views of user profiles."
     topics:
       title: "Topics"
       xaxis: "Day"
       yaxis: "Number of new topics"
-      description: "New topics created during this period"
+      description: "New topics created during this period."
     posts:
       title: "Posts"
       xaxis: "Day"
@@ -969,24 +979,24 @@ en:
       title: "Likes"
       xaxis: "Day"
       yaxis: "Number of new likes"
+      description: "Number of new likes."
     flags:
       title: "Flags"
       xaxis: "Day"
       yaxis: "Number of flags"
+      description: "Number of new flags."
     bookmarks:
       title: "Bookmarks"
       xaxis: "Day"
       yaxis: "Number of new bookmarks"
-    starred:
-      title: "Starred"
-      xaxis: "Day"
-      yaxis: "Number of new starred topics"
+      description: "Number of new topics and posts bookmarked."
     users_by_trust_level:
       title: "Users per Trust Level"
       xaxis: "Trust Level"
       yaxis: "Number of Users"
       labels:
         level: Level
+      description: "Number of users grouped by trust level."
     users_by_type:
       title: "Users per Type"
       xaxis: "Type"
@@ -998,40 +1008,49 @@ en:
         moderator: Moderator
         suspended: Suspended
         silenced: Silenced
+      description: "Number of users grouped by admin, moderator, suspended, and silenced."
     trending_search:
-      title: Trending search
+      title: Trending Search Terms
       labels:
         term: Term
         searches: Searches
         click_through: CTR
+      description: "Most popular search terms with their click-through rates."
     emails:
       title: "Emails Sent"
       xaxis: "Day"
       yaxis: "Number of Emails"
+      description: "Number of new emails sent."
     user_to_user_private_messages:
       title: "User-to-User (excluding replies)"
       xaxis: "Day"
       yaxis: "Number of messages"
+      description: "Number of newly initiated private messages."
     user_to_user_private_messages_with_replies:
       title: "User-to-User (with replies)"
       xaxis: "Day"
       yaxis: "Number of messages"
+      description: "Number of all new private messages and responses."
     system_private_messages:
       title: "System"
       xaxis: "Day"
       yaxis: "Number of messages"
+      description: "Number of private messages sent automatically by the System."
     moderator_warning_private_messages:
       title: "Moderator Warning"
       xaxis: "Day"
       yaxis: "Number of messages"
+      description: "Number of warnings sent by private messages from moderators."
     notify_moderators_private_messages:
       title: "Notify Moderators"
       xaxis: "Day"
       yaxis: "Number of messages"
+      description: "Number of times moderators have been privately notified by a flag."
     notify_user_private_messages:
       title: "Notify User"
       xaxis: "Day"
       yaxis: "Number of messages"
+      description: "Number of times users have been privately notified by a flag."
     top_referrers:
       title: "Top Referrers"
       xaxis: "User"
@@ -1041,6 +1060,7 @@ en:
         user: "User"
         num_clicks: "Clicks"
         num_topics: "Topics"
+      description: "Users listed by number of clicks on links they have shared."
     top_traffic_sources:
       title: "Top Traffic Sources"
       xaxis: "Domain"
@@ -1051,35 +1071,43 @@ en:
         domain: Domain
         num_clicks: Clicks
         num_topics: Topics
+      description: "External sources that have linked to this site the most."
     top_referred_topics:
       title: "Top Referred Topics"
       labels:
         num_clicks: "Clicks"
         topic: "Topic"
+      description: "Topics that have received the most clicks from external sources."
     page_view_anon_reqs:
       title: "Anonymous"
       xaxis: "Day"
       yaxis: "Anonymous Pageviews"
+      description: "Number of new page views by visitors not logged in to an account."
     page_view_logged_in_reqs:
       title: "Logged In"
       xaxis: "Day"
       yaxis: "Logged In Pageviews"
+      description: "Number of new pageviews from logged in users."
     page_view_crawler_reqs:
       title: "Web Crawlers"
       xaxis: "Day"
       yaxis: "Web Crawler Pageviews"
+      description: "Webcrawlers listed by number of new pageviews they have generated."
     page_view_total_reqs:
       title: "Pageviews"
       xaxis: "Day"
       yaxis: "Total Pageviews"
+      description: "Number of new pageviews from all visitors."
     page_view_logged_in_mobile_reqs:
       title: "Logged In Pageviews"
       xaxis: "Day"
       yaxis: "Mobile Logged In Pageviews"
+      description: "Number of new pageviews from users on mobile devices and logged in to an account."
     page_view_anon_mobile_reqs:
       title: "Anon Pageviews"
       xaxis: "Day"
       yaxis: "Mobile Anon Pageviews"
+      description: "Number of new pageviews from visitors on a mobile device who are not logged in."
     http_background_reqs:
       title: "Background"
       xaxis: "Day"
@@ -1108,19 +1136,23 @@ en:
       title: "Time to first response"
       xaxis: "Day"
       yaxis: "Average time (hours)"
+      description: "Average time  (in hours) of the first response to new topics."
     topics_with_no_response:
       title: "Topics with no response"
       xaxis: "Day"
       yaxis: "Total"
+      description: "Number of new topics created that did not receive a response."
     mobile_visits:
       title: "User Visits (mobile)"
       xaxis: "Day"
       yaxis: "Number of visits"
+      description: "Number of unique users who visited using a mobile device."
     web_crawlers:
       title: "Web Crawler Requests"
       labels:
         user_agent: "User Agent"
         page_views: "Pageviews"
+      description: "Number of new pageviews generated by all webcrawlers."
     suspicious_logins:
       title: "Suspicious Logins"
       labels:
@@ -1131,6 +1163,14 @@ en:
         device: Device
         os: Operating System
         login_time: Login Time
+      description: "Details of new logins that differ suspiciously from previous logins."
+    staff_logins:
+      title: "Staff Logins"
+      labels:
+        user: User
+        location: Location
+        login_at: Login at
+      description: "List of admin and moderator login times with locations."
 
   dashboard:
     rails_env_warning: "Your server is running in %{env} mode."
@@ -1190,6 +1230,7 @@ en:
     educate_until_posts: "When the user starts typing their first (n) new posts, show the pop-up new user education panel in the composer."
     title: "The name of this site, as used in the title tag."
     site_description: "Describe this site in one sentence, as used in the meta description tag."
+    short_site_description: "Short description, as used in the title tag on homepage."
     contact_email: "Email address of key contact responsible for this site. Used for critical notifications, as well as on the <a href='%{base_path}/about' target='_blank'>/about</a> contact form for urgent matters."
     contact_url: "Contact URL for this site. Used on the <a href='%{base_path}/about' target='_blank'>/about</a> contact form for urgent matters."
     crawl_images: "Retrieve images from remote URLs to insert the correct width and height dimensions."
@@ -1295,6 +1336,7 @@ en:
     content_security_policy_report_only: EXPERIMENTAL - Turn on Content-Security-Policy-Report-Only
     content_security_policy_collect_reports: Enable CSP violation report collection at /csp_reports
     content_security_policy_script_src: Additional whitelisted script sources. The current host and CDN are included by default.
+    invalidate_inactive_admin_email_after_days: "Admin accounts that have not visited the site in this number of days will need to re-validate their email address before logging in. Set to 0 to disable."
     top_menu: "Determine which items appear in the homepage navigation, and in what order. Example latest|new|unread|categories|top|read|posted|bookmarks"
     post_menu: "Determine which items appear on the post menu, and in what order. Example like|edit|flag|delete|share|bookmark|reply"
     post_menu_hidden_items: "The menu items to hide by default in the post menu unless an expansion ellipsis is clicked on."
@@ -1304,6 +1346,7 @@ en:
     send_tl1_welcome_message: "Send new trust level 1 users a welcome message."
     suppress_reply_directly_below: "Don't show the expandable reply count on a post when there is only a single reply directly below this post."
     suppress_reply_directly_above: "Don't show the expandable in-reply-to on a post when there is only a single reply directly above this post."
+    remove_full_quote: "Automatically remove full quotes on direct replies."
     suppress_reply_when_quoting: "Don't show the expandable in-reply-to on a post when post quotes reply."
     max_reply_history: "Maximum number of replies to expand when expanding in-reply-to"
     topics_per_period_in_top_summary: "Number of top topics shown in the default top topics summary."
@@ -1778,6 +1821,7 @@ en:
     enable_emoji_shortcuts: "Common smiley text such as :) :p :( will be converted to emojis"
     emoji_set: "How would you like your emoji?"
     emoji_autocomplete_min_chars: "Minimum number of characters required to trigger autocomplete emoji popup"
+    enable_inline_emoji_translation: "Enables translation for inline emojis (without any space or punctuation before)"
 
     approve_post_count: "The amount of posts from a new or basic user that must be approved"
     approve_unless_trust_level: "Posts for users below this trust level must be approved"
@@ -1858,6 +1902,8 @@ en:
     push_notifications_icon: "The badge icon that appears in the notification corner. Recommended size is 96px by 96px."
 
     short_title: "The short title will be used on the user's home screen, launcher, or other places where space may be limited. A maximum of 12 characters is recommended."
+
+    dashboard_general_tab_activity_metrics: "Choose reports to be displayed as activity metrics on the general tab."
 
     errors:
       invalid_email: "Invalid email address."
@@ -2041,7 +2087,6 @@ en:
     email:
       sent_test: "sent!"
       sent_test_disabled: "cannot send because emails are disabled"
-      sent_test_disabled_for_non_staff: "cannot send because emails are disabled for non-staff"
 
   user:
     deactivated: "Was deactivated due to too many bounced emails to '%{email}'."
@@ -4043,13 +4088,16 @@ en:
           site_description:
             label: "Describe your community in one short sentence"
             placeholder: "A place for Jane and her friends to discuss cool stuff"
+          short_site_description:
+            label: "Describe your community in few words"
+            placeholder: "Best community ever"
 
       introduction:
         title: "Introduction"
-        disabled: "<p>We couldn’t find any topic with the title “Welcome to Discourse”.</p>
+        disabled: "<p>We couldn’t find any topic with the title “%{topic_title}”.</p>
           <ul>
           <li>If you have changed the title, edit that topic to modify your site’s introductory text.</li>
-          <li>If you have deleted this topic, create another topic with “Welcome to Discourse” as the title. The content of the first post is your site’s introductory text.</li>
+          <li>If you have deleted this topic, create another topic with “%{topic_title}” as the title. The content of the first post is your site’s introductory text.</li>
           </ul>"
 
         fields:

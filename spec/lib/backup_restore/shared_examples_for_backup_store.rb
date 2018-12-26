@@ -2,9 +2,14 @@ shared_context "backups" do
   before { create_backups }
   after(:all) { remove_backups }
 
+  # default backup files
   let(:backup1) { BackupFile.new(filename: "b.tar.gz", size: 17, last_modified: Time.parse("2018-09-13T15:10:00Z")) }
   let(:backup2) { BackupFile.new(filename: "a.tgz", size: 29, last_modified: Time.parse("2018-02-11T09:27:00Z")) }
   let(:backup3) { BackupFile.new(filename: "r.sql.gz", size: 11, last_modified: Time.parse("2017-12-20T03:48:00Z")) }
+
+  # backup files on another multisite
+  let(:backup4) { BackupFile.new(filename: "multi-1.tar.gz", size: 22, last_modified: Time.parse("2018-11-26T03:17:09Z")) }
+  let(:backup5) { BackupFile.new(filename: "multi-2.tar.gz", size: 19, last_modified: Time.parse("2018-11-27T03:16:54Z")) }
 end
 
 shared_examples "backup store" do
@@ -24,6 +29,17 @@ shared_examples "backup store" do
         expect(store.latest_file).to be_nil
       end
     end
+
+    describe "#stats" do
+      it "works when there are no files" do
+        stats = store.stats
+
+        expect(stats[:used_bytes]).to eq(0)
+        expect(stats).to have_key(:free_bytes)
+        expect(stats[:count]).to eq(0)
+        expect(stats[:last_backup_taken_at]).to be_nil
+      end
+    end
   end
 
   context "with backup files" do
@@ -39,6 +55,12 @@ shared_examples "backup store" do
         expect(files).to_not be_empty
         expect(files.map(&:filename)).to contain_exactly(backup1.filename, backup2.filename, backup3.filename)
       end
+
+      it "works with multisite", type: :multisite do
+        RailsMultisite::ConnectionManagement.with_connection("second") do
+          expect(store.files).to eq([backup5, backup4])
+        end
+      end
     end
 
     describe "#latest_file" do
@@ -49,6 +71,24 @@ shared_examples "backup store" do
       it "returns nil when there are no files" do
         store.files.each { |file| store.delete_file(file.filename) }
         expect(store.latest_file).to be_nil
+      end
+
+      it "works with multisite", type: :multisite do
+        RailsMultisite::ConnectionManagement.with_connection("second") do
+          expect(store.latest_file).to eq(backup5)
+        end
+      end
+    end
+
+    describe "#reset_cache" do
+      it "resets the storage stats report" do
+        report_type = "storage_stats"
+        report = Report.find(report_type)
+        Report.cache(report, 35.minutes)
+        expect(Report.find_cached(report_type)).to be_present
+
+        store.reset_cache
+        expect(Report.find_cached(report_type)).to be_nil
       end
     end
 
@@ -66,6 +106,15 @@ shared_examples "backup store" do
         store.delete_old
         expect(store.files).to eq([backup1])
       end
+
+      it "works with multisite", type: :multisite do
+        SiteSetting.maximum_backups = 1
+
+        RailsMultisite::ConnectionManagement.with_connection("second") do
+          store.delete_old
+          expect(store.files).to eq([backup5])
+        end
+      end
     end
 
     describe "#file" do
@@ -79,7 +128,14 @@ shared_examples "backup store" do
 
       it "includes the file's source location if it is requested" do
         file = store.file(backup1.filename, include_download_source: true)
-        expect(file.source).to match(source_regex(backup1.filename))
+        expect(file.source).to match(source_regex("default", backup1.filename, multisite: false))
+      end
+
+      it "works with multisite", type: :multisite do
+        RailsMultisite::ConnectionManagement.with_connection("second") do
+          file = store.file(backup4.filename, include_download_source: true)
+          expect(file.source).to match(source_regex("second", backup4.filename, multisite: true))
+        end
       end
     end
 
@@ -94,6 +150,14 @@ shared_examples "backup store" do
 
       it "does nothing when the file doesn't exist" do
         expect { store.delete_file("foo.gz") }.to_not change { store.files }
+      end
+
+      it "works with multisite", type: :multisite do
+        RailsMultisite::ConnectionManagement.with_connection("second") do
+          expect(store.files).to include(backup5)
+          store.delete_file(backup5.filename)
+          expect(store.files).to_not include(backup5)
+        end
       end
     end
 
@@ -116,6 +180,25 @@ shared_examples "backup store" do
 
         expect { store.download_file(filename, destination_path) }.to raise_exception(StandardError)
       end
+
+      it "works with multisite", type: :multisite do
+        RailsMultisite::ConnectionManagement.with_connection("second") do
+          expect(store.files).to include(backup5)
+          store.delete_file(backup5.filename)
+          expect(store.files).to_not include(backup5)
+        end
+      end
+    end
+
+    describe "#stats" do
+      it "returns the correct stats" do
+        stats = store.stats
+
+        expect(stats[:used_bytes]).to eq(57)
+        expect(stats).to have_key(:free_bytes)
+        expect(stats[:count]).to eq(3)
+        expect(stats[:last_backup_taken_at]).to eq(Time.parse("2018-09-13T15:10:00Z"))
+      end
     end
   end
 end
@@ -129,7 +212,7 @@ shared_examples "remote backup store" do
     include_context "backups"
 
     describe "#upload_file" do
-      it "uploads file into store" do
+      def upload_file
         freeze_time
 
         backup = BackupFile.new(
@@ -151,6 +234,16 @@ shared_examples "remote backup store" do
         expect(store.file(backup.filename)).to eq(backup)
       end
 
+      it "uploads file into store" do
+        upload_file
+      end
+
+      it "works with multisite", type: :multisite do
+        RailsMultisite::ConnectionManagement.with_connection("second") do
+          upload_file
+        end
+      end
+
       it "raises an exception when a file with same filename exists" do
         Tempfile.create(backup1.filename) do |file|
           expect { store.upload_file(backup1.filename, file.path, "application/gzip") }
@@ -164,12 +257,21 @@ shared_examples "remote backup store" do
         filename = "foo.tar.gz"
         url = store.generate_upload_url(filename)
 
-        expect(url).to match(upload_url_regex(filename))
+        expect(url).to match(upload_url_regex("default", filename, multisite: false))
       end
 
       it "raises an exeption when a file with same filename exists" do
         expect { store.generate_upload_url(backup1.filename) }
           .to raise_exception(BackupRestore::BackupStore::BackupFileExists)
+      end
+
+      it "works with multisite", type: :multisite do
+        RailsMultisite::ConnectionManagement.with_connection("second") do
+          filename = "foo.tar.gz"
+          url = store.generate_upload_url(filename)
+
+          expect(url).to match(upload_url_regex("second", filename, multisite: true))
+        end
       end
     end
   end

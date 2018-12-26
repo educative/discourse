@@ -12,7 +12,9 @@ module FileStore
     attr_reader :s3_helper
 
     def initialize(s3_helper = nil)
-      @s3_helper = s3_helper || S3Helper.new(s3_bucket, TOMBSTONE_PREFIX)
+      @s3_helper = s3_helper || S3Helper.new(s3_bucket,
+        Rails.configuration.multisite ? multisite_tombstone_prefix : TOMBSTONE_PREFIX
+      )
     end
 
     def store_upload(file, upload, content_type = nil)
@@ -42,7 +44,7 @@ module FileStore
       options[:content_disposition] = "attachment; filename=\"#{filename}\"" unless FileHelper.is_supported_image?(filename)
       # if this fails, it will throw an exception
 
-      path.prepend(File.join(upload_path, "/")) if RailsMultisite::ConnectionManagement.current_db != "default"
+      path.prepend(File.join(upload_path, "/")) if Rails.configuration.multisite
       path = @s3_helper.upload(file, path, options)
 
       # return the upload url
@@ -85,6 +87,10 @@ module FileStore
 
     def purge_tombstone(grace_period)
       @s3_helper.update_tombstone_lifecycle(grace_period)
+    end
+
+    def multisite_tombstone_prefix
+      File.join("uploads", "tombstone", RailsMultisite::ConnectionManagement.current_db, "/")
     end
 
     def path_for(upload)

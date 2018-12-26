@@ -313,6 +313,7 @@ module Discourse
     end
 
     MessageBus.publish(readonly_channel, true)
+    Site.clear_anon_cache!
     true
   end
 
@@ -346,6 +347,7 @@ module Discourse
   def self.disable_readonly_mode(key = READONLY_MODE_KEY)
     $redis.del(key)
     MessageBus.publish(readonly_channel, false)
+    Site.clear_anon_cache!
     true
   end
 
@@ -354,12 +356,12 @@ module Discourse
   end
 
   def self.last_read_only
-    @last_read_only ||= {}
+    @last_read_only ||= DistributedCache.new('last_read_only', namespace: false)
   end
 
   def self.recently_readonly?
-    return false unless read_only = last_read_only[$redis.namespace]
-    read_only > 15.seconds.ago
+    read_only = last_read_only[$redis.namespace]
+    read_only.present? && read_only > 15.seconds.ago
   end
 
   def self.received_readonly!
@@ -602,9 +604,18 @@ module Discourse
     end
   end
 
-  def self.deprecate(warning)
-    location = caller_locations[1]
-    warning = "Deprecation Notice: #{warning}\nAt: #{location.label} #{location.path}:#{location.lineno}"
+  def self.deprecate(warning, drop_from: nil, since: nil, raise_error: false)
+    location = caller_locations[1].yield_self { |l| "#{l.path}:#{l.lineno}:in \`#{l.label}\`" }
+    warning = ["Deprecation notice:", warning]
+    warning << "(deprecated since Discourse #{since})" if since
+    warning << "(removal in Discourse #{drop_from})" if drop_from
+    warning << "\nAt #{location}"
+    warning = warning.join(" ")
+
+    if raise_error
+      raise Deprecation.new(warning)
+    end
+
     if Rails.env == "development"
       STDERR.puts(warning)
     end

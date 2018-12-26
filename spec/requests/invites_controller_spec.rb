@@ -215,9 +215,13 @@ describe InvitesController do
 
     context 'with a deleted invite' do
       let(:topic) { Fabricate(:topic) }
-      let(:invite) { topic.invite_by_email(topic.user, "iceking@adventuretime.ooo") }
+
+      let(:invite) do
+        Invite.invite_by_email("iceking@adventuretime.ooo", topic.user, topic)
+      end
+
       before do
-        invite.destroy
+        invite.destroy!
       end
 
       it "redirects to the root" do
@@ -233,7 +237,9 @@ describe InvitesController do
 
     context 'with a valid invite id' do
       let(:topic) { Fabricate(:topic) }
-      let(:invite) { topic.invite_by_email(topic.user, "iceking@adventuretime.ooo") }
+      let(:invite) do
+        Invite.invite_by_email("iceking@adventuretime.ooo", topic.user, topic)
+      end
 
       it 'redeems the invite' do
         put "/invites/show/#{invite.invite_key}.json"
@@ -287,43 +293,100 @@ describe InvitesController do
             user.send_welcome_message = true
             put "/invites/show/#{invite.invite_key}.json"
             expect(response.status).to eq(200)
+            expect(JSON.parse(response.body)["success"]).to eq(true)
+
             expect(Jobs::SendSystemMessage.jobs.size).to eq(1)
           end
 
-          it "sends password reset email if password is not set" do
-            put "/invites/show/#{invite.invite_key}.json"
-            expect(response.status).to eq(200)
-            expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(1)
+          context "without password" do
+            it "sends password reset email" do
+              put "/invites/show/#{invite.invite_key}.json"
+              expect(response.status).to eq(200)
+              expect(JSON.parse(response.body)["success"]).to eq(true)
+
+              expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(1)
+              expect(Jobs::CriticalUserEmail.jobs.size).to eq(0)
+            end
+
+            it "does not send password reset email if sso is enabled" do
+              SiteSetting.sso_url = "https://www.example.com/sso"
+              SiteSetting.enable_sso = true
+              put "/invites/show/#{invite.invite_key}.json"
+              expect(response.status).to eq(200)
+              expect(JSON.parse(response.body)["success"]).to eq(true)
+
+              expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
+              expect(Jobs::CriticalUserEmail.jobs.size).to eq(0)
+            end
+
+            it "does not send password reset email if local login is disabled" do
+              SiteSetting.enable_local_logins = false
+              put "/invites/show/#{invite.invite_key}.json"
+              expect(response.status).to eq(200)
+              expect(JSON.parse(response.body)["success"]).to eq(true)
+
+              expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
+              expect(Jobs::CriticalUserEmail.jobs.size).to eq(0)
+            end
           end
 
-          it "does not send password reset email if sso is enabled" do
-            SiteSetting.sso_url = "https://www.example.com/sso"
-            SiteSetting.enable_sso = true
-            put "/invites/show/#{invite.invite_key}.json"
-            expect(response.status).to eq(200)
-            expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
+          context "with password" do
+            context "user was invited via email" do
+              before { invite.update_column(:via_email, true) }
+
+              it "doesn't send an activation email and activates the user" do
+                put "/invites/show/#{invite.invite_key}.json", params: { password: "verystrongpassword" }
+                expect(response.status).to eq(200)
+                expect(JSON.parse(response.body)["success"]).to eq(true)
+
+                expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
+                expect(Jobs::CriticalUserEmail.jobs.size).to eq(0)
+
+                invited_user = User.find_by_email(invite.email)
+                expect(invited_user.active).to eq(true)
+                expect(invited_user.email_confirmed?).to eq(true)
+              end
+            end
+
+            context "user was invited via link" do
+              before { invite.update_column(:via_email, false) }
+
+              it "sends an activation email and doesn't activate the user" do
+                put "/invites/show/#{invite.invite_key}.json", params: { password: "verystrongpassword" }
+                expect(response.status).to eq(200)
+                expect(JSON.parse(response.body)["success"]).to eq(true)
+
+                invited_user = User.find_by_email(invite.email)
+                expect(invited_user.active).to eq(false)
+                expect(invited_user.email_confirmed?).to eq(false)
+
+                expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
+                expect(Jobs::CriticalUserEmail.jobs.size).to eq(1)
+
+                tokens = EmailToken.where(user_id: invited_user.id, confirmed: false, expired: false).pluck(:token)
+                expect(tokens.size).to eq(1)
+
+                job_args = Jobs::CriticalUserEmail.jobs.first["args"].first
+                expect(job_args["type"]).to eq("signup")
+                expect(job_args["user_id"]).to eq(invited_user.id)
+                expect(job_args["email_token"]).to eq(tokens.first)
+              end
+
+            end
+
           end
 
-          it "does not send password reset email if local login is disabled" do
-            SiteSetting.enable_local_logins = false
-            put "/invites/show/#{invite.invite_key}.json"
-            expect(response.status).to eq(200)
-            expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
-          end
-
-          it 'sends an activation email if password is set' do
-            put "/invites/show/#{invite.invite_key}.json", params: { password: "verystrongpassword" }
-            expect(response.status).to eq(200)
-            expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
-            expect(Jobs::CriticalUserEmail.jobs.size).to eq(1)
-          end
         end
       end
     end
 
     context 'new registrations are disabled' do
       let(:topic) { Fabricate(:topic) }
-      let(:invite) { topic.invite_by_email(topic.user, "iceking@adventuretime.ooo") }
+
+      let(:invite) do
+        Invite.invite_by_email("iceking@adventuretime.ooo", topic.user, topic)
+      end
+
       before { SiteSetting.allow_new_registrations = false }
 
       it "doesn't redeem the invite" do
@@ -338,7 +401,11 @@ describe InvitesController do
 
     context 'user is already logged in' do
       let(:topic) { Fabricate(:topic) }
-      let(:invite) { topic.invite_by_email(topic.user, "iceking@adventuretime.ooo") }
+
+      let(:invite) do
+        Invite.invite_by_email("iceking@adventuretime.ooo", topic.user, topic)
+      end
+
       let!(:user) { sign_in(Fabricate(:user)) }
 
       it "doesn't redeem the invite" do

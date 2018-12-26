@@ -13,8 +13,6 @@ class Admin::EmailController < Admin::AdminController
       Jobs::TestEmail.new.execute(to_address: params[:email_address])
       if SiteSetting.disable_emails == "yes"
         render json: { sent_test_email_message: I18n.t("admin.email.sent_test_disabled") }
-      elsif SiteSetting.disable_emails == "non-staff" && !User.find_by_email(params[:email_address])&.staff?
-        render json: { sent_test_email_message: I18n.t("admin.email.sent_test_disabled_for_non_staff") }
       else
         render json: { sent_test_email_message: I18n.t("admin.email.sent_test") }
       end
@@ -87,6 +85,19 @@ class Admin::EmailController < Admin::AdminController
     user = User.find_by_username(params[:username])
     renderer = Email::Renderer.new(UserNotifications.digest(user, since: params[:last_seen_at]))
     render json: MultiJson.dump(html_content: renderer.html, text_content: renderer.text)
+  end
+
+  def advanced_test
+    params.require(:email)
+
+    receiver = Email::Receiver.new(params['email'])
+    text, elided, format = receiver.select_body
+
+    render json: success_json.merge!(
+      text: text,
+      elided: elided,
+      format: format
+    )
   end
 
   def send_digest

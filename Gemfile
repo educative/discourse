@@ -13,13 +13,15 @@ if rails_master?
   gem 'rails', git: 'https://github.com/rails/rails.git'
   gem 'seed-fu', git: 'https://github.com/SamSaffron/seed-fu.git', branch: 'discourse'
 else
-  gem 'actionmailer', '5.2'
-  gem 'actionpack', '5.2'
-  gem 'actionview', '5.2'
-  gem 'activemodel', '5.2'
-  gem 'activerecord', '5.2'
-  gem 'activesupport', '5.2'
-  gem 'railties', '5.2'
+  # until rubygems gives us optional dependencies we are stuck with this
+  # bundle update actionmailer actionpack actionview activemodel activerecord activesupport railties
+  gem 'actionmailer', '5.2.2'
+  gem 'actionpack', '5.2.2'
+  gem 'actionview', '5.2.2'
+  gem 'activemodel', '5.2.2'
+  gem 'activerecord', '5.2.2'
+  gem 'activesupport', '5.2.2'
+  gem 'railties', '5.2.2'
   gem 'sprockets-rails'
   gem 'seed-fu'
 end
@@ -34,7 +36,7 @@ gem 'redis-namespace'
 
 gem 'active_model_serializers', '~> 0.8.3'
 
-gem 'onebox', '1.8.68'
+gem 'onebox', '1.8.71'
 
 gem 'http_accept_language', '~>2.0.5', require: false
 
