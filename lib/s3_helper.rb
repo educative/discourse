@@ -25,8 +25,20 @@ class S3Helper
   def upload(file, path, options = {})
     path = get_path_for_s3_upload(path)
     obj = s3_bucket.object(path)
-    obj.upload_file(file, options)
-    path
+
+    etag = begin
+      if File.size(file) >= Aws::S3::FileUploader::FIFTEEN_MEGABYTES
+        options[:multipart_threshold] = Aws::S3::FileUploader::FIFTEEN_MEGABYTES
+        obj.upload_file(file, options)
+        obj.load
+        obj.etag
+      else
+        options[:body] = file
+        obj.put(options).etag
+      end
+    end
+
+    return path, etag
   end
 
   def remove(s3_filename, copy_to_tombstone = false)
@@ -93,7 +105,6 @@ class S3Helper
   end
 
   def update_lifecycle(id, days, prefix: nil, tag: nil)
-
     filter = {}
 
     if prefix
@@ -171,14 +182,15 @@ class S3Helper
   end
 
   def object(path)
-    path = get_path_for_s3_upload(path)
-    s3_bucket.object(path)
+    s3_bucket.object(get_path_for_s3_upload(path))
   end
 
   def self.s3_options(obj)
-    opts = { region: obj.s3_region,
-             endpoint: SiteSetting.s3_endpoint,
-             force_path_style: SiteSetting.s3_force_path_style }
+    opts = {
+      region: obj.s3_region,
+      endpoint: SiteSetting.s3_endpoint,
+      force_path_style: SiteSetting.s3_force_path_style
+    }
 
     unless obj.s3_use_iam_profile
       opts[:access_key_id] = obj.s3_access_key_id
@@ -211,8 +223,12 @@ class S3Helper
     File.join("uploads", RailsMultisite::ConnectionManagement.current_db, "/")
   end
 
+  def s3_client
+    Aws::S3::Client.new(@s3_options)
+  end
+
   def s3_resource
-    Aws::S3::Resource.new(@s3_options)
+    Aws::S3::Resource.new(client: s3_client)
   end
 
   def s3_bucket
