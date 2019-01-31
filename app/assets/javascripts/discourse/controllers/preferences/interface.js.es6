@@ -20,7 +20,7 @@ const USER_HOMES = {
   5: "top"
 };
 
-const TEXT_SIZES = ["normal", "larger", "largest"];
+const TEXT_SIZES = ["smaller", "normal", "larger", "largest"];
 
 export default Ember.Controller.extend(PreferencesTabController, {
   @computed("makeThemeDefault")
@@ -47,6 +47,7 @@ export default Ember.Controller.extend(PreferencesTabController, {
 
   preferencesController: Ember.inject.controller("preferences"),
   makeThemeDefault: true,
+  makeTextSizeDefault: true,
 
   @computed()
   availableLocales() {
@@ -109,6 +110,11 @@ export default Ember.Controller.extend(PreferencesTabController, {
         this.set("model.user_option.theme_ids", [this.get("themeId")]);
       }
 
+      const makeTextSizeDefault = this.get("makeTextSizeDefault");
+      if (makeTextSizeDefault) {
+        this.set("model.user_option.text_size", this.get("textSize"));
+      }
+
       return this.get("model")
         .save(this.get("saveAttrNames"))
         .then(() => {
@@ -119,6 +125,9 @@ export default Ember.Controller.extend(PreferencesTabController, {
               [this.get("themeId")],
               this.get("model.user_option.theme_key_seq")
             );
+          }
+          if (!makeTextSizeDefault) {
+            this.get("model").updateTextSizeCookie(this.get("textSize"));
           }
 
           this.homeChanged();

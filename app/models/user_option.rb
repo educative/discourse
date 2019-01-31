@@ -29,7 +29,7 @@ class UserOption < ActiveRecord::Base
   end
 
   def self.text_sizes
-    @text_sizes ||= Enum.new(normal: 0, larger: 1, largest: 2)
+    @text_sizes ||= Enum.new(normal: 0, larger: 1, largest: 2, smaller: 3)
   end
 
   validates :text_size_key, inclusion: { in: UserOption.text_sizes.values }
@@ -202,6 +202,7 @@ end
 #  theme_ids                        :integer          default([]), not null, is an Array
 #  hide_profile_and_presence        :boolean          default(FALSE), not null
 #  text_size_key                    :integer          default(0), not null
+#  text_size_seq                    :integer          default(0), not null
 #
 # Indexes
 #

@@ -148,6 +148,8 @@ describe ApplicationHelper do
   end
 
   describe '#html_classes' do
+    let(:user) { Fabricate(:user) }
+
     it "includes 'rtl' when the I18n.locale is rtl" do
       I18n.stubs(:locale).returns(:he)
       expect(helper.html_classes.split(" ")).to include('rtl')
@@ -158,18 +160,55 @@ describe ApplicationHelper do
       expect(helper.html_classes.split(" ")).not_to include('rtl')
     end
 
-    it 'includes the user specified text size' do
-      user = Fabricate(:user)
-      user.user_option.text_size = "larger"
-      user.user_option.save!
-      helper.request.env[Auth::DefaultCurrentUserProvider::CURRENT_USER_KEY] = user
-      expect(helper.html_classes.split(" ")).to include('text-size-larger')
+    describe 'text size' do
+      context "with a user option" do
+        before do
+          user.user_option.text_size = "larger"
+          user.user_option.save!
+          helper.request.env[Auth::DefaultCurrentUserProvider::CURRENT_USER_KEY] = user
+        end
+
+        it 'ignores invalid text sizes' do
+          helper.request.cookies["text_size"] = "invalid"
+          expect(helper.html_classes.split(" ")).to include('text-size-larger')
+        end
+
+        it 'ignores missing text size' do
+          helper.request.cookies["text_size"] = nil
+          expect(helper.html_classes.split(" ")).to include('text-size-larger')
+        end
+
+        it 'ignores cookies with lower sequence' do
+          user.user_option.update!(text_size_seq: 2)
+
+          helper.request.cookies["text_size"] = "normal|1"
+          expect(helper.html_classes.split(" ")).to include('text-size-larger')
+        end
+
+        it 'prioritises the cookie specified text size' do
+          user.user_option.update!(text_size_seq: 2)
+
+          helper.request.cookies["text_size"] = "largest|4"
+          expect(helper.html_classes.split(" ")).to include('text-size-largest')
+        end
+
+        it 'includes the user specified text size' do
+          helper.request.env[Auth::DefaultCurrentUserProvider::CURRENT_USER_KEY] = user
+          expect(helper.html_classes.split(" ")).to include('text-size-larger')
+        end
+      end
+
+      it 'falls back to the default text size for anon' do
+        expect(helper.html_classes.split(" ")).to include('text-size-normal')
+        SiteSetting.default_text_size = "largest"
+        expect(helper.html_classes.split(" ")).to include('text-size-largest')
+      end
     end
 
-    it 'falls back to the default text size for anon' do
-      expect(helper.html_classes.split(" ")).to include('text-size-normal')
-      SiteSetting.default_text_size = "largest"
-      expect(helper.html_classes.split(" ")).to include('text-size-largest')
+    it "includes 'anon' for anonymous users and excludes when logged in" do
+      expect(helper.html_classes.split(" ")).to include('anon')
+      helper.request.env[Auth::DefaultCurrentUserProvider::CURRENT_USER_KEY] = user
+      expect(helper.html_classes.split(" ")).not_to include('anon')
     end
   end
 
@@ -188,6 +227,24 @@ describe ApplicationHelper do
     it 'escapes and strips invalid unicode and strips in json body' do
       @preloaded = { test: %{["< \x80"]} }
       expect(helper.preloaded_json).to eq(%{{"test":"[\\"\\u003c \uFFFD\\"]"}})
+    end
+  end
+
+  describe 'crawlable_meta_data' do
+    context "opengraph image" do
+      it 'returns default_opengraph_image_url' do
+        SiteSetting.default_opengraph_image_url = "/images/og-image.png"
+        expect(helper.crawlable_meta_data).to include("/images/og-image.png")
+      end
+
+      it 'returns apple_touch_icon_url if default_opengraph_image_url is blank' do
+        expect(helper.crawlable_meta_data).to include("/images/default-apple-touch-icon.png")
+      end
+
+      it 'returns logo_url if apple_touch_icon_url is blank' do
+        SiteSetting.apple_touch_icon_url = ""
+        expect(helper.crawlable_meta_data).to include("/images/d-logo-sketch.png")
+      end
     end
   end
 end

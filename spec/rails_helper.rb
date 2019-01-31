@@ -70,6 +70,7 @@ RSpec.configure do |config|
   config.include MessageBus
   config.include RSpecHtmlMatchers
   config.include IntegrationHelpers, type: :request
+  config.include SiteSettingsHelpers
   config.mock_framework = :mocha
   config.order = 'random'
   config.infer_spec_type_from_file_location!
@@ -209,13 +210,18 @@ RSpec.configure do |config|
   # force a rollback after using a multisite connection.
   def test_multisite_connection(name)
     RailsMultisite::ConnectionManagement.with_connection(name) do
+      spec_exception = nil
+
       ActiveRecord::Base.transaction do
         begin
           yield
+        rescue Exception => spec_exception
         ensure
-          throw raise ActiveRecord::Rollback
+          raise ActiveRecord::Rollback
         end
       end
+
+      raise spec_exception if spec_exception
     end
   end
 

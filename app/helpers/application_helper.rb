@@ -114,6 +114,7 @@ module ApplicationHelper
     list << (mobile_device? ? 'mobile-device' : 'not-mobile-device')
     list << 'rtl' if rtl?
     list << text_size_class
+    list << 'anon' unless current_user
     list.join(' ')
   end
 
@@ -132,7 +133,14 @@ module ApplicationHelper
   end
 
   def text_size_class
-    size = current_user&.user_option&.text_size || SiteSetting.default_text_size
+    requested_cookie_size, cookie_seq = cookies[:text_size]&.split("|")
+    server_seq = current_user&.user_option&.text_size_seq
+    if cookie_seq && server_seq && cookie_seq.to_i >= server_seq &&
+              UserOption.text_sizes.keys.include?(requested_cookie_size&.to_sym)
+      cookie_size = requested_cookie_size
+    end
+
+    size = cookie_size || current_user&.user_option&.text_size || SiteSetting.default_text_size
     "text-size-#{size}"
   end
 
@@ -214,6 +222,8 @@ module ApplicationHelper
       opts[:image] = opengraph_image_url.present? ? opengraph_image_url : twitter_summary_large_image_url
     elsif opts[:image].blank? && SiteSetting.site_apple_touch_icon_url.present?
       opts[:image] = SiteSetting.site_apple_touch_icon_url
+    elsif opts[:image].blank? && SiteSetting.logo_url.present?
+      opts[:image] = SiteSetting.logo_url
     end
 
     # Use the correct scheme for opengraph/twitter image
@@ -281,7 +291,13 @@ module ApplicationHelper
   end
 
   def application_logo_url
-    @application_logo_url ||= (mobile_view? && SiteSetting.site_mobile_logo_url).presence || SiteSetting.site_logo_url
+    @application_logo_url ||= begin
+      if mobile_view? && SiteSetting.site_mobile_logo_url
+        SiteSetting.site_mobile_logo_url
+      else
+        SiteSetting.site_home_logo_url
+      end
+    end
   end
 
   def login_path
@@ -398,8 +414,13 @@ module ApplicationHelper
   end
 
   def theme_lookup(name)
-    lookup = Theme.lookup_field(theme_ids, mobile_view? ? :mobile : :desktop, name)
-    lookup.html_safe if lookup
+    Theme.lookup_field(theme_ids, mobile_view? ? :mobile : :desktop, name)
+      &.html_safe
+  end
+
+  def theme_translations_lookup
+    Theme.lookup_field(theme_ids, :translations, I18n.locale)
+      &.html_safe
   end
 
   def discourse_stylesheet_link_tag(name, opts = {})
@@ -458,6 +479,8 @@ module ApplicationHelper
       uri = URI(Discourse.base_url)
       absolute_url = "#{uri.scheme}:#{link}"
     elsif link.start_with?("/uploads/")
+      absolute_url = "#{Discourse.base_url}#{link}"
+    elsif link.start_with?("/images/")
       absolute_url = "#{Discourse.base_url}#{link}"
     elsif GlobalSetting.relative_url_root && link.start_with?(GlobalSetting.relative_url_root)
       absolute_url = "#{Discourse.base_url_no_prefix}#{link}"

@@ -25,8 +25,8 @@
                   {{plugin-outlet name="composer-action-after" noTags=true args=(hash model=model)}}
 
                   {{#unless site.mobileView}}
-                    {{#if model.whisper}}
-                      <span class='whisper'>{{d-icon 'eye-slash'}}</span>
+                    {{#if isWhispering}}
+                      <span class='whisper'>{{d-icon "far-eye-slash"}}</span>
                     {{/if}}
                     {{#if model.unlistTopic}}
                       <span class='whisper'>({{i18n 'composer.unlist'}})</span>
@@ -106,8 +106,8 @@
                             uploadIcon=uploadIcon
                             isCancellable=isCancellable
                             uploadProgress=uploadProgress
-                            groupsMentioned="groupsMentioned"
-                            cannotSeeMention="cannotSeeMention"
+                            groupsMentioned=(action "groupsMentioned")
+                            cannotSeeMention=(action "cannotSeeMention")
                             importQuote=(action "importQuote")
                             togglePreview=(action "togglePreview")
                             showToolbar=showToolbar
@@ -119,8 +119,8 @@
             <div class='save-or-cancel'>
               {{#unless model.viewFullscreen}}
                 {{composer-save-button action=(action "save")
-                                       icon=model.saveIcon
-                                       label=model.saveLabel
+                                       icon=saveIcon
+                                       label=saveLabel
                                        disableSubmit=disableSubmit}}
 
               {{#if site.mobileView}}
@@ -128,7 +128,7 @@
                   {{#if canEdit}}
                     {{d-icon "times"}}
                   {{else}}
-                    {{d-icon "trash-o"}}
+                    {{d-icon "far-trash-alt"}}
                   {{/if}}
                 </a>
               {{else}}
@@ -140,7 +140,7 @@
               {{#if site.mobileView}}
                 {{#if whisperOrUnlistTopic}}
                   <span class='whisper'>
-                    {{d-icon "eye-slash"}}
+                    {{d-icon "far-eye-slash"}}
                   </span>
                 {{/if}}
                 {{#if model.noBump}}
@@ -195,7 +195,7 @@
 
         <div class='draft-text'>
           {{#if model.topic}}
-            {{d-icon "mail-forward"}} {{{draftTitle}}}
+            {{d-icon "share"}} {{{draftTitle}}}
           {{else}}
             {{i18n "composer.saved_draft"}}
           {{/if}}
