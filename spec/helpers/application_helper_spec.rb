@@ -232,18 +232,60 @@ describe ApplicationHelper do
 
   describe 'crawlable_meta_data' do
     context "opengraph image" do
-      it 'returns default_opengraph_image_url' do
-        SiteSetting.default_opengraph_image_url = "/images/og-image.png"
-        expect(helper.crawlable_meta_data).to include("/images/og-image.png")
-      end
+      it 'returns the correct image' do
+        SiteSetting.opengraph_image = Fabricate(:upload,
+          url: '/images/og-image.png'
+        )
 
-      it 'returns apple_touch_icon_url if default_opengraph_image_url is blank' do
-        expect(helper.crawlable_meta_data).to include("/images/default-apple-touch-icon.png")
-      end
+        SiteSetting.twitter_summary_large_image = Fabricate(:upload,
+          url: '/images/twitter.png'
+        )
 
-      it 'returns logo_url if apple_touch_icon_url is blank' do
-        SiteSetting.apple_touch_icon_url = ""
-        expect(helper.crawlable_meta_data).to include("/images/d-logo-sketch.png")
+        SiteSetting.large_icon = Fabricate(:upload,
+          url: '/images/large_icon.png'
+        )
+
+        SiteSetting.apple_touch_icon = Fabricate(:upload,
+          url: '/images/default-apple-touch-icon.png'
+        )
+
+        SiteSetting.logo = Fabricate(:upload, url: '/images/d-logo-sketch.png')
+
+        expect(
+          helper.crawlable_meta_data(image: "some-image.png")
+        ).to include("some-image.png")
+
+        expect(helper.crawlable_meta_data).to include(
+          SiteSetting.opengraph_image_url
+        )
+
+        SiteSetting.opengraph_image = nil
+
+        expect(helper.crawlable_meta_data).to include(
+          SiteSetting.site_twitter_summary_large_image_url
+        )
+
+        SiteSetting.twitter_summary_large_image = nil
+
+        expect(helper.crawlable_meta_data).to include(
+          SiteSetting.site_large_icon_url
+        )
+
+        SiteSetting.large_icon = nil
+
+        expect(helper.crawlable_meta_data).to include(
+          SiteSetting.site_apple_touch_icon_url
+        )
+
+        SiteSetting.apple_touch_icon = nil
+        SiteSetting.apple_touch_icon_url = nil
+
+        expect(helper.crawlable_meta_data).to include(SiteSetting.site_logo_url)
+
+        SiteSetting.logo = nil
+        SiteSetting.logo_url = nil
+
+        expect(helper.crawlable_meta_data).to_not include("/images")
       end
     end
   end

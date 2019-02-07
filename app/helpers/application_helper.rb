@@ -212,18 +212,18 @@ module ApplicationHelper
     opts ||= {}
     opts[:url] ||= "#{Discourse.base_url_no_prefix}#{request.fullpath}"
 
-    twitter_summary_large_image_url =
-      SiteSetting.site_twitter_summary_large_image_url
+    if opts[:image].blank?
+      twitter_summary_large_image_url = SiteSetting.site_twitter_summary_large_image_url
 
-    opengraph_image_url = SiteSetting.opengraph_image_url
+      if twitter_summary_large_image_url.present?
+        opts[:twitter_summary_large_image] = twitter_summary_large_image_url
+      end
 
-    if opts[:image].blank? && (opengraph_image_url.present? || twitter_summary_large_image_url.present?)
-      opts[:twitter_summary_large_image] = twitter_summary_large_image_url if twitter_summary_large_image_url.present?
-      opts[:image] = opengraph_image_url.present? ? opengraph_image_url : twitter_summary_large_image_url
-    elsif opts[:image].blank? && SiteSetting.site_apple_touch_icon_url.present?
-      opts[:image] = SiteSetting.site_apple_touch_icon_url
-    elsif opts[:image].blank? && SiteSetting.logo_url.present?
-      opts[:image] = SiteSetting.logo_url
+      opts[:image] = SiteSetting.opengraph_image_url.presence ||
+        twitter_summary_large_image_url.presence ||
+        SiteSetting.site_large_icon_url.presence ||
+        SiteSetting.site_apple_touch_icon_url.presence ||
+        SiteSetting.site_logo_url.presence
     end
 
     # Use the correct scheme for opengraph/twitter image
@@ -382,7 +382,7 @@ module ApplicationHelper
 
   def theme_ids
     if customization_disabled?
-      nil
+      [nil]
     else
       request.env[:resolved_theme_ids]
     end
@@ -454,11 +454,11 @@ module ApplicationHelper
       asset_version: Discourse.assets_digest,
       disable_custom_css: loading_admin?,
       highlight_js_path: HighlightJs.path,
-      svg_sprite_path: SvgSprite.path,
+      svg_sprite_path: SvgSprite.path(theme_ids),
     }
 
     if Rails.env.development?
-      setup_data[:svg_icon_list] = SvgSprite.all_icons
+      setup_data[:svg_icon_list] = SvgSprite.all_icons(theme_ids)
     end
 
     if guardian.can_enable_safe_mode? && params["safe_mode"]
