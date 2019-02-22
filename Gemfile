@@ -44,7 +44,7 @@ gem 'redis-namespace'
 
 gem 'active_model_serializers', '~> 0.8.3'
 
-gem 'onebox', '1.8.76'
+gem 'onebox', '1.8.78'
 
 gem 'http_accept_language', '~>2.0.5', require: false
 
@@ -65,6 +65,7 @@ gem 'fast_xor', platform: :mri
 gem 'fastimage'
 
 gem 'aws-sdk-s3', require: false
+gem 'aws-sdk-sns', require: false
 gem 'excon', require: false
 gem 'unf', require: false
 

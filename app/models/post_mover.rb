@@ -87,11 +87,11 @@ class PostMover
 
     posts.each do |post|
       post.is_first_post? ? create_first_post(post) : move(post)
-      if @move_to_pm
-        destination_topic.topic_allowed_users.build(user_id: post.user_id) unless destination_topic.topic_allowed_users.where(user_id: post.user_id).exists?
+
+      if @move_to_pm && !destination_topic.topic_allowed_users.exists?(user_id: post.user_id)
+        destination_topic.topic_allowed_users.create!(user_id: post.user_id)
       end
     end
-    destination_topic.save! if @move_to_pm
 
     PostReply.where("reply_id IN (:post_ids) OR post_id IN (:post_ids)", post_ids: post_ids).each do |post_reply|
       if post_reply.post && post_reply.reply && post_reply.reply.topic_id != post_reply.post.topic_id
@@ -196,12 +196,12 @@ class PostMover
 
   def create_moderator_post_in_original_topic
     move_type_str = PostMover.move_types[@move_type].to_s
+    move_type_str.sub!("topic", "message") if @move_to_pm
 
     message = I18n.with_locale(SiteSetting.default_locale) do
       I18n.t(
         "move_posts.#{move_type_str}_moderator_post",
         count: posts.length,
-        entity: @move_to_pm ? "message" : "topic",
         topic_link: posts.first.is_first_post? ?
           "[#{destination_topic.title}](#{destination_topic.relative_url})" :
           "[#{destination_topic.title}](#{posts.first.url})"

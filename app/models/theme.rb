@@ -7,8 +7,6 @@ require_dependency 'theme_translation_parser'
 require_dependency 'theme_translation_manager'
 
 class Theme < ActiveRecord::Base
-  # TODO: remove in 2019
-  self.ignored_columns = ["key"]
 
   @cache = DistributedCache.new('theme')
 
@@ -244,7 +242,8 @@ class Theme < ActiveRecord::Base
     if all_themes
       message = theme_ids.map { |id| refresh_message_for_targets(targets, id) }.flatten
     else
-      message = refresh_message_for_targets(targets, theme_ids).flatten
+      parent_ids = Theme.where(id: theme_ids).joins(:parent_themes).pluck(:parent_theme_id).uniq
+      message = refresh_message_for_targets(targets, theme_ids | parent_ids).flatten
     end
 
     MessageBus.publish('/file-change', message)
@@ -275,6 +274,7 @@ class Theme < ActiveRecord::Base
       fields = ThemeField.find_by_theme_ids(theme_ids)
         .where(target_id: [Theme.targets[target], Theme.targets[:common]])
         .where(name: name.to_s)
+        .order(:target_id)
     end
 
     fields.each(&:ensure_baked!)

@@ -19,6 +19,7 @@ import { addFlagProperty } from "discourse/components/site-header";
 import { addPopupMenuOptionsCallback } from "discourse/controllers/composer";
 import { extraConnectorClass } from "discourse/lib/plugin-connectors";
 import { addPostSmallActionIcon } from "discourse/widgets/post-small-action";
+import { registerTopicFooterButton } from "discourse/lib/register-topic-footer-button";
 import { addDiscoveryQueryParam } from "discourse/controllers/discovery-sortable";
 import { addTagsHtmlCallback } from "discourse/lib/render-tags";
 import { addUserMenuGlyph } from "discourse/widgets/user-menu";
@@ -30,6 +31,7 @@ import {
   replaceIcon
 } from "discourse-common/lib/icon-library";
 import { replaceCategoryLinkRenderer } from "discourse/helpers/category-link";
+import { replaceTagRenderer } from "discourse/lib/render-tag";
 import { addNavItem } from "discourse/models/nav-item";
 import { replaceFormatter } from "discourse/lib/utilities";
 import { modifySelectKit } from "select-kit/mixins/plugin-api";
@@ -41,7 +43,7 @@ import Sharing from "discourse/lib/sharing";
 import { addComposerUploadHandler } from "discourse/components/composer-editor";
 
 // If you add any methods to the API ensure you bump up this number
-const PLUGIN_API_VERSION = "0.8.27";
+const PLUGIN_API_VERSION = "0.8.29";
 
 class PluginApi {
   constructor(version, container) {
@@ -603,6 +605,21 @@ class PluginApi {
    * Register a small icon to be used for custom small post actions
    *
    * ```javascript
+   * api.registerTopicFooterButton({
+   *   key: "flag"
+   *   icon: "flag"
+   *   action: (context) => console.log(context.get("topic.id"))
+   * });
+   * ```
+   **/
+  registerTopicFooterButton(action) {
+    registerTopicFooterButton(action);
+  }
+
+  /**
+   * Register a small icon to be used for custom small post actions
+   *
+   * ```javascript
    * api.registerPostSmallActionIcon('assign-to', 'user-add');
    * ```
    **/
@@ -812,6 +829,21 @@ class PluginApi {
    **/
   replaceCategoryLinkRenderer(fn) {
     replaceCategoryLinkRenderer(fn);
+  }
+
+  /**
+   * Registers a renderer that overrides the display of a tag.
+   *
+   * Example:
+   *
+   * function testTagRenderer(tag, params) {
+   *   const visibleName = Handlebars.Utils.escapeExpression(tag);
+   *   return `testing: ${visibleName}`;
+   * }
+   * api.replaceTagRenderer(testTagRenderer);
+   **/
+  replaceTagRenderer(fn) {
+    replaceTagRenderer(fn);
   }
 
   /**

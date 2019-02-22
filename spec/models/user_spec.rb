@@ -1147,7 +1147,7 @@ describe User do
       expect(user.small_avatar_url).to eq("//test.localhost/letter_avatar/sam/45/#{LetterAvatar.version}.png")
 
       SiteSetting.external_system_avatars_enabled = true
-      expect(user.small_avatar_url).to eq("//test.localhost/letter_avatar_proxy/v2/letter/s/5f9b8f/45.png")
+      expect(user.small_avatar_url).to eq("//test.localhost/letter_avatar_proxy/v3/letter/s/5f9b8f/45.png")
     end
 
   end
@@ -1987,6 +1987,16 @@ describe User do
       expect(UserAction.where(target_user_id: user.id).length).to eq(0)
       expect(UserAction.where(acting_user_id: user.id).length).to eq(0)
       expect(PostAction.with_deleted.where(user_id: user.id).length).to eq(0)
+    end
+  end
+
+  context "human?" do
+    it "returns true for a regular user" do
+      expect(Fabricate(:user)).to be_human
+    end
+
+    it "returns false for the system user" do
+      expect(Discourse.system_user).not_to be_human
     end
   end
 end

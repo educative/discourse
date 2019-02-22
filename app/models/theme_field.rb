@@ -64,7 +64,7 @@ class ThemeField < ActiveRecord::Base
   validates :name, format: { with: /\A[a-z_][a-z0-9_-]*\z/i },
                    if: Proc.new { |field| ThemeField.theme_var_type_ids.include?(field.type_id) }
 
-  COMPILER_VERSION = 9
+  COMPILER_VERSION = 10
 
   belongs_to :theme
 
@@ -261,7 +261,7 @@ class ThemeField < ActiveRecord::Base
   def ensure_scss_compiles!
     if ThemeField.scss_fields.include?(self.name)
       begin
-        Stylesheet::Compiler.compile("@import \"theme_variables\"; @import \"theme_field\";",
+        Stylesheet::Compiler.compile("@import \"common/foundation/variables\"; @import \"theme_variables\"; @import \"theme_field\";",
                                      "theme.scss",
                                      theme_field: self.value.dup,
                                      theme: self.theme
@@ -373,9 +373,11 @@ class ThemeField < ActiveRecord::Base
   end
 
   after_commit do
-    ensure_baked!
-    ensure_scss_compiles!
-    theme.clear_cached_settings!
+    unless destroyed?
+      ensure_baked!
+      ensure_scss_compiles!
+      theme.clear_cached_settings!
+    end
 
     Stylesheet::Manager.clear_theme_cache! if self.name.include?("scss")
     CSP::Extension.clear_theme_extensions_cache! if name == 'yaml'

@@ -21,8 +21,11 @@
     padding-left: 10px;
   }
 
-  &.with-topics .category {
-    width: 45%;
+  &.with-topics {
+    margin-left: 3px;
+    .category {
+      width: 45%;
+    }
   }
 
   .topics .badge-notification,
@@ -55,7 +58,7 @@
     .subcategory {
       display: inline-flex;
       align-items: baseline;
-      margin-right: 0.8em;
+      margin-right: 0.3em;
     }
     .badge-wrapper {
       margin-right: 0.5em;
