@@ -50,7 +50,7 @@ export default Ember.Controller.extend({
 
   @computed("q")
   hasAutofocus(q) {
-    return Em.isEmpty(q);
+    return Ember.isEmpty(q);
   },
 
   @computed("q")
@@ -196,13 +196,15 @@ export default Ember.Controller.extend({
 
   @computed("expanded")
   searchAdvancedIcon(expanded) {
-    return iconHTML(expanded ? "caret-down fa-fw" : "caret-right fa-fw");
+    return iconHTML(expanded ? "caret-down" : "caret-right");
   },
 
   @computed("page")
   isLastPage(page) {
     return page === PAGE_LIMIT;
   },
+
+  searchButtonDisabled: Ember.computed.or("searching", "loading"),
 
   _search() {
     if (this.get("searching")) {
@@ -216,12 +218,15 @@ export default Ember.Controller.extend({
       return;
     }
 
-    this.set("searching", true);
-    this.set("loading", true);
-    this.set("bulkSelectEnabled", false);
-    this.get("selected").clear();
+    let args = { q: searchTerm, page: this.get("page") };
 
-    var args = { q: searchTerm, page: this.get("page") };
+    if (args.page === 1) {
+      this.set("bulkSelectEnabled", false);
+      this.get("selected").clear();
+      this.set("searching", true);
+    } else {
+      this.set("loading", true);
+    }
 
     const sortOrder = this.get("sortOrder");
     if (sortOrder && SortOrders[sortOrder].term) {
@@ -310,6 +315,7 @@ export default Ember.Controller.extend({
     search() {
       this.set("page", 1);
       this._search();
+      if (this.site.mobileView) this.set("expanded", false);
     },
 
     toggleAdvancedSearch() {

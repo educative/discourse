@@ -40,12 +40,15 @@ module PostGuardian
       # Silenced users can't flag
       return false if is_flag && @user.silenced?
 
+      # Hidden posts can't be flagged
+      return false if is_flag && post.hidden?
+
       # post made by staff, but we don't allow staff flags
       return false if is_flag &&
         (!SiteSetting.allow_flagging_staff?) &&
         post&.user&.staff?
 
-      if [:notify_user, :notify_moderators].include?(action_key) &&
+      if action_key == :notify_user &&
          (!SiteSetting.enable_personal_messages? ||
          !@user.has_trust_level?(SiteSetting.min_trust_to_send_messages))
 
@@ -105,10 +108,9 @@ module PostGuardian
 
   # Creating Method
   def can_create_post?(parent)
-
     return false if !SiteSetting.enable_system_message_replies? && parent.try(:subtype) == "system_message"
 
-    (!SpamRule::AutoSilence.silence?(@user) || (!!parent.try(:private_message?) && parent.allowed_users.include?(@user))) && (
+    (!SpamRule::AutoSilence.prevent_posting?(@user) || (!!parent.try(:private_message?) && parent.allowed_users.include?(@user))) && (
       !parent ||
       !parent.category ||
       Category.post_create_allowed(self).where(id: parent.category.id).count == 1
@@ -166,7 +168,7 @@ module PostGuardian
 
   # Deleting Methods
   def can_delete_post?(post)
-    can_see_post?(post)
+    return false if !can_see_post?(post)
 
     # Can't delete the first post
     return false if post.is_first_post?
@@ -190,10 +192,11 @@ module PostGuardian
   end
 
   def can_delete_post_action?(post_action)
-    # You can only undo your own actions
-    is_my_own?(post_action) && not(post_action.is_private_message?) &&
+    return false unless is_my_own?(post_action) && !post_action.is_private_message?
 
-    # Make sure they want to delete it within the window
+    # Bookmarks do not have a time constraint
+    return true if post_action.is_bookmark?
+
     post_action.created_at > SiteSetting.post_undo_action_window_mins.minutes.ago
   end
 
@@ -224,7 +227,7 @@ module PostGuardian
   end
 
   def can_change_post_timestamps?
-    is_admin?
+    is_staff?
   end
 
   def can_wiki?(post)
@@ -264,6 +267,6 @@ module PostGuardian
   end
 
   def can_skip_bump?
-    is_staff?
+    is_staff? || @user.has_trust_level?(TrustLevel[4])
   end
 end

@@ -15,11 +15,12 @@ describe Jobs::EnqueueDigestEmails do
     end
 
     context 'unapproved users' do
-      let!(:unapproved_user) { Fabricate(:active_user, approved: false, last_emailed_at: 8.days.ago, last_seen_at: 10.days.ago) }
 
       before do
         SiteSetting.must_approve_users = true
       end
+
+      let!(:unapproved_user) { Fabricate(:active_user, approved: false, last_emailed_at: 8.days.ago, last_seen_at: 10.days.ago) }
 
       it 'should enqueue the right digest emails' do
         expect(Jobs::EnqueueDigestEmails.new.target_user_ids.include?(unapproved_user.id)).to eq(false)
@@ -73,7 +74,7 @@ describe Jobs::EnqueueDigestEmails do
 
     context 'visited the site this week' do
       let(:user_visited_this_week) { Fabricate(:active_user, last_seen_at: 6.days.ago) }
-      let(:user_visited_this_week_email_always) { Fabricate(:active_user, last_seen_at: 6.days.ago, email_always: true) }
+      let(:user_visited_this_week_email_always) { Fabricate(:active_user, last_seen_at: 6.days.ago, email_level: UserOption.email_level_types[:always]) }
 
       it "doesn't return users who have been emailed recently" do
         user = user_visited_this_week

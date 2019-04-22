@@ -29,6 +29,7 @@ module BackupRestore
       @client_id = opts[:client_id]
       @filename = opts[:filename]
       @publish_to_message_bus = opts[:publish_to_message_bus] || false
+      @disable_emails = opts.fetch(:disable_emails, true)
 
       ensure_restore_is_enabled
       ensure_no_operation_is_running
@@ -59,40 +60,30 @@ module BackupRestore
       if !can_restore_into_different_schema?
         log "Cannot restore into different schema, restoring in-place"
         enable_readonly_mode
-
         pause_sidekiq
         wait_for_sidekiq
-
         BackupRestore.move_tables_between_schemas("public", "backup")
-
         @db_was_changed = true
         restore_dump
-        migrate_database
-        reconnect_database
-
-        reload_site_settings
-        clear_emoji_cache
-
-        disable_readonly_mode
       else
         log "Restoring into 'backup' schema"
         restore_dump
         enable_readonly_mode
-
         pause_sidekiq
         wait_for_sidekiq
-
         switch_schema!
-
-        migrate_database
-        reconnect_database
-        reload_site_settings
-        clear_emoji_cache
-
-        disable_readonly_mode
       end
 
+      migrate_database
+      reconnect_database
+      reload_site_settings
+      clear_emoji_cache
+      disable_readonly_mode
+      clear_theme_cache
+
       extract_uploads
+
+      after_restore_hook
     rescue SystemExit
       log "Restore process was cancelled!"
       rollback
@@ -133,12 +124,12 @@ module BackupRestore
 
     def initialize_state
       @success = false
+      @store = BackupRestore::BackupStore.create
       @db_was_changed = false
       @current_db = RailsMultisite::ConnectionManagement.current_db
       @current_version = BackupRestore.current_version
       @timestamp = Time.now.strftime("%Y-%m-%d-%H%M%S")
       @tmp_directory = File.join(Rails.root, "tmp", "restores", @current_db, @timestamp)
-      @source_filename = File.join(Backup.base_directory, @filename)
       @archive_filename = File.join(@tmp_directory, @filename)
       @tar_filename = @archive_filename[0...-3]
       @meta_filename = File.join(@tmp_directory, BackupRestore::METADATA_FILE)
@@ -195,8 +186,15 @@ module BackupRestore
     end
 
     def copy_archive_to_tmp_directory
-      log "Copying archive to tmp directory..."
-      Discourse::Utils.execute_command('cp', @source_filename, @archive_filename, failure_message: "Failed to copy archive to tmp directory.")
+      if @store.remote?
+        log "Downloading archive to tmp directory..."
+        failure_message = "Failed to download archive to tmp directory."
+      else
+        log "Copying archive to tmp directory..."
+        failure_message = "Failed to copy archive to tmp directory."
+      end
+
+      @store.download_file(@filename, @archive_filename, failure_message)
     end
 
     def unzip_archive
@@ -382,6 +380,14 @@ module BackupRestore
 
     def migrate_database
       log "Migrating the database..."
+
+      if Discourse.skip_post_deployment_migrations?
+        ENV["SKIP_POST_DEPLOYMENT_MIGRATIONS"] = "0"
+        Rails.application.config.paths['db/migrate'] << Rails.root.join(
+          Discourse::DB_POST_MIGRATE_PATH
+        ).to_s
+      end
+
       Discourse::Application.load_tasks
       ENV["VERSION"] = @current_version.to_s
       DB.exec("SET search_path = public, pg_catalog;")
@@ -396,6 +402,12 @@ module BackupRestore
     def reload_site_settings
       log "Reloading site settings..."
       SiteSetting.refresh!
+
+      if @disable_emails && SiteSetting.disable_emails == 'no'
+        log "Disabling outgoing emails for non-staff users..."
+        user = User.find_by_email(@user_info[:email]) || Discourse.system_user
+        SiteSetting.set_and_log(:disable_emails, 'non-staff', user)
+      end
     end
 
     def clear_emoji_cache
@@ -422,6 +434,7 @@ module BackupRestore
           tmp_uploads_path = Dir.glob(File.join(@tmp_directory, "uploads", "*")).first
           previous_db_name = File.basename(tmp_uploads_path)
           current_db_name = RailsMultisite::ConnectionManagement.current_db
+          optimized_images_exist = File.exist?(File.join(tmp_uploads_path, 'optimized'))
 
           Discourse::Utils.execute_command(
             'rsync', '-avp', '--safe-links', "#{tmp_uploads_path}/", "uploads/#{current_db_name}/",
@@ -429,9 +442,28 @@ module BackupRestore
           )
 
           if previous_db_name != current_db_name
+            log "Remapping uploads..."
             DbHelper.remap("uploads/#{previous_db_name}", "uploads/#{current_db_name}")
           end
+
+          generate_optimized_images unless optimized_images_exist
         end
+      end
+    end
+
+    def generate_optimized_images
+      log 'Posts will be rebaked by a background job in sidekiq. You will see missing images until that has completed.'
+      log 'You can expedite the process by manually running "rake posts:rebake_uncooked_posts"'
+
+      DB.exec("TRUNCATE TABLE optimized_images")
+      DB.exec(<<~SQL)
+        UPDATE posts
+        SET baked_version = NULL
+        WHERE id IN (SELECT post_id FROM post_uploads)
+      SQL
+
+      User.where("uploaded_avatar_id IS NOT NULL").find_each do |user|
+        Jobs.enqueue(:create_avatar_thumbnails, upload_id: user.uploaded_avatar_id, user_id: user.id)
       end
     end
 
@@ -482,6 +514,12 @@ module BackupRestore
       log "Something went wrong while unpausing Sidekiq.", ex
     end
 
+    def clear_theme_cache
+      log "Clear theme cache"
+      ThemeField.force_recompilation!
+      Theme.expire_site_cache!
+    end
+
     def disable_readonly_mode
       return if @readonly_mode_was_enabled
       log "Disabling readonly mode..."
@@ -500,6 +538,11 @@ module BackupRestore
     def ensure_directory_exists(directory)
       log "Making sure #{directory} exists..."
       FileUtils.mkdir_p(directory)
+    end
+
+    def after_restore_hook
+      log "Executing the after_restore_hook..."
+      DiscourseEvent.trigger(:restore_complete)
     end
 
     def log(message, ex = nil)

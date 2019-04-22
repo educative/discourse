@@ -19,7 +19,7 @@ export const TIMEFRAMES = [
     format: "h a",
     enabled: opts => opts.canScheduleToday,
     when: time => time.hour(18).minute(0),
-    icon: "moon-o"
+    icon: "far-moon"
   }),
   buildTimeframe({
     id: "tomorrow",
@@ -29,7 +29,7 @@ export const TIMEFRAMES = [
         .add(1, "day")
         .hour(timeOfDay)
         .minute(0),
-    icon: "sun-o"
+    icon: "far-sun"
   }),
   buildTimeframe({
     id: "later_this_week",
@@ -91,12 +91,36 @@ export const TIMEFRAMES = [
     icon: "briefcase"
   }),
   buildTimeframe({
+    id: "two_months",
+    format: "MMM D",
+    enabled: opts => opts.includeMidFuture,
+    when: (time, timeOfDay) =>
+      time
+        .add(2, "month")
+        .startOf("month")
+        .hour(timeOfDay)
+        .minute(0),
+    icon: "briefcase"
+  }),
+  buildTimeframe({
     id: "three_months",
     format: "MMM D",
-    enabled: opts => opts.includeFarFuture,
+    enabled: opts => opts.includeMidFuture,
     when: (time, timeOfDay) =>
       time
         .add(3, "month")
+        .startOf("month")
+        .hour(timeOfDay)
+        .minute(0),
+    icon: "briefcase"
+  }),
+  buildTimeframe({
+    id: "four_months",
+    format: "MMM D",
+    enabled: opts => opts.includeMidFuture,
+    when: (time, timeOfDay) =>
+      time
+        .add(4, "month")
         .startOf("month")
         .hour(timeOfDay)
         .minute(0),
@@ -139,12 +163,13 @@ export const TIMEFRAMES = [
   }),
   buildTimeframe({
     id: "pick_date_and_time",
-    icon: "calendar-plus-o"
+    enabled: opts => opts.includeDateTime,
+    icon: "far-calendar-plus"
   }),
   buildTimeframe({
     id: "set_based_on_last_post",
     enabled: opts => opts.includeBasedOnLastPost,
-    icon: "clock-o"
+    icon: "far-clock"
   })
 ];
 
@@ -164,13 +189,12 @@ export default ComboBoxComponent.extend(DatetimeMixin, {
   classNames: ["future-date-input-selector"],
   isCustom: Ember.computed.equal("value", "pick_date_and_time"),
   isBasedOnLastPost: Ember.computed.equal("value", "set_based_on_last_post"),
-  clearable: true,
   rowComponent: "future-date-input-selector/future-date-input-selector-row",
   headerComponent:
     "future-date-input-selector/future-date-input-selector-header",
 
   computeHeaderContent() {
-    let content = this._super();
+    let content = this._super(...arguments);
     content.datetime = this._computeDatetimeForValue(this.get("computedValue"));
     content.name = this.get("selection.name") || content.name;
     content.hasSelection = this.get("hasSelection");
@@ -193,7 +217,9 @@ export default ComboBoxComponent.extend(DatetimeMixin, {
       now,
       day: now.day(),
       includeWeekend: this.get("includeWeekend"),
+      includeMidFuture: this.get("includeMidFuture") || true,
       includeFarFuture: this.get("includeFarFuture"),
+      includeDateTime: this.get("includeDateTime"),
       includeBasedOnLastPost: this.get("statusType") === CLOSE_STATUS_TYPE,
       canScheduleToday: 24 - now.hour() > 6
     };

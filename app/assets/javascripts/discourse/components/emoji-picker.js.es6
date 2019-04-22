@@ -7,13 +7,14 @@ import {
   isSkinTonableEmoji,
   emojiSearch
 } from "pretty-text/emoji";
+import { safariHacksDisabled } from "discourse/lib/utilities";
 const { run } = Ember;
 
 const keyValueStore = new KeyValueStore("discourse_emojis_");
 const EMOJI_USAGE = "emojiUsage";
 const EMOJI_SELECTED_DIVERSITY = "emojiSelectedDiversity";
 const PER_ROW = 11;
-const customEmojis = _.map(_.keys(extendedEmojiList()), code => {
+const customEmojis = _.keys(extendedEmojiList()).map(code => {
   return { code, src: emojiUrlFor(code) };
 });
 
@@ -58,6 +59,12 @@ export default Ember.Component.extend({
       this._scrollTo();
       this._updateSelectedDiversity();
       this._checkVisibleSection(true);
+
+      if (
+        (!this.site.isMobileDevice || this.get("isEditorFocused")) &&
+        !safariHacksDisabled()
+      )
+        this.$filter.find("input[name='filter']").focus();
     });
   },
 
@@ -70,7 +77,11 @@ export default Ember.Component.extend({
 
   @on("willDestroyElement")
   _unbindGlobalEvents() {
-    this.appEvents.off("emoji-picker:close");
+    this.appEvents.off("emoji-picker:close", this, "_closeEmojiPicker");
+  },
+
+  _closeEmojiPicker() {
+    this.set("active", false);
   },
 
   @on("didInsertElement")
@@ -78,7 +89,7 @@ export default Ember.Component.extend({
     this.$picker = this.$(".emoji-picker");
     this.$modal = this.$(".emoji-picker-modal");
 
-    this.appEvents.on("emoji-picker:close", () => this.set("active", false));
+    this.appEvents.on("emoji-picker:close", this, "_closeEmojiPicker");
 
     if (!keyValueStore.getObject(EMOJI_USAGE)) {
       keyValueStore.setObject({ key: EMOJI_USAGE, value: [] });
@@ -148,7 +159,7 @@ export default Ember.Component.extend({
       $recentSection.css("height", "auto").show();
     }
 
-    const recentEmojis = _.map(this.get("recentEmojis"), code => {
+    const recentEmojis = this.get("recentEmojis").map(code => {
       return { code, src: emojiUrlFor(code) };
     });
     const template = findRawTemplate("emoji-picker-recent")({ recentEmojis });
@@ -235,7 +246,7 @@ export default Ember.Component.extend({
       this.$results
         .empty()
         .html(
-          _.map(filteredCodes, code => {
+          filteredCodes.map(code => {
             const hasDiversity = isSkinTonableEmoji(code);
             const diversity = hasDiversity ? "diversity" : "";
             const scaledCode = this._codeWithDiversity(code, hasDiversity);
@@ -333,7 +344,7 @@ export default Ember.Component.extend({
         this._trackEmojiUsage(code);
       }
 
-      this.sendAction("emojiSelected", code);
+      this.emojiSelected(code);
 
       if (this.$modal.hasClass("fadeIn")) {
         this.set("active", false);
@@ -349,10 +360,15 @@ export default Ember.Component.extend({
         .off("touchstart")
         .on("touchstart", "button.emoji", touchStartEvent => {
           const $this = $(touchStartEvent.currentTarget);
+
           $this.on("touchend", touchEndEvent => {
+            touchEndEvent.preventDefault();
+            touchEndEvent.stopPropagation();
+
             handler.bind(self)(touchEndEvent);
             $this.off("touchend");
           });
+
           $this.on("touchmove", () => $this.off("touchend"));
         });
     } else {

@@ -49,7 +49,7 @@ describe DirectoryItem do
 
   context 'refresh' do
     before do
-      UserActionCreator.enable
+      UserActionManager.enable
     end
 
     it "creates the record for the user and handles likes" do
@@ -58,7 +58,7 @@ describe DirectoryItem do
 
       user2 = Fabricate(:user)
 
-      PostAction.act(user2, post, PostActionType.types[:like])
+      PostActionCreator.like(user2, post)
 
       DirectoryItem.refresh!
 
@@ -108,6 +108,37 @@ describe DirectoryItem do
         .where(user_id: post.user.id)
         .first
       expect(directory_item.topic_count).to eq(1)
+    end
+
+    it "creates directory item with correct activity count per period_type" do
+      user = Fabricate(:user)
+      UserVisit.create(user_id: user.id, visited_at: 1.minute.ago, posts_read: 1, mobile: false, time_read: 1)
+      UserVisit.create(user_id: user.id, visited_at: 2.days.ago, posts_read: 1, mobile: false, time_read: 1)
+      UserVisit.create(user_id: user.id, visited_at: 1.week.ago, posts_read: 1, mobile: false, time_read: 1)
+      UserVisit.create(user_id: user.id, visited_at: 1.month.ago, posts_read: 1, mobile: false, time_read: 1)
+
+      DirectoryItem.refresh!
+
+      daily_directory_item = DirectoryItem
+        .where(period_type: DirectoryItem.period_types[:daily])
+        .where(user_id: user.id)
+        .first
+
+      expect(daily_directory_item.days_visited).to eq(1)
+
+      weekly_directory_item = DirectoryItem
+        .where(period_type: DirectoryItem.period_types[:weekly])
+        .where(user_id: user.id)
+        .first
+
+      expect(weekly_directory_item.days_visited).to eq(2)
+
+      monthly_directory_item = DirectoryItem
+        .where(period_type: DirectoryItem.period_types[:monthly])
+        .where(user_id: user.id)
+        .first
+
+      expect(monthly_directory_item.days_visited).to eq(3)
     end
 
   end

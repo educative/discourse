@@ -25,10 +25,6 @@ export default Ember.Component.extend(
       "isExpanded",
       "isDisabled",
       "isHidden",
-      "isAbove",
-      "isBelow",
-      "isLeftAligned",
-      "isRightAligned",
       "hasSelection",
       "hasReachedMaximum",
       "hasReachedMinimum"
@@ -84,8 +80,9 @@ export default Ember.Component.extend(
     forceEscape: false,
 
     init() {
-      this._super();
+      this._super(...arguments);
 
+      this.selectKitComponent = true;
       this.noneValue = "__none__";
       this.set(
         "headerComponentOptions",
@@ -137,28 +134,26 @@ export default Ember.Component.extend(
       this.removeObserver(
         `content.@each.${this.get("nameProperty")}`,
         this,
-        this._compute
+        "_compute"
       );
-      this.removeObserver(`content.[]`, this, this._compute);
-      this.removeObserver(`asyncContent.[]`, this, this._compute);
+      this.removeObserver(`content.[]`, this, "_compute");
+      this.removeObserver(`asyncContent.[]`, this, "_compute");
     },
 
     willComputeAttributes() {},
     didComputeAttributes() {},
 
     willComputeContent(content) {
-      return content;
+      return applyContentPluginApiCallbacks(
+        this.get("pluginApiIdentifiers"),
+        content,
+        this
+      );
     },
     computeContent(content) {
       return content;
     },
     _beforeDidComputeContent(content) {
-      content = applyContentPluginApiCallbacks(
-        this.get("pluginApiIdentifiers"),
-        content,
-        this
-      );
-
       let existingCreatedComputedContent = [];
       if (!this.get("allowContentReplacement")) {
         existingCreatedComputedContent = this.get("computedContent").filterBy(
@@ -213,7 +208,9 @@ export default Ember.Component.extend(
         name: name || this._nameForContent(contentItem),
         locked: false,
         created: options.created || false,
-        __sk_row_type: options.created ? "createRow" : null,
+        __sk_row_type: options.created
+          ? "createRow"
+          : contentItem.__sk_row_type,
         originalContent
       };
 
@@ -279,7 +276,9 @@ export default Ember.Component.extend(
         collectionComputedContent.length === 0 &&
         !isLoading
       ) {
-        return I18n.t("select_kit.no_content");
+        return (
+          this.get("termMatchErrorMessage") || I18n.t("select_kit.no_content")
+        );
       }
     },
 
@@ -391,9 +390,8 @@ export default Ember.Component.extend(
     },
 
     highlightSelection(items) {
-      this.propertyWillChange("highlightedSelection");
       this.set("highlightedSelection", makeArray(items));
-      this.propertyDidChange("highlightedSelection");
+      this.notifyPropertyChange("highlightedSelection");
     },
 
     clearHighlightSelection() {
@@ -402,6 +400,8 @@ export default Ember.Component.extend(
 
     willSelect() {},
     didSelect() {},
+
+    didClearSelection() {},
 
     willCreate() {},
     didCreate() {},
@@ -463,6 +463,7 @@ export default Ember.Component.extend(
     clearSelection() {
       this.deselect(this.get("selection"));
       this.focusFilterOrHeader();
+      this.didClearSelection();
     },
 
     actions: {

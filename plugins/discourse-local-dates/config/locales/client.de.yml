@@ -8,10 +8,13 @@
 de:
   js:
     discourse_local_dates:
+      relative_dates:
+        today: Heute %{time}
+        tomorrow: Morgen %{time}
+        yesterday: Gestern %{time}
       title: Datum einfügen
       create:
         modal_title: Datum einfügen
-        modal_subtitle: "Datum und Uhrzeit werden automatisch an die lokale Zeitzone des Betrachters angepasst."
         form:
           insert: Einfügen
           advanced_mode: Erweiterter Modus

@@ -1,9 +1,7 @@
-{{
-  category-drop
+{{category-drop
   category=firstCategory
   categories=parentCategoriesSorted
-  countSubcategories=true
-}}
+  countSubcategories=true}}
 
 {{#if childCategories}}
   {{category-drop
@@ -15,9 +13,10 @@
 {{/if}}
 
 {{#if siteSettings.tagging_enabled}}
-  {{tag-drop firstCategory=firstCategory secondCategory=secondCategory tagId=tagId}}
+  {{tag-drop
+    firstCategory=firstCategory
+    secondCategory=secondCategory
+    tagId=tagId}}
 {{/if}}
 
-{{plugin-outlet name="bread-crumbs-right" connectorTagName="li"}}
-
-<div class='clear'></div>
+{{plugin-outlet name="bread-crumbs-right" connectorTagName="li" tagName=""}}

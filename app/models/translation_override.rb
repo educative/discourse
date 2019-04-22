@@ -1,4 +1,3 @@
-require 'js_locale_helper'
 require "i18n/i18n_interpolation_keys_finder"
 
 class TranslationOverride < ActiveRecord::Base
@@ -21,7 +20,7 @@ class TranslationOverride < ActiveRecord::Base
 
     data = { value: value }
     if key.end_with?('_MF')
-      _, filename = JsLocaleHelper.find_message_format_locale([locale], false)
+      _, filename = JsLocaleHelper.find_message_format_locale([locale], fallback_to_english: false)
       data[:compiled_js] = JsLocaleHelper.compile_message_format(filename, locale, value)
     end
 

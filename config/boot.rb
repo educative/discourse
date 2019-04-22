@@ -19,12 +19,28 @@ if ENV['RAILS_ENV'] != 'production' && ENV['RAILS_ENV'] != 'profile'
 
   if defined? Bootsnap
     Bootsnap.setup(
-      cache_dir:            'tmp/cache', # Path to your cache
-      load_path_cache:      true,        # Should we optimize the LOAD_PATH with a cache?
-      autoload_paths_cache: true,        # Should we optimize ActiveSupport autoloads with cache?
-      disable_trace:        false,       # Sets `RubyVM::InstructionSequence.compile_option = { trace_instruction: false }`
-      compile_cache_iseq:   true,        # Should compile Ruby code into ISeq cache?
-      compile_cache_yaml:   false        # Skip YAML cache for now, cause we were seeing issues with it
+      cache_dir: 'tmp/cache',     # Path to your cache
+      load_path_cache: true,      # Should we optimize the LOAD_PATH with a cache?
+      autoload_paths_cache: true, # Should we optimize ActiveSupport autoloads with cache?
+      disable_trace: false,       # Sets `RubyVM::InstructionSequence.compile_option = { trace_instruction: false }`
+      compile_cache_iseq: true,   # Should compile Ruby code into ISeq cache?
+      compile_cache_yaml: false   # Skip YAML cache for now, cause we were seeing issues with it
     )
   end
+end
+
+# Parallel spec system
+if ENV['RAILS_ENV'] == "test" && ENV['TEST_ENV_NUMBER']
+  n = ENV['TEST_ENV_NUMBER'].to_i
+  port = 10000 + n
+
+  puts "Setting up parallel test mode - starting Redis #{n} on port #{port}"
+
+  `rm -rf tmp/test_data_#{n} && mkdir -p tmp/test_data_#{n}/redis`
+  pid = Process.spawn("redis-server --dir tmp/test_data_#{n}/redis --port #{port}", out: "/dev/null")
+
+  ENV["DISCOURSE_REDIS_PORT"] = port.to_s
+  ENV["RAILS_DB"] = "discourse_test_#{ENV['TEST_ENV_NUMBER']}"
+
+  at_exit { puts "Terminating redis #{n}"; Process.kill("SIGTERM", pid); Process.wait }
 end

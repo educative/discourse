@@ -4,7 +4,7 @@ import { popupAjaxError } from "discourse/lib/ajax-error";
 
 export default Ember.Mixin.create({
   willDestroyElement() {
-    this._super();
+    this._super(...arguments);
 
     const searchDebounce = this.get("searchDebounce");
     if (searchDebounce) run.cancel(searchDebounce);
@@ -68,5 +68,20 @@ export default Ember.Mixin.create({
     }
 
     return true;
+  },
+
+  createContentFromInput(input) {
+    // See lib/discourse_tagging#clean_tag.
+    var content = input
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[\/\?#\[\]@!\$&'\(\)\*\+,;=\.%\\`^\s|\{\}"<>]+/g, "")
+      .substring(0, this.siteSettings.max_tag_length);
+
+    if (this.siteSettings.force_lowercase_tags) {
+      content = content.toLowerCase();
+    }
+
+    return content;
   }
 });

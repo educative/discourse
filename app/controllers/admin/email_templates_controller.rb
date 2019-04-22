@@ -46,11 +46,13 @@ class Admin::EmailTemplatesController < Admin::AdminController
       "user_notifications.account_created",
       "user_notifications.admin_login",
       "user_notifications.confirm_new_email",
+      "user_notifications.email_login",
       "user_notifications.forgot_password",
       "user_notifications.notify_old_email",
       "user_notifications.set_password",
       "user_notifications.signup",
       "user_notifications.signup_after_approval",
+      "user_notifications.suspicious_login",
       "user_notifications.user_invited_to_private_message_pm",
       "user_notifications.user_invited_to_private_message_pm_group",
       "user_notifications.user_invited_to_topic",
@@ -111,12 +113,15 @@ class Admin::EmailTemplatesController < Admin::AdminController
 
   def update_key(key, value)
     old_value = I18n.t(key)
-    translation_override = TranslationOverride.upsert!(I18n.locale, key, value)
+
+    unless old_value.is_a?(Hash)
+      translation_override = TranslationOverride.upsert!(I18n.locale, key, value)
+    end
 
     {
       key: key,
       old_value: old_value,
-      error_messages: translation_override.errors.full_messages
+      error_messages: translation_override&.errors&.full_messages
     }
   end
 

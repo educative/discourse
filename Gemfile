@@ -11,36 +11,46 @@ end
 if rails_master?
   gem 'arel', git: 'https://github.com/rails/arel.git'
   gem 'rails', git: 'https://github.com/rails/rails.git'
-  gem 'seed-fu', git: 'https://github.com/SamSaffron/seed-fu.git', branch: 'discourse'
 else
-  gem 'actionmailer', '5.2'
-  gem 'actionpack', '5.2'
-  gem 'actionview', '5.2'
-  gem 'activemodel', '5.2'
-  gem 'activerecord', '5.2'
-  gem 'activesupport', '5.2'
-  gem 'railties', '5.2'
+  # until rubygems gives us optional dependencies we are stuck with this
+  # bundle update actionmailer actionpack actionview activemodel activerecord activesupport railties
+  gem 'actionmailer', '5.2.3'
+  gem 'actionpack', '5.2.3'
+  gem 'actionview', '5.2.3'
+  gem 'activemodel', '5.2.3'
+  gem 'activerecord', '5.2.3'
+  gem 'activesupport', '5.2.3'
+  gem 'railties', '5.2.3'
   gem 'sprockets-rails'
-  gem 'seed-fu'
 end
 
-gem 'mail', '2.7.1.rc1', require: false
+gem 'seed-fu'
+
+gem 'mail', require: false
 gem 'mini_mime'
 gem 'mini_suffix'
 
 gem 'hiredis'
-gem 'redis', require:  ["redis", "redis/connection/hiredis"]
+
+# holding off redis upgrade temporarily as it is having issues with our current
+# freedom patch, we will follow this up.
+#
+# FrozenError: can't modify frozen Hash
+# /var/www/discourse/vendor/bundle/ruby/2.5.0/gems/redis-4.1.0/lib/redis/client.rb:93:in `delete'
+# /var/www/discourse/vendor/bundle/ruby/2.5.0/gems/redis-4.1.0/lib/redis/client.rb:93:in `initialize'
+# /var/www/discourse/lib/freedom_patches/redis.rb:7:in `initialize'
+gem 'redis', '4.0.1', require:  ["redis", "redis/connection/hiredis"]
 gem 'redis-namespace'
 
 gem 'active_model_serializers', '~> 0.8.3'
 
-gem 'onebox', '1.8.63'
+gem 'onebox', '1.8.85'
 
 gem 'http_accept_language', '~>2.0.5', require: false
 
 gem 'ember-rails', '0.18.5'
-gem 'ember-source', '2.13.3'
-gem 'ember-handlebars-template', '0.7.5'
+gem 'discourse-ember-source', '~> 3.7.0'
+gem 'ember-handlebars-template', '0.8.0'
 gem 'barber'
 
 gem 'message_bus'
@@ -55,6 +65,7 @@ gem 'fast_xor', platform: :mri
 gem 'fastimage'
 
 gem 'aws-sdk-s3', require: false
+gem 'aws-sdk-sns', require: false
 gem 'excon', require: false
 gem 'unf', require: false
 
@@ -110,6 +121,8 @@ group :test do
   gem 'fakeweb', '~> 1.3.0', require: false
   gem 'minitest', require: false
   gem 'danger'
+  gem 'simplecov', require: false
+  gem "test-prof"
 end
 
 group :test, :development do
@@ -123,11 +136,12 @@ group :test, :development do
   gem 'rb-fsevent', require: RUBY_PLATFORM =~ /darwin/i ? 'rb-fsevent' : false
   gem 'rb-inotify', '~> 0.9', require: RUBY_PLATFORM =~ /linux/i ? 'rb-inotify' : false
   gem 'rspec-rails', require: false
-  gem 'shoulda', require: false
+  gem 'shoulda-matchers', '~> 3.1', '>= 3.1.3', require: false
   gem 'rspec-html-matchers'
   gem 'pry-nav'
   gem 'byebug', require: ENV['RM_INFO'].nil?
   gem 'rubocop', require: false
+  gem 'parallel_tests'
 end
 
 group :development do
@@ -135,8 +149,13 @@ group :development do
   gem 'bullet', require: !!ENV['BULLET']
   gem 'better_errors'
   gem 'binding_of_caller'
-  gem 'annotate'
-  gem 'foreman', require: false
+
+  # waiting on 2.7.5 per: https://github.com/ctran/annotate_models/pull/595
+  if rails_master?
+    gem 'annotate', git: 'https://github.com/ctran/annotate_models.git'
+  else
+    gem 'annotate'
+  end
 end
 
 # this is an optional gem, it provides a high performance replacement
@@ -175,6 +194,7 @@ gem 'logstash-logger', require: false
 gem 'logster'
 
 gem 'sassc', require: false
+gem "sassc-rails"
 
 gem 'rotp'
 gem 'rqrcode'
@@ -186,10 +206,11 @@ gem 'rchardet', require: false
 if ENV["IMPORT"] == "1"
   gem 'mysql2'
   gem 'redcarpet'
-  gem 'sqlite3', '~> 1.3.13'
-  gem 'ruby-bbcode-to-md', github: 'nlalonde/ruby-bbcode-to-md'
+  gem 'sqlite3', '~> 1.3', '>= 1.3.13'
+  gem 'ruby-bbcode-to-md', git: 'https://github.com/nlalonde/ruby-bbcode-to-md'
   gem 'reverse_markdown'
   gem 'tiny_tds'
+  gem 'csv', '~> 3.0'
 end
 
 gem 'webpush', require: false

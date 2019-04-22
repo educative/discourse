@@ -12,12 +12,15 @@ describe InviteRedeemer do
       expect(user.approved).to eq(true)
     end
 
-    it "can set the password too" do
+    it "can set the password and ip_address" do
       password = 's3cure5tpasSw0rD'
-      user = InviteRedeemer.create_user_from_invite(Fabricate(:invite, email: 'walter.white@email.com'), 'walter', 'Walter White', password)
+      ip_address = '192.168.1.1'
+      user = InviteRedeemer.create_user_from_invite(Fabricate(:invite, email: 'walter.white@email.com'), 'walter', 'Walter White', password, nil, ip_address)
       expect(user).to have_password
       expect(user.confirm_password?(password)).to eq(true)
       expect(user.approved).to eq(true)
+      expect(user.ip_address).to eq(ip_address)
+      expect(user.registration_ip_address).to eq(ip_address)
     end
 
     it "raises exception with record and errors" do
@@ -38,7 +41,7 @@ describe InviteRedeemer do
       expect(user.id).to eq(staged_user.id)
       expect(user.username).to eq('walter')
       expect(user.name).to eq('Walter White')
-      expect(user.active).to eq(false)
+      expect(user.staged).to eq(false)
       expect(user.email).to eq('staged@account.com')
       expect(user.approved).to eq(true)
     end
@@ -99,7 +102,6 @@ describe InviteRedeemer do
     end
 
     it "can set password" do
-      inviter = invite.invited_by
       user = InviteRedeemer.new(invite, username, name, password).redeem
       expect(user).to have_password
       expect(user.confirm_password?(password)).to eq(true)

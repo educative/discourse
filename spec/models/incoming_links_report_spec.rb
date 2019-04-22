@@ -3,8 +3,7 @@ require 'rails_helper'
 describe IncomingLinksReport do
 
   before do
-    # we do not want this to fail if you run it at 11:59:59PM
-    freeze_time Time.zone.now
+    freeze_time DateTime.parse('2010-01-01 6:00')
   end
 
   describe 'integration' do
@@ -45,8 +44,19 @@ describe IncomingLinksReport do
 
       r = IncomingLinksReport.find('top_referrers').as_json
       expect(r[:data]).to eq [
-        { username: p1.user.username, user_id: p1.user.id, num_clicks: 7 + 2, num_topics: 2 },
-        { username: p2.user.username, user_id: p2.user.id, num_clicks: 3, num_topics: 1 }
+        {
+          user_avatar_template: User.default_template(p1.user.username),
+          username: p1.user.username,
+          user_id: p1.user.id,
+          num_clicks: 7 + 2, num_topics: 2
+        },
+        {
+          user_avatar_template: User.default_template(p2.user.username),
+          username: p2.user.username,
+          user_id: p2.user.id,
+          num_clicks: 3,
+          num_topics: 1
+        }
       ]
 
       r = IncomingLinksReport.find('top_traffic_sources').as_json
@@ -87,7 +97,13 @@ describe IncomingLinksReport do
 
       r = IncomingLinksReport.find('top_referrers').as_json
       expect(r[:data]).to eq [
-        { username: public_post.user.username, user_id: public_post.user.id, num_clicks: 1, num_topics: 1 },
+        {
+          user_avatar_template: User.default_template(public_post.user.username),
+          username: public_post.user.username,
+          user_id: public_post.user.id,
+          num_clicks: 1,
+          num_topics: 1
+        }
       ]
 
       r = IncomingLinksReport.find('top_traffic_sources').as_json
@@ -142,8 +158,21 @@ describe IncomingLinksReport do
         Fabricate(:incoming_link, user: bob, post: post1).save
       end
 
-      expect(top_referrers[:data][0]).to eq(username: 'amy', user_id: amy.id, num_clicks: 3, num_topics: 2)
-      expect(top_referrers[:data][1]).to eq(username: 'bob', user_id: bob.id, num_clicks: 2, num_topics: 1)
+      expect(top_referrers[:data][0]).to eq(
+        user_avatar_template: User.default_template('amy'),
+        username: 'amy',
+        user_id: amy.id,
+        num_clicks: 3,
+        num_topics: 2
+      )
+
+      expect(top_referrers[:data][1]).to eq(
+        user_avatar_template: User.default_template('bob'),
+        username: 'bob',
+        user_id: bob.id,
+        num_clicks: 2,
+        num_topics: 1
+      )
     end
   end
 

@@ -23,7 +23,7 @@ describe PostSerializer do
 
     before do
       acted_ids.each do |id|
-        PostAction.act(actor, post, id)
+        PostActionCreator.new(actor, post, id).perform
       end
       post.reload
     end
@@ -121,6 +121,27 @@ describe PostSerializer do
       end
     end
 
+    context "a hidden revised post" do
+      let(:post) { Fabricate(:post, raw: 'Hello world!', hidden: true) }
+
+      before do
+        SiteSetting.editing_grace_period_max_diff = 1
+
+        revisor = PostRevisor.new(post)
+        revisor.revise!(post.user, raw: 'Hello, everyone!')
+      end
+
+      it "will not leak version to users" do
+        json = PostSerializer.new(post, scope: Guardian.new(user), root: false).as_json
+        expect(json[:version]).to eq(1)
+      end
+
+      it "will show real version to staff" do
+        json = PostSerializer.new(post, scope: Guardian.new(Fabricate(:admin)), root: false).as_json
+        expect(json[:version]).to eq(2)
+      end
+    end
+
     context "a public wiki post" do
       let(:post) { Fabricate.build(:post, raw: raw, user: user, wiki: true) }
 
@@ -151,6 +172,37 @@ describe PostSerializer do
       end
     end
 
+  end
+
+  context "a post with notices" do
+    let(:user) { Fabricate(:user, trust_level: 1) }
+    let(:user_tl1) { Fabricate(:user, trust_level: 1) }
+    let(:user_tl2) { Fabricate(:user, trust_level: 2) }
+
+    let(:post) {
+      post = Fabricate(:post, user: user)
+      post.custom_fields["notice_type"] = Post.notices[:returning_user]
+      post.custom_fields["notice_args"] = 1.day.ago
+      post.save_custom_fields
+      post
+    }
+
+    def json_for_user(user)
+      PostSerializer.new(post, scope: Guardian.new(user), root: false).as_json
+    end
+
+    it "is visible for TL2+ users (except poster)" do
+      expect(json_for_user(nil)[:notice_type]).to eq(nil)
+      expect(json_for_user(user)[:notice_type]).to eq(nil)
+
+      SiteSetting.returning_user_notice_tl = 2
+      expect(json_for_user(user_tl1)[:notice_type]).to eq(nil)
+      expect(json_for_user(user_tl2)[:notice_type]).to eq(Post.notices[:returning_user])
+
+      SiteSetting.returning_user_notice_tl = 1
+      expect(json_for_user(user_tl1)[:notice_type]).to eq(Post.notices[:returning_user])
+      expect(json_for_user(user_tl2)[:notice_type]).to eq(Post.notices[:returning_user])
+    end
   end
 
 end

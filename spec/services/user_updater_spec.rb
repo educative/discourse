@@ -19,10 +19,70 @@ describe UserUpdater do
       updater = UserUpdater.new(u3, u3)
       updater.update_muted_users("")
 
-      expect(MutedUser.where(user_id: u2.id).count).to eq 2
-      expect(MutedUser.where(user_id: u1.id).count).to eq 2
-      expect(MutedUser.where(user_id: u3.id).count).to eq 0
+      expect(MutedUser.where(user_id: u2.id).pluck(:muted_user_id)).to match_array([u3.id, u1.id])
+      expect(MutedUser.where(user_id: u1.id).pluck(:muted_user_id)).to match_array([u2.id, u3.id])
+      expect(MutedUser.where(user_id: u3.id).count).to eq(0)
+    end
 
+    it 'excludes acting user' do
+      u1 = Fabricate(:user)
+      u2 = Fabricate(:user)
+      updater = UserUpdater.new(u1, u1)
+      updater.update_muted_users("#{u1.username},#{u2.username}")
+
+      expect(MutedUser.where(muted_user_id: u2.id).pluck(:muted_user_id)).to match_array([u2.id])
+    end
+  end
+
+  describe '#update_ignored_users' do
+    it 'updates ignored users' do
+      u1 = Fabricate(:user, trust_level: 2)
+      u2 = Fabricate(:user, trust_level: 2)
+      u3 = Fabricate(:user, trust_level: 2)
+
+      updater = UserUpdater.new(u1, u1)
+      updater.update_ignored_users("#{u2.username},#{u3.username}")
+
+      updater = UserUpdater.new(u2, u2)
+      updater.update_ignored_users("#{u3.username},#{u1.username}")
+
+      updater = UserUpdater.new(u3, u3)
+      updater.update_ignored_users("")
+
+      expect(IgnoredUser.where(user_id: u2.id).pluck(:ignored_user_id)).to match_array([u3.id, u1.id])
+      expect(IgnoredUser.where(user_id: u1.id).pluck(:ignored_user_id)).to match_array([u2.id, u3.id])
+      expect(IgnoredUser.where(user_id: u3.id).count).to eq(0)
+    end
+
+    it 'excludes acting user' do
+      u1 = Fabricate(:user, trust_level: 2)
+      u2 = Fabricate(:user)
+      updater = UserUpdater.new(u1, u1)
+      updater.update_ignored_users("#{u1.username},#{u2.username}")
+
+      expect(IgnoredUser.where(user_id: u1.id).pluck(:ignored_user_id)).to match_array([u2.id])
+    end
+
+    context 'when acting user\'s trust level is below tl2' do
+      it 'excludes acting user' do
+        u1 = Fabricate(:user, trust_level: 1)
+        u2 = Fabricate(:user)
+        updater = UserUpdater.new(u1, u1)
+        updater.update_ignored_users("#{u2.username}")
+
+        expect(IgnoredUser.where(ignored_user_id: u2.id).count).to eq(0)
+      end
+    end
+
+    context 'when acting user is admin' do
+      it 'excludes acting user' do
+        u1 = Fabricate(:admin)
+        u2 = Fabricate(:user)
+        updater = UserUpdater.new(u1, u1)
+        updater.update_ignored_users("#{u1.username},#{u2.username}")
+
+        expect(IgnoredUser.where(user_id: u1.id).pluck(:ignored_user_id)).to match_array([u2.id])
+      end
     end
   end
 
@@ -87,7 +147,7 @@ describe UserUpdater do
       seq = user.user_option.theme_key_seq
 
       val = updater.update(bio_raw: 'my new bio',
-                           email_always: 'true',
+                           email_level: UserOption.email_level_types[:always],
                            mailing_list_mode: true,
                            digest_after_minutes: "45",
                            new_topic_duration_minutes: 100,
@@ -103,7 +163,7 @@ describe UserUpdater do
       user.reload
 
       expect(user.user_profile.bio_raw).to eq 'my new bio'
-      expect(user.user_option.email_always).to eq true
+      expect(user.user_option.email_level).to eq UserOption.email_level_types[:always]
       expect(user.user_option.mailing_list_mode).to eq true
       expect(user.user_option.digest_after_minutes).to eq 45
       expect(user.user_option.new_topic_duration_minutes).to eq 100
@@ -295,12 +355,21 @@ describe UserUpdater do
     it "logs the action" do
       user_without_name = Fabricate(:user, name: nil)
       user = Fabricate(:user, name: 'Billy Bob')
+
       expect do
         UserUpdater.new(acting_user, user).update(name: 'Jim Tom')
       end.to change { UserHistory.count }.by(1)
 
+      expect(UserHistory.last.action).to eq(
+        UserHistory.actions[:change_name]
+      )
+
       expect do
         UserUpdater.new(acting_user, user).update(name: 'JiM TOm')
+      end.to_not change { UserHistory.count }
+
+      expect do
+        UserUpdater.new(acting_user, user).update(bio_raw: 'foo bar')
       end.to_not change { UserHistory.count }
 
       expect do
@@ -311,9 +380,17 @@ describe UserUpdater do
         UserUpdater.new(acting_user, user_without_name).update(name: 'Jim Tom')
       end.to change { UserHistory.count }.by(1)
 
+      expect(UserHistory.last.action).to eq(
+        UserHistory.actions[:change_name]
+      )
+
       expect do
         UserUpdater.new(acting_user, user).update(name: '')
       end.to change { UserHistory.count }.by(1)
+
+      expect(UserHistory.last.action).to eq(
+        UserHistory.actions[:change_name]
+      )
     end
   end
 end

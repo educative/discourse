@@ -3,6 +3,15 @@ require_dependency 'url_helper'
 
 describe UrlHelper do
 
+  describe "#relaxed parse" do
+
+    it "can handle double #" do
+      url = UrlHelper.relaxed_parse("https://test.com#test#test")
+      expect(url.to_s).to eq("https://test.com#test%23test")
+    end
+
+  end
+
   describe "#is_local" do
 
     it "is true when the file has been uploaded" do
@@ -17,6 +26,14 @@ describe UrlHelper do
       store.expects(:has_been_uploaded?).returns(false)
       Discourse.stubs(:store).returns(store)
       expect(UrlHelper.is_local("/assets/javascripts/all.js")).to eq(true)
+    end
+
+    it "is true for relative assets for subfolders" do
+      store = stub
+      store.expects(:has_been_uploaded?).returns(false)
+      Discourse.stubs(:store).returns(store)
+      Discourse.stubs(:base_uri).returns("/subpath")
+      expect(UrlHelper.is_local("/subpath/assets/javascripts/all.js")).to eq(true)
     end
 
     it "is true for plugin assets" do

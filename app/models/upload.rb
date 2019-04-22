@@ -7,7 +7,12 @@ require_dependency "file_store/local_store"
 require_dependency "base62"
 
 class Upload < ActiveRecord::Base
+  include ActionView::Helpers::NumberHelper
+  include HasUrl
+
   SHA1_LENGTH = 40
+  SEEDED_ID_THRESHOLD = 0
+  URL_REGEX ||= /(\/original\/\dX[\/\.\w]*\/([a-zA-Z0-9]+)[\.\w]*)/
 
   belongs_to :user
 
@@ -21,6 +26,7 @@ class Upload < ActiveRecord::Base
   attr_accessor :for_theme
   attr_accessor :for_private_message
   attr_accessor :for_export
+  attr_accessor :for_site_setting
 
   validates_presence_of :filesize
   validates_presence_of :original_filename
@@ -33,6 +39,12 @@ class Upload < ActiveRecord::Base
     UserAvatar.where(custom_upload_id: self.id).update_all(custom_upload_id: nil)
   end
 
+  scope :by_users, -> { where("uploads.id > ?", SEEDED_ID_THRESHOLD) }
+
+  def to_s
+    self.url
+  end
+
   def thumbnail(width = self.thumbnail_width, height = self.thumbnail_height)
     optimized_images.find_by(width: width, height: height)
   end
@@ -41,13 +53,10 @@ class Upload < ActiveRecord::Base
     thumbnail(width, height).present?
   end
 
-  def create_thumbnail!(width, height, crop = false)
+  def create_thumbnail!(width, height, opts = nil)
     return unless SiteSetting.create_thumbnails?
-
-    opts = {
-      allow_animation: SiteSetting.allow_animated_thumbnails,
-      crop: crop
-    }
+    opts ||= {}
+    opts[:allow_animation] = SiteSetting.allow_animated_thumbnails
 
     if get_optimized_image(width, height, opts)
       save(validate: false)
@@ -63,7 +72,8 @@ class Upload < ActiveRecord::Base
     opts = opts.merge(raise_on_error: true)
     begin
       OptimizedImage.create_for(self, width, height, opts)
-    rescue
+    rescue => ex
+      Rails.logger.info ex if Rails.env.development?
       opts = opts.merge(raise_on_error: false)
       if fix_image_extension
         OptimizedImage.create_for(self, width, height, opts)
@@ -122,8 +132,23 @@ class Upload < ActiveRecord::Base
         Discourse.store.download(self).path
       end
 
-    self.width, self.height = size = FastImage.new(path).size
-    self.thumbnail_width, self.thumbnail_height = ImageSizer.resize(*size)
+    begin
+      w, h = FastImage.new(path, raise_on_failure: true).size
+
+      self.width = w || 0
+      self.height = h || 0
+
+      self.thumbnail_width, self.thumbnail_height = ImageSizer.resize(w, h)
+
+      self.update_columns(
+        width: width,
+        height: height,
+        thumbnail_width: thumbnail_width,
+        thumbnail_height: thumbnail_height
+      )
+    rescue => e
+      Discourse.warn_exception(e, message: "Error getting image dimensions")
+    end
     nil
   end
 
@@ -169,25 +194,12 @@ class Upload < ActiveRecord::Base
     Digest::SHA1.file(path).hexdigest
   end
 
-  def self.extract_upload_url(url)
-    url.match(/(\/original\/\dX[\/\.\w]*\/([a-zA-Z0-9]+)[\.\w]*)/)
+  def human_filesize
+    number_to_human_size(self.filesize)
   end
 
-  def self.get_from_url(url)
-    return if url.blank?
-
-    uri = begin
-      URI(URI.unescape(url))
-    rescue URI::Error
-    end
-
-    return if uri&.path.blank?
-    data = extract_upload_url(uri.path)
-    return if data.blank?
-    sha1 = data[2]
-    upload = nil
-    upload = Upload.find_by(sha1: sha1) if sha1&.length == SHA1_LENGTH
-    upload || Upload.find_by("url LIKE ?", "%#{data[1]}")
+  def rebake_posts_on_old_scheme
+    self.posts.where("cooked LIKE '%/_optimized/%'").find_each(&:rebake!)
   end
 
   def self.migrate_to_new_scheme(limit = nil)
@@ -197,7 +209,9 @@ class Upload < ActiveRecord::Base
       max_file_size_kb = [SiteSetting.max_image_size_kb, SiteSetting.max_attachment_size_kb].max.kilobytes
       local_store = FileStore::LocalStore.new
 
-      scope = Upload.where("url NOT LIKE '%/original/_X/%'").order(id: :desc)
+      scope = Upload.by_users.where("url NOT LIKE '%/original/_X/%' AND url LIKE '%/uploads/#{RailsMultisite::ConnectionManagement.current_db}%'")
+        .order(id: :desc)
+
       scope = scope.limit(limit) if limit
 
       scope.each do |upload|
@@ -209,12 +223,21 @@ class Upload < ActiveRecord::Base
           # download if external
           if external
             url = SiteSetting.scheme + ":" + previous_url
-            file = FileHelper.download(
-              url,
-              max_file_size: max_file_size_kb,
-              tmp_file_name: "discourse",
-              follow_redirect: true
-            ) rescue nil
+
+            begin
+              retries ||= 0
+
+              file = FileHelper.download(
+                url,
+                max_file_size: max_file_size_kb,
+                tmp_file_name: "discourse",
+                follow_redirect: true
+              )
+            rescue OpenURI::HTTPError
+              retry if (retires += 1) < 1
+              next
+            end
+
             path = file.path
           else
             path = local_store.path_for(upload)
@@ -223,17 +246,19 @@ class Upload < ActiveRecord::Base
           if upload.sha1.blank?
             upload.sha1 = Upload.generate_digest(path)
           end
-          # optimize if image
-          FileHelper.optimize_image!(path) if FileHelper.is_supported_image?(File.basename(path))
+
           # store to new location & update the filesize
           File.open(path) do |f|
             upload.url = Discourse.store.store_upload(f, upload)
             upload.filesize = f.size
-            upload.save!
+            upload.save!(validate: false)
           end
           # remap the URLs
           DbHelper.remap(UrlHelper.absolute(previous_url), upload.url) unless external
           DbHelper.remap(previous_url, upload.url)
+
+          upload.optimized_images.find_each(&:destroy!)
+          upload.rebake_posts_on_old_scheme
           # remove the old file (when local)
           unless external
             FileUtils.rm(path, force: true)
@@ -271,9 +296,11 @@ end
 #  extension         :string(10)
 #  thumbnail_width   :integer
 #  thumbnail_height  :integer
+#  etag              :string
 #
 # Indexes
 #
+#  index_uploads_on_etag        (etag)
 #  index_uploads_on_extension   (lower((extension)::text))
 #  index_uploads_on_id_and_url  (id,url)
 #  index_uploads_on_sha1        (sha1) UNIQUE

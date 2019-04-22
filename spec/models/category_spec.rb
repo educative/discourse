@@ -4,12 +4,25 @@ require 'rails_helper'
 require_dependency 'post_creator'
 
 describe Category do
+  let(:user) { Fabricate(:user) }
+
   it { is_expected.to validate_presence_of :user_id }
   it { is_expected.to validate_presence_of :name }
 
   it 'validates uniqueness of name' do
     Fabricate(:category)
-    is_expected.to validate_uniqueness_of(:name).scoped_to(:parent_category_id)
+    is_expected.to validate_uniqueness_of(:name).scoped_to(:parent_category_id).case_insensitive
+  end
+
+  it 'validates inclusion of search_priority' do
+    category = Fabricate.build(:category, user: user)
+
+    expect(category.valid?).to eq(true)
+
+    category.search_priority = Searchable::PRIORITIES.values.last + 1
+
+    expect(category.valid?).to eq(false)
+    expect(category.errors.keys).to contain_exactly(:search_priority)
   end
 
   it 'validates uniqueness in case insensitive way' do
@@ -313,6 +326,13 @@ describe Category do
       expect(Permalink.count).to eq(1)
     end
 
+    it "reuses existing permalink when category slug is changed" do
+      permalink = Permalink.create!(url: "c/#{@category.slug}", category_id: 42)
+
+      expect { @category.update_attributes(slug: 'new-slug') }.to_not change { Permalink.count }
+      expect(permalink.reload.category_id).to eq(@category.id)
+    end
+
     it "creates permalink when sub category slug is changed" do
       sub_category = Fabricate(:category, slug: 'sub-category', parent_category_id: @category.id)
       sub_category.update_attributes(slug: 'new-sub-category')
@@ -330,6 +350,15 @@ describe Category do
       main_category = Fabricate(:category, slug: 'main-category')
       Fabricate(:category, slug: 'sub-category', parent_category_id: main_category.id)
       expect(Permalink.count).to eq(0)
+    end
+
+    it "correctly creates permalink when category slug is changed in subfolder install" do
+      GlobalSetting.stubs(:relative_url_root).returns('/forum')
+      Discourse.stubs(:base_uri).returns("/forum")
+      old_url = @category.url
+      @category.update_attributes(slug: 'new-category')
+      permalink = Permalink.last
+      expect(permalink.url).to eq(old_url[1..-1])
     end
 
     it "should not set its description topic to auto-close" do
@@ -405,7 +434,7 @@ describe Category do
     end
 
     it 'triggers a extensibility event' do
-      event = DiscourseEvent.track_events { @category.destroy }.first
+      event = DiscourseEvent.track(:category_destroyed) { @category.destroy }
 
       expect(event[:event_name]).to eq(:category_destroyed)
       expect(event[:params].first).to eq(@category)
@@ -739,6 +768,79 @@ describe Category do
       category.save!
 
       expect(Category.auto_bump_topic!).to eq(false)
+    end
+  end
+
+  describe "validate permissions compatibility" do
+    let(:admin) { Fabricate(:admin) }
+    let(:group) { Fabricate(:group) }
+    let(:group2) { Fabricate(:group) }
+    let(:parent_category) { Fabricate(:category, name: "parent") }
+    let(:subcategory) { Fabricate(:category, name: "child1", parent_category_id: parent_category.id) }
+    let(:subcategory2) { Fabricate(:category, name: "child2", parent_category_id: parent_category.id) }
+
+    context "when changing subcategory permissions" do
+      it "it is not valid if permissions are less restrictive" do
+        parent_category.set_permissions(group => :readonly)
+        parent_category.save!
+
+        subcategory.set_permissions(group => :full, group2 => :readonly)
+
+        expect(subcategory.valid?).to eq(false)
+        expect(subcategory.errors.full_messages).to contain_exactly(I18n.t("category.errors.permission_conflict", group_names: group2.name))
+      end
+
+      it "is valid if permissions are same or more restrictive" do
+        parent_category.set_permissions(group => :full, group2 => :create_post)
+        parent_category.save!
+
+        subcategory.set_permissions(group => :create_post, group2 => :full)
+
+        expect(subcategory.valid?).to eq(true)
+      end
+
+      it "is valid if everyone has access to parent category" do
+        parent_category.set_permissions(everyone: :readonly)
+        parent_category.save!
+
+        subcategory.set_permissions(group => :create_post, group2 => :create_post)
+
+        expect(subcategory.valid?).to eq(true)
+      end
+    end
+
+    context "when changing parent category permissions" do
+      it "it is not valid if subcategory permissions are less restrictive" do
+        subcategory.set_permissions(group => :create_post)
+        subcategory.save!
+        subcategory2.set_permissions(group => :create_post, group2 => :create_post)
+        subcategory2.save!
+
+        parent_category.set_permissions(group => :readonly)
+
+        expect(parent_category.valid?).to eq(false)
+        expect(parent_category.errors.full_messages).to contain_exactly(I18n.t("category.errors.permission_conflict", group_names: group2.name))
+      end
+
+      it "is valid if subcategory permissions are same or more restrictive" do
+        subcategory.set_permissions(group => :create_post)
+        subcategory.save!
+        subcategory2.set_permissions(group => :create_post, group2 => :create_post)
+        subcategory2.save!
+
+        parent_category.set_permissions(group => :full, group2 => :create_post)
+
+        expect(parent_category.valid?).to eq(true)
+
+      end
+
+      it "is valid if everyone has access to parent category" do
+        subcategory.set_permissions(group => :create_post)
+        subcategory.save
+        parent_category.set_permissions(everyone: :readonly)
+
+        expect(parent_category.valid?).to eq(true)
+      end
     end
   end
 

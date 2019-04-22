@@ -13,6 +13,68 @@ RSpec.describe ApplicationController do
       get "/?authComplete=true"
       expect(response).to redirect_to('/login?authComplete=true')
     end
+
+    it "should never cache a login redirect" do
+      get "/"
+      expect(response.headers["Cache-Control"]).to eq("no-cache, no-store")
+    end
+  end
+
+  describe '#redirect_to_second_factor_if_required' do
+    let(:admin) { Fabricate(:admin) }
+    let(:user) { Fabricate(:user) }
+
+    before do
+      admin # to skip welcome wizard at home page `/`
+    end
+
+    it "should redirect admins when enforce_second_factor is 'all'" do
+      SiteSetting.enforce_second_factor = "all"
+      sign_in(admin)
+
+      get "/"
+      expect(response).to redirect_to("/u/#{admin.username}/preferences/second-factor")
+    end
+
+    it "should redirect users when enforce_second_factor is 'all'" do
+      SiteSetting.enforce_second_factor = "all"
+      sign_in(user)
+
+      get "/"
+      expect(response).to redirect_to("/u/#{user.username}/preferences/second-factor")
+    end
+
+    it "should redirect admins when enforce_second_factor is 'staff'" do
+      SiteSetting.enforce_second_factor = "staff"
+      sign_in(admin)
+
+      get "/"
+      expect(response).to redirect_to("/u/#{admin.username}/preferences/second-factor")
+    end
+
+    it "should not redirect users when enforce_second_factor is 'staff'" do
+      SiteSetting.enforce_second_factor = "staff"
+      sign_in(user)
+
+      get "/"
+      expect(response.status).to eq(200)
+    end
+
+    it "should not redirect admins when turned off" do
+      SiteSetting.enforce_second_factor = "no"
+      sign_in(admin)
+
+      get "/"
+      expect(response.status).to eq(200)
+    end
+
+    it "should not redirect users when turned off" do
+      SiteSetting.enforce_second_factor = "no"
+      sign_in(user)
+
+      get "/"
+      expect(response.status).to eq(200)
+    end
   end
 
   describe 'invalid request params' do
@@ -33,11 +95,36 @@ RSpec.describe ApplicationController do
       get "/latest.json", params: { test: bad_str }
 
       expect(response.status).to eq(400)
-      expect(@logs.string).not_to include('exception app middleware')
+
+      log = @logs.string
+
+      if (log.include? 'exception app middleware')
+        # heisentest diagnostics
+        puts
+        puts "EXTRA DIAGNOSTICS FOR INTERMITENT TEST FAIL"
+        puts log
+        puts ">> action_dispatch.exception"
+        ex = request.env['action_dispatch.exception']
+        puts ">> exception class: #{ex.class} : #{ex}"
+      end
+
+      expect(log).not_to include('exception app middleware')
 
       expect(JSON.parse(response.body)).to eq(
         "status" => 400,
         "error" => "Bad Request"
+      )
+
+    end
+  end
+
+  describe 'missing required param' do
+    it 'should return a 400' do
+      get "/search/query.json", params: { trem: "misspelled term" }
+
+      expect(response.status).to eq(400)
+      expect(JSON.parse(response.body)).to eq(
+        "errors" => ["param is missing or the value is empty: term"]
       )
     end
   end
@@ -112,6 +199,54 @@ RSpec.describe ApplicationController do
         get "/t/nope-nope/99999999"
         expect(response.status).to eq(404)
         expect(response.body).to_not include('google.com/search')
+      end
+
+      describe 'no logspam' do
+
+        before do
+          @orig_logger = Rails.logger
+          Rails.logger = @fake_logger = FakeLogger.new
+        end
+
+        after do
+          Rails.logger = @orig_logger
+        end
+
+        it 'should handle 404 to a css file' do
+
+          $redis.del("page_not_found_topics")
+
+          topic1 = Fabricate(:topic)
+          get '/stylesheets/mobile_1_4cd559272273fe6d3c7db620c617d596a5fdf240.css', headers: { 'HTTP_ACCEPT' => 'text/css,*/*,q=0.1' }
+          expect(response.status).to eq(404)
+          expect(response.body).to include(topic1.title)
+
+          topic2 = Fabricate(:topic)
+          get '/stylesheets/mobile_1_4cd559272273fe6d3c7db620c617d596a5fdf240.css', headers: { 'HTTP_ACCEPT' => 'text/css,*/*,q=0.1' }
+          expect(response.status).to eq(404)
+          expect(response.body).to include(topic1.title)
+          expect(response.body).to_not include(topic2.title)
+
+          expect(Rails.logger.fatals.length).to eq(0)
+          expect(Rails.logger.errors.length).to eq(0)
+          expect(Rails.logger.warnings.length).to eq(0)
+
+        end
+      end
+
+      it 'should cache results' do
+        $redis.del("page_not_found_topics")
+
+        topic1 = Fabricate(:topic)
+        get '/t/nope-nope/99999999'
+        expect(response.status).to eq(404)
+        expect(response.body).to include(topic1.title)
+
+        topic2 = Fabricate(:topic)
+        get '/t/nope-nope/99999999'
+        expect(response.status).to eq(404)
+        expect(response.body).to include(topic1.title)
+        expect(response.body).to_not include(topic2.title)
       end
     end
   end
@@ -194,6 +329,129 @@ RSpec.describe ApplicationController do
       get "/"
       expect(response.status).to eq(200)
       expect(controller.theme_ids).to eq([theme.id])
+    end
+  end
+
+  describe 'Custom hostname' do
+
+    it 'does not allow arbitrary host injection' do
+      get("/latest",
+        headers: {
+          "X-Forwarded-Host" => "test123.com"
+        }
+      )
+
+      expect(response.body).not_to include("test123")
+    end
+  end
+
+  describe 'Delegated auth' do
+    let :public_key do
+      <<~TXT
+      -----BEGIN PUBLIC KEY-----
+      MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDh7BS7Ey8hfbNhlNAW/47pqT7w
+      IhBz3UyBYzin8JurEQ2pY9jWWlY8CH147KyIZf1fpcsi7ZNxGHeDhVsbtUKZxnFV
+      p16Op3CHLJnnJKKBMNdXMy0yDfCAHZtqxeBOTcCo1Vt/bHpIgiK5kmaekyXIaD0n
+      w0z/BYpOgZ8QwnI5ZwIDAQAB
+      -----END PUBLIC KEY-----
+      TXT
+    end
+
+    let :args do
+      {
+        auth_redirect: 'http://no-good.com',
+        user_api_public_key: "not-a-valid-public-key"
+      }
+    end
+
+    it 'disallows invalid public_key param' do
+      args[:auth_redirect] = "discourse://auth_redirect"
+      get "/latest", params: args
+
+      expect(response.body).to eq(I18n.t("user_api_key.invalid_public_key"))
+    end
+
+    it 'does not allow invalid auth_redirect' do
+      args[:user_api_public_key] = public_key
+      get "/latest", params: args
+
+      expect(response.body).to eq(I18n.t("user_api_key.invalid_auth_redirect"))
+    end
+
+    it 'does not redirect if one_time_password scope is disallowed' do
+      SiteSetting.allow_user_api_key_scopes = "read|write"
+      args[:user_api_public_key] = public_key
+      args[:auth_redirect] = "discourse://auth_redirect"
+
+      get "/latest", params: args
+
+      expect(response.status).to_not eq(302)
+      expect(response).to_not redirect_to("#{args[:auth_redirect]}?otp=true")
+    end
+
+    it 'redirects correctly with valid params' do
+      SiteSetting.login_required = true
+      args[:user_api_public_key] = public_key
+      args[:auth_redirect] = "discourse://auth_redirect"
+
+      get "/categories", params: args
+
+      expect(response.status).to eq(302)
+      expect(response).to redirect_to("#{args[:auth_redirect]}?otp=true")
+    end
+  end
+
+  describe 'Content Security Policy' do
+    it 'is enabled by SiteSettings' do
+      SiteSetting.content_security_policy = false
+      SiteSetting.content_security_policy_report_only = false
+
+      get '/'
+
+      expect(response.headers).to_not include('Content-Security-Policy')
+      expect(response.headers).to_not include('Content-Security-Policy-Report-Only')
+
+      SiteSetting.content_security_policy = true
+      SiteSetting.content_security_policy_report_only = true
+
+      get '/'
+
+      expect(response.headers).to include('Content-Security-Policy')
+      expect(response.headers).to include('Content-Security-Policy-Report-Only')
+    end
+
+    it 'can be customized with SiteSetting' do
+      SiteSetting.content_security_policy = true
+
+      get '/'
+      script_src = parse(response.headers['Content-Security-Policy'])['script-src']
+
+      expect(script_src).to_not include('example.com')
+
+      SiteSetting.content_security_policy_script_src = 'example.com'
+
+      get '/'
+      script_src = parse(response.headers['Content-Security-Policy'])['script-src']
+
+      expect(script_src).to include('example.com')
+      expect(script_src).to include("'unsafe-eval'")
+    end
+
+    it 'does not set CSP when responding to non-HTML' do
+      SiteSetting.content_security_policy = true
+      SiteSetting.content_security_policy_report_only = true
+
+      get '/latest.json'
+
+      expect(response.headers).to_not include('Content-Security-Policy')
+      expect(response.headers).to_not include('Content-Security-Policy-Report-Only')
+    end
+
+    def parse(csp_string)
+      csp_string.split(';').map do |policy|
+        directive, *sources = policy.split
+        [directive, sources]
+      end.to_h
     end
   end
 end

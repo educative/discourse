@@ -20,6 +20,7 @@ class CategoryList
     find_categories
 
     prune_empty
+    prune_muted
     find_user_data
     sort_unpinned
     trim_results
@@ -77,10 +78,7 @@ class CategoryList
     if SiteSetting.fixed_category_positions
       @categories = @categories.order(:position, :id)
     else
-      @categories = @categories.order('COALESCE(categories.posts_week, 0) DESC')
-        .order('COALESCE(categories.posts_month, 0) DESC')
-        .order('COALESCE(categories.posts_year, 0) DESC')
-        .order('id ASC')
+      @categories = @categories.includes(:latest_post).order("posts.created_at DESC NULLS LAST").order('categories.id ASC')
     end
 
     @categories = @categories.to_a
@@ -134,6 +132,10 @@ class CategoryList
   def prune_empty
     return if SiteSetting.allow_uncategorized_topics
     @categories.delete_if { |c| c.uncategorized? && c.displayable_topics.blank? }
+  end
+
+  def prune_muted
+    @categories.delete_if { |c| c.notification_level == CategoryUser.notification_levels[:muted] }
   end
 
   # Attach some data for serialization to each topic

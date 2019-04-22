@@ -1,40 +1,68 @@
 require 'rails_helper'
 
 describe StaticController do
+  let(:upload) { Fabricate(:upload) }
 
   context '#favicon' do
-    let(:png) { Base64.decode64("R0lGODlhAQABALMAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwICAgP8AAAD/AP//AAAA//8A/wD//wBiZCH5BAEAAA8ALAAAAAABAAEAAAQC8EUAOw==") }
+    let(:filename) { 'smallest.png' }
+    let(:file) { file_from_fixtures(filename) }
 
-    before { FinalDestination.stubs(:lookup_ip).returns("1.2.3.4") }
-
-    it 'returns the default favicon for a missing download' do
-      url = "https://fav.icon/#{SecureRandom.hex}.png"
-
-      stub_request(:get, url).to_return(status: 404)
-
-      SiteSetting.favicon_url = url
-
-      get '/favicon/proxied'
-
-      favicon = File.read(Rails.root + "public/images/default-favicon.png")
-
-      expect(response.status).to eq(200)
-      expect(response.content_type).to eq('image/png')
-      expect(response.body.bytesize).to eq(favicon.bytesize)
+    let(:upload) do
+      UploadCreator.new(file, filename).create_for(Discourse.system_user.id)
     end
 
-    it 'can proxy a favicon correctly' do
-      url = "https://fav.icon/#{SecureRandom.hex}.png"
+    after do
+      DistributedMemoizer.flush!
+    end
 
-      stub_request(:get, url).to_return(status: 200, body: png)
+    describe 'local store' do
+      it 'returns the default favicon if favicon has not been configured' do
+        get '/favicon/proxied'
 
-      SiteSetting.favicon_url = url
+        expect(response.status).to eq(200)
+        expect(response.content_type).to eq('image/png')
+        expect(response.body.bytesize).to eq(SiteSetting.favicon.filesize)
+      end
 
-      get '/favicon/proxied'
+      it 'returns the configured favicon' do
+        SiteSetting.favicon = upload
 
-      expect(response.status).to eq(200)
-      expect(response.content_type).to eq('image/png')
-      expect(response.body.bytesize).to eq(png.bytesize)
+        get '/favicon/proxied'
+
+        expect(response.status).to eq(200)
+        expect(response.content_type).to eq('image/png')
+        expect(response.body.bytesize).to eq(upload.filesize)
+      end
+    end
+
+    describe 'external store' do
+      let(:upload) do
+        Upload.create!(
+          url: '//s3-upload-bucket.s3-us-east-1.amazonaws.com/somewhere/a.png',
+          original_filename: filename,
+          filesize: file.size,
+          user_id: Discourse.system_user.id
+        )
+      end
+
+      before do
+        SiteSetting.enable_s3_uploads = true
+        SiteSetting.s3_access_key_id = 'X'
+        SiteSetting.s3_secret_access_key = 'X'
+      end
+
+      it 'can proxy a favicon correctly' do
+        SiteSetting.favicon = upload
+
+        stub_request(:get, "https:/#{upload.url}")
+          .to_return(status: 200, body: file)
+
+        get '/favicon/proxied'
+
+        expect(response.status).to eq(200)
+        expect(response.content_type).to eq('image/png')
+        expect(response.body.bytesize).to eq(upload.filesize)
+      end
     end
   end
 
@@ -95,11 +123,12 @@ describe StaticController do
     end
 
     context "with a static file that's present" do
-      it "should return the right response" do
+      it "should return the right response for /faq" do
         get "/faq"
 
         expect(response.status).to eq(200)
         expect(response.body).to include(I18n.t('js.faq'))
+        expect(response.body).to include("<title>FAQ - Discourse</title>")
       end
     end
 
@@ -137,6 +166,18 @@ describe StaticController do
         get "/static/does-not-exist"
         expect(response.status).to eq(404)
       end
+
+      context "modal pages" do
+        it "should return the right response for /signup" do
+          get "/signup"
+          expect(response.status).to eq(200)
+        end
+
+        it "should return the right response for /password-reset" do
+          get "/password-reset"
+          expect(response.status).to eq(200)
+        end
+      end
     end
 
     it 'should redirect to / when logged in and path is /login' do
@@ -162,7 +203,7 @@ describe StaticController do
         SiteSetting.login_required = true
       end
 
-      ['faq', 'guidelines', 'rules'].each do |page_name|
+      ['faq', 'guidelines', 'rules', 'conduct'].each do |page_name|
         it "#{page_name} page redirects to login page for anon" do
           get "/#{page_name}"
           expect(response).to redirect_to '/login'
@@ -172,9 +213,7 @@ describe StaticController do
           get "/#{page_name}"
           expect(response).to redirect_to '/login'
         end
-      end
 
-      ['faq', 'guidelines', 'rules'].each do |page_name|
         it "#{page_name} page loads for logged in user" do
           sign_in(Fabricate(:user))
 
@@ -183,6 +222,14 @@ describe StaticController do
           expect(response.status).to eq(200)
           expect(response.body).to include(I18n.t('guidelines'))
         end
+      end
+    end
+
+    context "crawler view" do
+      it "should include correct title" do
+        get '/faq', headers: { 'HTTP_USER_AGENT' => 'Googlebot' }
+        expect(response.status).to eq(200)
+        expect(response.body).to include("<title>FAQ - Discourse</title>")
       end
     end
   end

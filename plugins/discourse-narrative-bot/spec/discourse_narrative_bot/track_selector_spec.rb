@@ -37,7 +37,7 @@ describe DiscourseNarrativeBot::TrackSelector do
   end
 
   before do
-    SiteSetting.queue_jobs = false
+    Jobs.run_immediately!
   end
 
   describe '#select' do
@@ -109,7 +109,7 @@ describe DiscourseNarrativeBot::TrackSelector do
 
           it 'should not enqueue any user email' do
             NotificationEmailer.enable
-            user.user_option.update!(email_always: true)
+            user.user_option.update!(email_level: UserOption.email_level_types[:always])
 
             post.update!(
               raw: 'show me what you can do',
@@ -258,6 +258,7 @@ describe DiscourseNarrativeBot::TrackSelector do
 
             expect(new_post.raw).to eq(I18n.t(
               'discourse_narrative_bot.track_selector.do_not_understand.second_response',
+              base_path: Discourse.base_path,
               reset_trigger: "#{described_class.reset_trigger} #{DiscourseNarrativeBot::NewUserNarrative.reset_trigger}",
             ))
 
@@ -655,7 +656,7 @@ describe DiscourseNarrativeBot::TrackSelector do
               user
 
               expect do
-                PostAction.act(user, another_post, PostActionType.types[:like])
+                PostActionCreator.like(user, another_post)
               end.to_not change { Post.count }
             end
           end

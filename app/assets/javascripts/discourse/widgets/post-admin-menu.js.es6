@@ -4,13 +4,7 @@ import { ButtonClass } from "discourse/widgets/button";
 
 createWidget(
   "post-admin-menu-button",
-  jQuery.extend(ButtonClass, {
-    tagName: "li.btn",
-    click() {
-      this.sendWidgetAction("closeAdminMenu");
-      return this.sendWidgetAction(this.attrs.action);
-    }
-  })
+  jQuery.extend(ButtonClass, { tagName: "li.btn" })
 );
 
 export function buildManageButtons(attrs, currentUser, siteSettings) {
@@ -22,16 +16,17 @@ export function buildManageButtons(attrs, currentUser, siteSettings) {
   if (currentUser.staff) {
     contents.push({
       icon: "list",
-      label: "admin.flags.moderation_history",
-      action: "showModerationHistory"
+      className: "btn-default",
+      label: "review.moderation_history",
+      url: `/review?topic_id=${attrs.topicId}&status=all`
     });
   }
 
   if (!attrs.isWhisper && currentUser.staff) {
     const buttonAtts = {
       action: "togglePostType",
-      icon: "shield",
-      className: "toggle-post-type"
+      icon: "shield-alt",
+      className: "btn-default toggle-post-type"
     };
 
     if (attrs.isModeratorAction) {
@@ -47,15 +42,15 @@ export function buildManageButtons(attrs, currentUser, siteSettings) {
       icon: "cog",
       label: "post.controls.rebake",
       action: "rebakePost",
-      className: "rebuild-html"
+      className: "btn-default rebuild-html"
     });
 
     if (attrs.hidden) {
       contents.push({
-        icon: "eye",
+        icon: "far-eye",
         label: "post.controls.unhide",
         action: "unhidePost",
-        className: "unhide-post"
+        className: "btn-default unhide-post"
       });
     }
   }
@@ -65,7 +60,7 @@ export function buildManageButtons(attrs, currentUser, siteSettings) {
       icon: "user",
       label: "post.controls.change_owner",
       action: "changePostOwner",
-      className: "change-owner"
+      className: "btn-default change-owner"
     });
   }
 
@@ -75,18 +70,27 @@ export function buildManageButtons(attrs, currentUser, siteSettings) {
         icon: "certificate",
         label: "post.controls.grant_badge",
         action: "grantBadge",
-        className: "grant-badge"
+        className: "btn-default grant-badge"
       });
     }
 
-    const action = attrs.locked ? "unlock" : "lock";
-    contents.push({
-      icon: action,
-      label: `post.controls.${action}_post`,
-      action: `${action}Post`,
-      title: `post.controls.${action}_post_description`,
-      className: `${action}-post`
-    });
+    if (attrs.locked) {
+      contents.push({
+        icon: "unlock",
+        label: "post.controls.unlock_post",
+        action: "unlockPost",
+        title: "post.controls.unlock_post_description",
+        className: "btn-default unlock-post"
+      });
+    } else {
+      contents.push({
+        icon: "lock",
+        label: "post.controls.lock_post",
+        action: "lockPost",
+        title: "post.controls.lock_post_description",
+        className: "btn-default lock-post"
+      });
+    }
   }
 
   if (attrs.canManage || attrs.canWiki) {
@@ -95,14 +99,32 @@ export function buildManageButtons(attrs, currentUser, siteSettings) {
         action: "toggleWiki",
         label: "post.controls.unwiki",
         icon: "pencil-square-o",
-        className: "wiki wikied"
+        className: "btn-default wiki wikied"
       });
     } else {
       contents.push({
         action: "toggleWiki",
         label: "post.controls.wiki",
         icon: "pencil-square-o",
-        className: "wiki"
+        className: "btn-default wiki"
+      });
+    }
+  }
+
+  if (currentUser.staff) {
+    if (attrs.noticeType) {
+      contents.push({
+        icon: "asterisk",
+        label: "post.controls.remove_post_notice",
+        action: "removeNotice",
+        className: "btn-default remove-notice"
+      });
+    } else {
+      contents.push({
+        icon: "asterisk",
+        label: "post.controls.add_post_notice",
+        action: "addNotice",
+        className: "btn-default add-notice"
       });
     }
   }
@@ -119,6 +141,7 @@ export default createWidget("post-admin-menu", {
 
     buildManageButtons(this.attrs, this.currentUser, this.siteSettings).forEach(
       b => {
+        b.secondaryAction = "closeAdminMenu";
         contents.push(this.attach("post-admin-menu-button", b));
       }
     );

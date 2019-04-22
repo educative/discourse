@@ -4,10 +4,6 @@ import { exportEntity } from "discourse/lib/export-csv";
 import { outputExportResult } from "discourse/lib/export-result";
 import { SCHEMA_VERSION, default as Report } from "admin/models/report";
 import computed from "ember-addons/ember-computed-decorators";
-import {
-  registerHoverTooltip,
-  unregisterHoverTooltip
-} from "discourse/lib/tooltip";
 
 const TABLE_OPTIONS = {
   perPage: 8,
@@ -34,6 +30,7 @@ function collapseWeekly(data, average) {
     bucket = bucket || { x: data[i].x, y: 0 };
     bucket.y += data[i].y;
   }
+
   return aggregate;
 }
 
@@ -41,7 +38,7 @@ export default Ember.Component.extend({
   classNameBindings: ["isEnabled", "isLoading", "dasherizedDataSourceName"],
   classNames: ["admin-report"],
   isEnabled: true,
-  disabledLabel: "admin.dashboard.disabled",
+  disabledLabel: I18n.t("admin.dashboard.disabled"),
   isLoading: false,
   rateLimitationString: null,
   dataSourceName: null,
@@ -55,6 +52,7 @@ export default Ember.Component.extend({
   endDate: null,
   category: null,
   groupId: null,
+  filter: null,
   showTrend: false,
   showHeader: true,
   showTitle: true,
@@ -84,6 +82,7 @@ export default Ember.Component.extend({
     this.setProperties({
       category: Category.findById(state.categoryId),
       groupId: state.groupId,
+      filter: state.filter,
       startDate: state.startDate,
       endDate: state.endDate
     });
@@ -99,19 +98,12 @@ export default Ember.Component.extend({
     }
   },
 
-  didRender() {
-    this._super(...arguments);
-
-    registerHoverTooltip($(".info[data-tooltip]"));
-  },
-
-  willDestroyElement() {
-    this._super(...arguments);
-
-    unregisterHoverTooltip($(".info[data-tooltip]"));
-  },
-
-  showError: Ember.computed.or("showTimeoutError", "showExceptionError"),
+  showError: Ember.computed.or(
+    "showTimeoutError",
+    "showExceptionError",
+    "showNotFoundError"
+  ),
+  showNotFoundError: Ember.computed.equal("model.error", "not_found"),
   showTimeoutError: Ember.computed.equal("model.error", "timeout"),
   showExceptionError: Ember.computed.equal("model.error", "exception"),
 
@@ -140,7 +132,7 @@ export default Ember.Component.extend({
     const modes = forcedModes ? forcedModes.split(",") : reportModes;
 
     return Ember.makeArray(modes).map(mode => {
-      const base = `mode-btn ${mode}`;
+      const base = `btn-default mode-btn ${mode}`;
       const cssClass = currentMode === mode ? `${base} is-current` : base;
 
       return {
@@ -166,6 +158,18 @@ export default Ember.Component.extend({
   @computed("currentMode")
   modeComponent(currentMode) {
     return `admin-report-${currentMode}`;
+  },
+
+  @computed("model.filter_options")
+  filterOptions(options) {
+    if (options) {
+      return options.map(option => {
+        if (option.allowAny) {
+          option.choices.unshift(I18n.t("admin.dashboard.report_filter_any"));
+        }
+        return option;
+      });
+    }
   },
 
   @computed("startDate")
@@ -196,10 +200,11 @@ export default Ember.Component.extend({
     "dataSourceName",
     "categoryId",
     "groupId",
+    "filter",
     "normalizedStartDate",
     "normalizedEndDate"
   )
-  reportKey(dataSourceName, categoryId, groupId, startDate, endDate) {
+  reportKey(dataSourceName, categoryId, groupId, filter, startDate, endDate) {
     if (!dataSourceName || !startDate || !endDate) return null;
 
     let reportKey = "reports:";
@@ -209,6 +214,7 @@ export default Ember.Component.extend({
       startDate.replace(/-/g, ""),
       endDate.replace(/-/g, ""),
       groupId,
+      filter,
       "[:prev_period]",
       this.get("reportOptions.table.limit"),
       SCHEMA_VERSION
@@ -221,10 +227,35 @@ export default Ember.Component.extend({
   },
 
   actions: {
+    filter(filterOptionId, value) {
+      let params = [];
+      let paramPairs = {};
+      let newParams = [];
+
+      if (this.get("filter")) {
+        const filter = this.get("filter").slice(1, -1);
+        params = filter.split("&") || [];
+        params.map(p => {
+          const pair = p.split("=");
+          paramPairs[pair[0]] = pair[1];
+        });
+      }
+
+      paramPairs[filterOptionId] = value;
+      Object.keys(paramPairs).forEach(key => {
+        if (paramPairs[key] !== I18n.t("admin.dashboard.report_filter_any")) {
+          newParams.push(`${key}=${paramPairs[key]}`);
+        }
+      });
+
+      this.set("filter", `[${newParams.join("&")}]`);
+    },
+
     refreshReport() {
       this.attrs.onRefresh({
         categoryId: this.get("categoryId"),
         groupId: this.get("groupId"),
+        filter: this.get("filter"),
         startDate: this.get("startDate"),
         endDate: this.get("endDate")
       });
@@ -274,13 +305,17 @@ export default Ember.Component.extend({
     if (!this.get("startDate") || !this.get("endDate")) {
       report = sort(filteredReports)[0];
     } else {
-      let reportKey = this.get("reportKey");
+      const reportKey = this.get("reportKey");
 
       report = sort(
         filteredReports.filter(r => r.report_key.includes(reportKey))
       )[0];
 
       if (!report) return;
+    }
+
+    if (report.error === "not_found") {
+      this.set("showFilteringUI", false);
     }
 
     this._renderReport(
@@ -302,7 +337,7 @@ export default Ember.Component.extend({
   },
 
   _fetchReport() {
-    this._super();
+    this._super(...arguments);
 
     this.setProperties({ isLoading: true, rateLimitationString: null });
 
@@ -356,6 +391,10 @@ export default Ember.Component.extend({
       payload.data.category_id = this.get("categoryId");
     }
 
+    if (this.get("filter") && this.get("filter") !== "all") {
+      payload.data.filter = this.get("filter");
+    }
+
     if (this.get("reportOptions.table.limit")) {
       payload.data.limit = this.get("reportOptions.table.limit");
     }
@@ -380,7 +419,20 @@ export default Ember.Component.extend({
   _loadReport(jsonReport) {
     Report.fillMissingDates(jsonReport, { filledField: "chartData" });
 
-    if (jsonReport.chartData && jsonReport.chartData.length > 40) {
+    if (jsonReport.chartData && jsonReport.modes[0] === "stacked_chart") {
+      jsonReport.chartData = jsonReport.chartData.map(chartData => {
+        if (chartData.length > 40) {
+          return {
+            data: collapseWeekly(chartData.data),
+            req: chartData.req,
+            label: chartData.label,
+            color: chartData.color
+          };
+        } else {
+          return chartData;
+        }
+      });
+    } else if (jsonReport.chartData && jsonReport.chartData.length > 40) {
       jsonReport.chartData = collapseWeekly(
         jsonReport.chartData,
         jsonReport.average

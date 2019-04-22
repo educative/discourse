@@ -43,7 +43,16 @@ describe Upload do
       upload.reload
       expect(upload.optimized_images.count).to eq(1)
     end
+  end
 
+  it "supports <style> element in SVG" do
+    SiteSetting.authorized_extensions = "svg"
+
+    upload = UploadCreator.new(image_svg, image_svg_filename).create_for(user_id)
+    expect(upload.valid?).to eq(true)
+
+    path = Discourse.store.path_for(upload)
+    expect(File.read(path)).to match(/<style>/)
   end
 
   it "can reconstruct dimensions on demand" do
@@ -56,10 +65,23 @@ describe Upload do
     expect(upload.width).to eq(64250)
     expect(upload.height).to eq(64250)
 
+    upload.reload
+    expect(upload.read_attribute(:width)).to eq(64250)
+
     upload.update_columns(width: nil, height: nil, thumbnail_width: nil, thumbnail_height: nil)
 
     expect(upload.thumbnail_width).to eq(500)
     expect(upload.thumbnail_height).to eq(500)
+  end
+
+  it "dimension calculation returns nil on missing image" do
+    upload = UploadCreator.new(huge_image, "image.png").create_for(user_id)
+    upload.update_columns(width: nil, height: nil, thumbnail_width: nil, thumbnail_height: nil)
+
+    missing_url = "wrong_folder#{upload.url}"
+    upload.update_columns(url: missing_url)
+    expect(upload.thumbnail_height).to eq(nil)
+    expect(upload.thumbnail_width).to eq(nil)
   end
 
   it "extracts file extension" do
@@ -71,6 +93,14 @@ describe Upload do
     SiteSetting.authorized_extensions = "*"
     created_upload = UploadCreator.new(attachment, nil).create_for(user_id)
     expect(created_upload.valid?).to eq(false)
+  end
+
+  context ".extract_url" do
+    let(:url) { 'https://example.com/uploads/default/original/1X/d1c2d40ab994e8410c.png' }
+
+    it 'should return the right part of url' do
+      expect(Upload.extract_url(url).to_s).to eq('/original/1X/d1c2d40ab994e8410c.png')
+    end
   end
 
   context ".get_from_url" do
@@ -219,6 +249,21 @@ describe Upload do
     it "should be able to look up sha1 even with leading zeros" do
       sha1 = '0000c513e1da04f7b4e99230851ea2aafeb8cc4e'
       expect(Upload.sha1_from_short_url('upload://1Eg9p8rrCURq4T3a6iJUk0ri6.png')).to eq(sha1)
+    end
+  end
+
+  describe '#to_s' do
+    it 'should return the right value' do
+      expect(upload.to_s).to eq(upload.url)
+    end
+  end
+
+  describe '.migrate_to_new_scheme' do
+    it 'should not migrate system uploads' do
+      SiteSetting.migrate_to_new_scheme = true
+
+      expect { Upload.migrate_to_new_scheme }
+        .to_not change { Upload.pluck(:url) }
     end
   end
 

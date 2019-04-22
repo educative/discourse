@@ -23,7 +23,7 @@ SQL
 SQL
 
   FirstQuote = <<SQL
-  SELECT ids.user_id, q.post_id, q.created_at granted_at
+  SELECT ids.user_id, q.post_id, p3.created_at granted_at
   FROM
   (
     SELECT p1.user_id, MIN(q1.id) id
@@ -34,6 +34,7 @@ SQL
     GROUP BY p1.user_id
   ) ids
   JOIN quoted_posts q ON q.id = ids.id
+  JOIN badge_posts p3 ON q.post_id = p3.id
 SQL
 
   FirstLink = <<SQL
@@ -97,6 +98,15 @@ SQL
   WHERE p.self_edits > 0 AND
       (:backfill OR p.id IN (:post_ids) )
   GROUP BY p.user_id
+SQL
+
+  WikiEditor = <<~SQL
+  SELECT DISTINCT ON (pr.user_id) pr.user_id, pr.post_id, pr.created_at granted_at
+  FROM post_revisions pr
+  JOIN badge_posts p on p.id = pr.post_id
+  WHERE p.wiki
+      AND NOT pr.hidden
+      AND (:backfill OR p.id IN (:post_ids))
 SQL
 
   Welcome = <<SQL
@@ -189,8 +199,7 @@ SQL
     <<-SQL
         SELECT tl.user_id, post_id, current_timestamp granted_at
           FROM topic_links tl
-          JOIN posts p  ON p.id = post_id    AND p.deleted_at IS NULL
-          JOIN topics t ON t.id = p.topic_id AND t.deleted_at IS NULL AND t.archetype <> 'private_message'
+          JOIN badge_posts p ON p.id = post_id
          WHERE NOT tl.internal
            AND tl.clicks >= #{count}
       GROUP BY tl.user_id, tl.post_id

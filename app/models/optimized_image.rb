@@ -4,18 +4,28 @@ require_dependency "db_helper"
 require_dependency "file_store/local_store"
 
 class OptimizedImage < ActiveRecord::Base
+  include HasUrl
   belongs_to :upload
 
   # BUMP UP if optimized image algorithm changes
-  VERSION = 1
+  VERSION = 2
+  URL_REGEX ||= /(\/optimized\/\dX[\/\.\w]*\/([a-zA-Z0-9]+)[\.\w]*)/
 
   def self.lock(upload_id, width, height)
     @hostname ||= `hostname`.strip rescue "unknown"
-    # note, the extra lock here ensures we only optimize one image per machine
-    # this can very easily lead to runaway CPU so slowing it down is beneficial
-    DistributedMutex.synchronize("optimized_image_host_#{@hostname}") do
+    # note, the extra lock here ensures we only optimize one image per machine on webs
+    # this can very easily lead to runaway CPU so slowing it down is beneficial and it is hijacked
+    #
+    # we can not afford this blocking in Sidekiq cause it can lead to starvation
+    if Sidekiq.server?
       DistributedMutex.synchronize("optimized_image_#{upload_id}_#{width}_#{height}") do
         yield
+      end
+    else
+      DistributedMutex.synchronize("optimized_image_host_#{@hostname}") do
+        DistributedMutex.synchronize("optimized_image_#{upload_id}_#{width}_#{height}") do
+          yield
+        end
       end
     end
   end
@@ -29,7 +39,7 @@ class OptimizedImage < ActiveRecord::Base
       upload.fix_image_extension
     end
 
-    if !upload.extension.match?(IM_DECODERS)
+    if !upload.extension.match?(IM_DECODERS) && upload.extension != "svg"
       if !opts[:raise_on_error]
         # nothing to do ... bad extension, not an image
         return
@@ -42,7 +52,7 @@ class OptimizedImage < ActiveRecord::Base
     thumbnail = find_by(upload_id: upload.id, width: width, height: height)
 
     # correct bad thumbnail if needed
-    if thumbnail && thumbnail.url.blank?
+    if thumbnail && (thumbnail.url.blank? || thumbnail.version != VERSION)
       thumbnail.destroy!
       thumbnail = nil
     end
@@ -67,7 +77,7 @@ class OptimizedImage < ActiveRecord::Base
         Rails.logger.error("Could not find file in the store located at url: #{upload.url}")
       else
         # create a temp file with the same extension as the original
-        extension = ".#{upload.extension}"
+        extension = ".#{opts[:format] || upload.extension}"
 
         if extension.length == 1
           return nil
@@ -76,7 +86,7 @@ class OptimizedImage < ActiveRecord::Base
         temp_file = Tempfile.new(["discourse-thumbnail", extension])
         temp_path = temp_file.path
 
-        if extension =~ /\.svg$/i
+        if upload.extension == "svg"
           FileUtils.cp(original_path, temp_path)
           resized = true
         elsif opts[:crop]
@@ -86,7 +96,6 @@ class OptimizedImage < ActiveRecord::Base
         end
 
         if resized
-
           thumbnail = OptimizedImage.create!(
             upload_id: upload.id,
             sha1: Upload.generate_digest(temp_path),
@@ -94,8 +103,10 @@ class OptimizedImage < ActiveRecord::Base
             width: width,
             height: height,
             url: "",
-            filesize: File.size(temp_path)
+            filesize: File.size(temp_path),
+            version: VERSION
           )
+
           # store the optimized image and update its url
           File.open(temp_path) do |file|
             url = Discourse.store.store_optimized_image(file, thumbnail)
@@ -121,7 +132,7 @@ class OptimizedImage < ActiveRecord::Base
 
   def destroy
     OptimizedImage.transaction do
-      Discourse.store.remove_optimized_image(self)
+      Discourse.store.remove_optimized_image(self) if self.upload
       super
     end
   end
@@ -170,10 +181,23 @@ class OptimizedImage < ActiveRecord::Base
     end
   end
 
-  IM_DECODERS ||= /\A(jpe?g|png|tiff?|bmp|ico|gif)\z/i
+  IM_DECODERS ||= /\A(jpe?g|png|ico|gif)\z/i
 
   def self.prepend_decoder!(path, ext_path = nil, opts = nil)
-    extension = File.extname((opts && opts[:filename]) || ext_path || path)[1..-1]
+    opts ||= {}
+
+    # This logic is a little messy but the result of using mocks for most
+    # of the image tests. The idea here is you shouldn't trust the "original"
+    # path of a file to figure out its extension. However, in certain cases
+    # such as generating the loading upload thumbnail, we force the format,
+    # and this allows us to use the forced format in that case.
+    extension = nil
+    if (opts[:format] && path != ext_path)
+      extension = File.extname(path)[1..-1]
+    else
+      extension = File.extname(opts[:filename] || ext_path || path)[1..-1]
+    end
+
     raise Discourse::InvalidAccess if !extension || !extension.match?(IM_DECODERS)
     "#{extension}:#{path}"
   end
@@ -189,10 +213,14 @@ class OptimizedImage < ActiveRecord::Base
     from = prepend_decoder!(from, to, opts)
     to = prepend_decoder!(to, to, opts)
 
+    instructions = ['convert', "#{from}[0]"]
+
+    if opts[:colors]
+      instructions << "-colors" << opts[:colors].to_s
+    end
+
     # NOTE: ORDER is important!
-    %W{
-      convert
-      #{from}[0]
+    instructions.concat(%W{
       -auto-orient
       -gravity center
       -background transparent
@@ -204,7 +232,7 @@ class OptimizedImage < ActiveRecord::Base
       -quality 98
       -profile #{File.join(Rails.root, 'vendor', 'data', 'RT_sRGB.icm')}
       #{to}
-    }
+    })
   end
 
   def self.resize_instructions_animated(from, to, dimensions, opts = {})
@@ -212,7 +240,7 @@ class OptimizedImage < ActiveRecord::Base
 
     %W{
       gifsicle
-      --colors=256
+      --colors=#{opts[:colors] || 256}
       --resize-fit #{dimensions}
       --optimize=3
       --output #{to}
@@ -248,7 +276,7 @@ class OptimizedImage < ActiveRecord::Base
     %W{
       gifsicle
       --crop 0,0+#{dimensions}
-      --colors=256
+      --colors=#{opts[:colors] || 256}
       --optimize=3
       --output #{to}
       #{from}
@@ -300,9 +328,13 @@ class OptimizedImage < ActiveRecord::Base
     convert_with(instructions, to, opts)
   end
 
+  MAX_PNGQUANT_SIZE = 500_000
+
   def self.convert_with(instructions, to, opts = {})
-    Discourse::Utils.execute_command(*instructions)
-    FileHelper.optimize_image!(to)
+    Discourse::Utils.execute_command("nice", "-n", "10", *instructions)
+
+    allow_pngquant = to.downcase.ends_with?(".png") && File.size(to) < MAX_PNGQUANT_SIZE
+    FileHelper.optimize_image!(to, allow_pngquant: allow_pngquant)
     true
   rescue => e
     if opts[:raise_on_error]
@@ -320,72 +352,6 @@ class OptimizedImage < ActiveRecord::Base
       false
     end
   end
-
-  def self.migrate_to_new_scheme(limit = nil)
-    problems = []
-
-    if SiteSetting.migrate_to_new_scheme
-      max_file_size_kb = SiteSetting.max_image_size_kb.kilobytes
-      local_store = FileStore::LocalStore.new
-
-      scope = OptimizedImage.includes(:upload)
-        .where("url NOT LIKE '%/optimized/_X/%'")
-        .order(id: :desc)
-
-      scope.limit(limit) if limit
-
-      scope.each do |optimized_image|
-        begin
-          # keep track of the url
-          previous_url = optimized_image.url.dup
-          # where is the file currently stored?
-          external = previous_url =~ /^\/\//
-          # download if external
-          if external
-            url = SiteSetting.scheme + ":" + previous_url
-            file = FileHelper.download(
-              url,
-              max_file_size: max_file_size_kb,
-              tmp_file_name: "discourse",
-              follow_redirect: true
-            ) rescue nil
-            path = file.path
-          else
-            path = local_store.path_for(optimized_image)
-            file = File.open(path)
-          end
-          # compute SHA if missing
-          if optimized_image.sha1.blank?
-            optimized_image.sha1 = Upload.generate_digest(path)
-          end
-          # optimize if image
-          FileHelper.optimize_image!(path)
-          # store to new location & update the filesize
-          File.open(path) do |f|
-            optimized_image.url = Discourse.store.store_optimized_image(f, optimized_image)
-            optimized_image.save
-          end
-          # remap the URLs
-          DbHelper.remap(UrlHelper.absolute(previous_url), optimized_image.url) unless external
-          DbHelper.remap(previous_url, optimized_image.url)
-          # remove the old file (when local)
-          unless external
-            FileUtils.rm(path, force: true)
-          end
-        rescue => e
-          problems << { optimized_image: optimized_image, ex: e }
-          # just ditch the optimized image if there was any errors
-          optimized_image.destroy
-        ensure
-          file&.unlink
-          file&.close
-        end
-      end
-    end
-
-    problems
-  end
-
 end
 
 # == Schema Information
@@ -400,9 +366,12 @@ end
 #  upload_id :integer          not null
 #  url       :string           not null
 #  filesize  :integer
+#  etag      :string
+#  version   :integer
 #
 # Indexes
 #
+#  index_optimized_images_on_etag                            (etag)
 #  index_optimized_images_on_upload_id                       (upload_id)
 #  index_optimized_images_on_upload_id_and_width_and_height  (upload_id,width,height) UNIQUE
 #

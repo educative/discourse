@@ -11,7 +11,7 @@ componentTest("default theme", {
 
   test(assert) {
     assert.expect(1);
-    assert.equal(this.$(".fa-check").length, 1, "shows default theme icon");
+    assert.equal(find(".d-icon-check").length, 1, "shows default theme icon");
   }
 });
 
@@ -26,11 +26,11 @@ componentTest("pending updates", {
 
   test(assert) {
     assert.expect(1);
-    assert.equal(this.$(".fa-refresh").length, 1, "shows pending update icon");
+    assert.equal(find(".d-icon-sync").length, 1, "shows pending update icon");
   }
 });
 
-componentTest("borken theme", {
+componentTest("broken theme", {
   template: "{{themes-list-item theme=theme}}",
   beforeEach() {
     this.set(
@@ -45,7 +45,7 @@ componentTest("borken theme", {
   test(assert) {
     assert.expect(1);
     assert.equal(
-      this.$(".fa-exclamation-circle").length,
+      find(".d-icon-exclamation-circle").length,
       1,
       "shows broken theme icon"
     );
@@ -69,12 +69,17 @@ componentTest("with children", {
   test(assert) {
     assert.expect(2);
     assert.deepEqual(
-      Array.from(this.$(".component")).map(node => node.innerText.trim()),
-      childrenList.splice(0, 4).map(theme => theme.get("name")),
+      find(".components")
+        .text()
+        .trim(),
+      childrenList
+        .splice(0, 4)
+        .map(theme => theme.get("name"))
+        .join(", "),
       "lists the first 4 children"
     );
     assert.deepEqual(
-      this.$(".others-count")
+      find(".others-count")
         .text()
         .trim(),
       I18n.t("admin.customize.theme.and_x_more", { count: 1 }),

@@ -240,7 +240,7 @@ describe TopicUser do
         create_post(
           archetype: Archetype.private_message,
           target_usernames: target_user.username
-        );
+        )
       end
 
       let(:topic) { post.topic }
@@ -451,7 +451,7 @@ describe TopicUser do
     it "will receive email notification for every topic" do
       user1 = Fabricate(:user)
 
-      SiteSetting.queue_jobs = false
+      Jobs.run_immediately!
       SiteSetting.default_email_mailing_list_mode = true
       SiteSetting.default_email_mailing_list_mode_frequency = 1
 

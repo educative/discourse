@@ -14,7 +14,7 @@ export default MultiSelectComponent.extend(TagsMixin, {
   allowAny: false,
 
   init() {
-    this._super();
+    this._super(...arguments);
 
     this.set("templateForRow", rowComponent => {
       const tag = rowComponent.get("computedContent");
@@ -87,12 +87,6 @@ export default MultiSelectComponent.extend(TagsMixin, {
     results = results.map(result => {
       return { id: result.text, name: result.text, count: result.count };
     });
-
-    // if forbidden we probably have an existing tag which is not in the list of
-    // returned tags, so we manually add it at the top
-    if (json.forbidden) {
-      results.unshift({ id: json.forbidden, name: json.forbidden, count: 0 });
-    }
 
     return results;
   }

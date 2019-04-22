@@ -6,18 +6,21 @@
         statusType=statusType
         value=selection
         input=input
+        includeDateTime=includeDateTime
         includeWeekend=includeWeekend
         includeFarFuture=includeFarFuture
+        includeMidFuture=includeMidFuture
+        clearable=clearable
         none="topic.auto_update_input.none"}}
   </div>
 
-  {{#if isCustom}}
+  {{#if displayDateAndTimePicker}}
     <div class="control-group">
-      {{d-icon "calendar"}} {{date-picker-future value=date defaultDate=date}}
+      {{d-icon "calendar-alt"}} {{date-picker-future value=date defaultDate=date}}
     </div>
 
     <div class="control-group">
-      {{d-icon "clock-o"}}
+      {{d-icon "far-clock"}}
       {{input type="time" value=time}}
     </div>
   {{/if}}

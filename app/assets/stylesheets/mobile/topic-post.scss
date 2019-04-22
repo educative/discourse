@@ -1,5 +1,4 @@
 /* hide the reply border above the time gap notices */
-
 .time-gap + .topic-post article {
   border-top: none;
 }
@@ -48,11 +47,10 @@ span.badge-posts {
           }
           &.my-likes {
             display: flex;
-            align-items: baseline;
             max-width: unset;
             margin-right: 0;
             padding: 8px 9px 8px 8px;
-            i {
+            .d-icon {
               padding-left: 8px;
             }
           }
@@ -85,14 +83,20 @@ span.badge-posts {
         margin: 10px 0 10px 0;
       }
       &.reply {
-        color: $primary-high;
+        .d-icon {
+          color: $primary-high;
+        }
         margin-left: auto;
       }
       &.has-like {
-        color: $love;
+        .d-icon {
+          color: $love;
+        }
       }
       &.bookmarked {
-        color: $tertiary;
+        .d-icon {
+          color: $tertiary;
+        }
       }
     }
   }
@@ -189,7 +193,7 @@ a.reply-to-tab {
       line-height: $line-height-medium;
     }
     .number,
-    i {
+    .d-icon {
       color: dark-light-choose($primary-high, $secondary-low);
       font-size: $font-up-1;
     }
@@ -240,15 +244,13 @@ a.reply-to-tab {
     color: $tertiary;
   }
   .combobox {
-    float: left;
-    margin-right: 1em;
+    margin-right: 0.5em;
     width: 160px;
     margin-bottom: 0.5em;
   }
 }
 
-#topic-footer-buttons p {
-  clear: both;
+#topic-footer-buttons .reason {
   /* this is to force the drop-down notification state description para below the button */
   margin: 0;
   color: dark-light-choose($primary-medium, $secondary-medium);
@@ -259,7 +261,7 @@ a.reply-to-tab {
   margin: 0 auto;
 }
 
-#suggested-topics {
+.suggested-topics {
   clear: left;
   padding: 20px 0 15px 0;
   th.views,
@@ -285,8 +287,8 @@ span.post-count {
 
 #topic-footer-buttons {
   .btn {
-    margin-bottom: 5px;
-    margin-right: 10px;
+    margin-bottom: 0.5em;
+    margin-right: 0.5em;
   }
 }
 
@@ -319,10 +321,6 @@ iframe {
   max-width: 100%;
 }
 
-.extra-info {
-  display: none;
-}
-
 .open > .dropdown-menu {
   display: block;
 }
@@ -350,12 +348,6 @@ iframe {
 .dropdown-toggle {
   float: left;
   position: relative;
-}
-
-#share-link {
-  width: 290px;
-  left: auto;
-  right: 4px;
 }
 
 .selected-posts {
@@ -402,16 +394,12 @@ blockquote {
   padding: 0.25em 0;
 }
 
-.gutter {
-  display: none;
-}
-
 .posts-wrapper {
   position: relative;
 }
 
 span.highlighted {
-  background-color: dark-light-choose($highlight-low, $highlight);
+  background-color: $highlight-low;
 }
 
 .topic-avatar {
@@ -457,11 +445,11 @@ span.highlighted {
 }
 
 .username.new-user a {
-  color: dark-light-choose($primary-low-mid, $secondary-high);
+  color: $primary-low-mid;
 }
 
 .user-title {
-  color: #aaa;
+  color: $primary-medium;
   overflow: hidden;
   margin-right: 50px;
 }
@@ -485,5 +473,13 @@ span.highlighted {
 .popup-menu {
   h3 {
     margin-bottom: 0;
+  }
+}
+
+.post-notice {
+  margin-bottom: 1em;
+  &.old {
+    border-top: none;
+    padding-top: 0;
   }
 }

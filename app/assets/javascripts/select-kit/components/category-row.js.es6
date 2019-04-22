@@ -20,10 +20,9 @@ export default SelectKitRowComponent.extend({
     return displayCategoryDescription;
   },
 
-  @computed("description", "category.name")
-  title(categoryDescription, categoryName) {
-    if (categoryDescription) return categoryDescription;
-    return categoryName;
+  @computed("descriptionText", "description", "category.name")
+  title(descriptionText, description, name) {
+    return descriptionText || description || name;
   },
 
   @computed("computedContent.value", "computedContent.name")
@@ -76,7 +75,7 @@ export default SelectKitRowComponent.extend({
     "options.countSubcategories"
   )
   topicCount(totalCount, topicCount, countSubcats) {
-    return `&times; ${countSubcats ? totalCount : topicCount}`.htmlSafe();
+    return countSubcats ? totalCount : topicCount;
   },
 
   @computed("displayCategoryDescription", "category.description")
@@ -84,12 +83,23 @@ export default SelectKitRowComponent.extend({
     return displayCategoryDescription && description && description !== "null";
   },
 
+  @computed("category.description_text")
+  descriptionText(description) {
+    if (description) {
+      return this._formatCategoryDescription(description);
+    }
+  },
+
   @computed("category.description")
   description(description) {
     if (description) {
-      return `${description.substr(0, 200)}${
-        description.length > 200 ? "&hellip;" : ""
-      }`;
+      return this._formatCategoryDescription(description);
     }
+  },
+
+  _formatCategoryDescription(description) {
+    return `${description.substr(0, 200)}${
+      description.length > 200 ? "&hellip;" : ""
+    }`;
   }
 });

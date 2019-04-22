@@ -70,6 +70,8 @@ class PostSerializer < BasicPostSerializer
              :is_auto_generated,
              :action_code,
              :action_code_who,
+             :notice_type,
+             :notice_args,
              :last_wiki_edit,
              :locked,
              :excerpt
@@ -255,7 +257,7 @@ class PostSerializer < BasicPostSerializer
         summary[:can_defer_flags] = true if scope.is_staff? &&
                                                    PostActionType.flag_types_without_custom.values.include?(id) &&
                                                    active_flags.present? && active_flags.has_key?(id) &&
-                                                   active_flags[id].count > 0
+                                                   active_flags[id] > 0
       end
 
       if actions.present? && actions.has_key?(id)
@@ -318,11 +320,11 @@ class PostSerializer < BasicPostSerializer
   end
 
   def user_custom_fields
-    @topic_view.user_custom_fields[object.user_id]
+    user_custom_fields_object[object.user_id]
   end
 
   def include_user_custom_fields?
-    (@topic_view&.user_custom_fields || {})[object.user_id]
+    user_custom_fields_object[object.user_id]
   end
 
   def static_doc
@@ -346,6 +348,8 @@ class PostSerializer < BasicPostSerializer
   end
 
   def version
+    return 1 if object.hidden && !scope.can_view_hidden_post_revisions?
+
     scope.is_staff? ? object.version : object.public_version
   end
 
@@ -359,6 +363,35 @@ class PostSerializer < BasicPostSerializer
 
   def include_action_code_who?
     include_action_code? && action_code_who.present?
+  end
+
+  def notice_type
+    post_custom_fields["notice_type"]
+  end
+
+  def include_notice_type?
+    case notice_type
+    when Post.notices[:custom]
+      return true
+    when Post.notices[:new_user]
+      min_trust_level = SiteSetting.new_user_notice_tl
+    when Post.notices[:returning_user]
+      min_trust_level = SiteSetting.returning_user_notice_tl
+    else
+      return false
+    end
+
+    scope.user && scope.user.id && object.user &&
+    scope.user.id != object.user_id &&
+    scope.user.has_trust_level?(min_trust_level)
+  end
+
+  def notice_args
+    post_custom_fields["notice_args"]
+  end
+
+  def include_notice_args?
+    notice_args.present? && include_notice_type?
   end
 
   def locked
@@ -386,9 +419,13 @@ class PostSerializer < BasicPostSerializer
 
   private
 
+  def user_custom_fields_object
+    (@topic_view&.user_custom_fields || @options[:user_custom_fields] || {})
+  end
+
   def topic
     @topic = object.topic
-    @topic ||= Topic.with_deleted.find(object.topic_id) if scope.is_staff?
+    @topic ||= Topic.with_deleted.find_by(id: object.topic_id) if scope.is_staff?
     @topic
   end
 

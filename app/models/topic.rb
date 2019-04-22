@@ -13,9 +13,6 @@ require_dependency 'topic_posters_summary'
 require_dependency 'topic_featured_users'
 
 class Topic < ActiveRecord::Base
-  # TODO remove 01-01-2019
-  self.ignored_columns = ["percent_rank", "vote_count"]
-
   class UserExists < StandardError; end
   include ActionView::Helpers::SanitizeHelper
   include RateLimiter::OnCreateRecord
@@ -36,14 +33,6 @@ class Topic < ActiveRecord::Base
 
   attr_accessor :allowed_user_ids, :tags_changed, :includes_destination_category
 
-  DiscourseEvent.on(:site_setting_saved) do |site_setting|
-    if site_setting.name.to_s == "slug_generation_method" && site_setting.saved_change_to_value?
-      Scheduler::Defer.later("Null topic slug") do
-        Topic.update_all(slug: nil)
-      end
-    end
-  end
-
   def self.max_fancy_title_length
     400
   end
@@ -58,17 +47,18 @@ class Topic < ActiveRecord::Base
       CategoryTagStat.topic_deleted(self) if self.tags.present?
     end
     super(trashed_by)
-    update_flagged_posts_count
     self.topic_embed.trash! if has_topic_embed?
   end
 
-  def recover!
+  def recover!(recovered_by = nil)
     unless deleted_at.nil?
       update_category_topic_count_by(1)
       CategoryTagStat.topic_recovered(self) if self.tags.present?
     end
-    super
-    update_flagged_posts_count
+
+    # Note parens are required because superclass doesn't take `recovered_by`
+    super()
+
     unless (topic_embed = TopicEmbed.with_deleted.find_by_topic_id(id)).nil?
       topic_embed.recover!
     end
@@ -98,8 +88,7 @@ class Topic < ActiveRecord::Base
             if: Proc.new { |t|
               (t.new_record? || t.category_id_changed?) &&
               !SiteSetting.allow_uncategorized_topics &&
-              (t.archetype.nil? || t.regular?) &&
-              (!t.user_id || !t.user.staff?)
+              (t.archetype.nil? || t.regular?)
             }
 
   validates :featured_link, allow_nil: true, url: true
@@ -126,7 +115,6 @@ class Topic < ActiveRecord::Base
   has_many :allowed_groups, through: :topic_allowed_groups, source: :group
   has_many :allowed_group_users, through: :allowed_groups, source: :users
   has_many :allowed_users, through: :topic_allowed_users, source: :user
-  has_many :queued_posts
 
   has_many :topic_tags
   has_many :tags, through: :topic_tags, dependent: :destroy # dependent destroy applies to the topic_tags records
@@ -147,6 +135,7 @@ class Topic < ActiveRecord::Base
   has_many :topic_invites
   has_many :invites, through: :topic_invites, source: :invite
   has_many :topic_timers, dependent: :destroy
+  has_many :reviewables
 
   has_one :user_warning
   has_one :first_post, -> { where post_number: 1 }, class_name: 'Post'
@@ -250,7 +239,6 @@ class Topic < ActiveRecord::Base
     end
 
     SearchIndexer.index(self)
-    UserActionCreator.log_topic(self)
   end
 
   after_update do
@@ -317,9 +305,7 @@ class Topic < ActiveRecord::Base
   end
 
   def has_flags?
-    FlagQuery.flagged_post_actions(filter: "active")
-      .where("topics.id" => id)
-      .exists?
+    ReviewableFlaggedPost.pending.default_visible.where(topic_id: id).exists?
   end
 
   def is_official_warning?
@@ -367,10 +353,6 @@ class Topic < ActiveRecord::Base
     end
 
     fancy_title
-  end
-
-  def pending_posts_count
-    queued_posts.new_count
   end
 
   # Returns hot topics since a date for display in email digest.
@@ -431,12 +413,6 @@ class Topic < ActiveRecord::Base
     end
 
     topics
-  end
-
-  # Using the digest query, figure out what's  new for a user since last seen
-  def self.new_since_last_seen(user, since, featured_topic_ids = nil)
-    topics = Topic.for_digest(user, since)
-    featured_topic_ids ? topics.where("topics.id NOT IN (?)", featured_topic_ids) : topics
   end
 
   def meta_data=(data)
@@ -531,10 +507,10 @@ class Topic < ActiveRecord::Base
   end
 
   # Atomically creates the next post number
-  def self.next_post_number(topic_id, reply = false, whisper = false)
+  def self.next_post_number(topic_id, opts = {})
     highest = DB.query_single("SELECT coalesce(max(post_number),0) AS max FROM posts WHERE topic_id = ?", topic_id).first.to_i
 
-    if whisper
+    if opts[:whisper]
 
       result = DB.query_single(<<~SQL, highest, topic_id)
         UPDATE topics
@@ -547,13 +523,15 @@ class Topic < ActiveRecord::Base
 
     else
 
-      reply_sql = reply ? ", reply_count = reply_count + 1" : ""
+      reply_sql = opts[:reply] ? ", reply_count = reply_count + 1" : ""
+      posts_sql = opts[:post]  ? ", posts_count = posts_count + 1" : ""
 
       result = DB.query_single(<<~SQL, highest: highest, topic_id: topic_id)
         UPDATE topics
         SET highest_staff_post_number = :highest + 1,
-            highest_post_number = :highest + 1#{reply_sql},
-            posts_count = posts_count + 1
+            highest_post_number = :highest + 1
+            #{reply_sql}
+            #{posts_sql}
         WHERE id = :topic_id
         RETURNING highest_post_number
       SQL
@@ -589,6 +567,43 @@ class Topic < ActiveRecord::Base
         posts_count = Y.posts_count
       FROM X, Y
       WHERE
+        topics.archetype <> 'private_message' AND
+        X.topic_id = topics.id AND
+        Y.topic_id = topics.id AND (
+          topics.highest_staff_post_number <> X.highest_post_number OR
+          topics.highest_post_number <> Y.highest_post_number OR
+          topics.last_posted_at <> Y.last_posted_at OR
+          topics.posts_count <> Y.posts_count
+        )
+    SQL
+
+    DB.exec <<~SQL
+      WITH
+      X as (
+        SELECT topic_id,
+               COALESCE(MAX(post_number), 0) highest_post_number
+        FROM posts
+        WHERE deleted_at IS NULL
+        GROUP BY topic_id
+      ),
+      Y as (
+        SELECT topic_id,
+               coalesce(MAX(post_number), 0) highest_post_number,
+               count(*) posts_count,
+               max(created_at) last_posted_at
+        FROM posts
+        WHERE deleted_at IS NULL AND post_type <> 3 AND post_type <> 4
+        GROUP BY topic_id
+      )
+      UPDATE topics
+      SET
+        highest_staff_post_number = X.highest_post_number,
+        highest_post_number = Y.highest_post_number,
+        last_posted_at = Y.last_posted_at,
+        posts_count = Y.posts_count
+      FROM X, Y
+      WHERE
+        topics.archetype = 'private_message' AND
         X.topic_id = topics.id AND
         Y.topic_id = topics.id AND (
           topics.highest_staff_post_number <> X.highest_post_number OR
@@ -601,32 +616,39 @@ class Topic < ActiveRecord::Base
 
   # If a post is deleted we have to update our highest post counters
   def self.reset_highest(topic_id)
+    archetype = Topic.where(id: topic_id).pluck(:archetype).first
+
+    # ignore small_action replies for private messages
+    post_type = archetype == Archetype.private_message ? " AND post_type <> #{Post.types[:small_action]}" : ''
+
     result = DB.query_single(<<~SQL, topic_id: topic_id)
       UPDATE topics
       SET
-      highest_staff_post_number = (
+        highest_staff_post_number = (
           SELECT COALESCE(MAX(post_number), 0) FROM posts
           WHERE topic_id = :topic_id AND
                 deleted_at IS NULL
         ),
-      highest_post_number = (
+        highest_post_number = (
           SELECT COALESCE(MAX(post_number), 0) FROM posts
           WHERE topic_id = :topic_id AND
                 deleted_at IS NULL AND
                 post_type <> 4
+                #{post_type}
         ),
         posts_count = (
           SELECT count(*) FROM posts
           WHERE deleted_at IS NULL AND
                 topic_id = :topic_id AND
                 post_type <> 4
+                #{post_type}
         ),
-
         last_posted_at = (
           SELECT MAX(created_at) FROM posts
           WHERE topic_id = :topic_id AND
                 deleted_at IS NULL AND
                 post_type <> 4
+                #{post_type}
         )
       WHERE id = :topic_id
       RETURNING highest_post_number
@@ -731,7 +753,6 @@ class Topic < ActiveRecord::Base
                               post_type: opts[:post_type] || Post.types[:moderator_action],
                               action_code: opts[:action_code],
                               no_bump: opts[:bump].blank?,
-                              skip_notifications: opts[:skip_notifications],
                               topic_id: self.id,
                               skip_validations: true,
                               custom_fields: opts[:custom_fields])
@@ -761,6 +782,8 @@ class Topic < ActiveRecord::Base
 
     cat = Category.find_by(id: new_category_id)
     return false unless cat
+
+    reviewables.update_all(category_id: new_category_id)
 
     changed_to_category(cat)
   end
@@ -840,60 +863,27 @@ class Topic < ActiveRecord::Base
   def invite(invited_by, username_or_email, group_ids = nil, custom_message = nil)
     target_user = User.find_by_username_or_email(username_or_email)
     guardian = Guardian.new(invited_by)
+    is_email = username_or_email =~ /^.+@.+$/
 
-    if target_user && topic_allowed_users.where(user_id: target_user.id).exists?
-      raise UserExists.new(I18n.t("topic_invite.user_exists"))
-    end
-
-    return true if target_user && invite_existing_muted?(target_user, invited_by)
-
-    if private_message? && target_user && !guardian.can_send_private_message?(target_user)
-      raise UserExists.new(I18n.t("activerecord.errors.models.topic.attributes.base.cant_send_pm"))
-    end
-
-    if target_user && private_message? && topic_allowed_users.create!(user_id: target_user.id)
-      rate_limit_topic_invitation(invited_by)
-      add_small_action(invited_by, "invited_user", target_user.username)
-
-      create_invite_notification!(
-        target_user,
-        Notification.types[:invited_to_private_message],
-        invited_by.username
-      )
-
-      true
-    elsif username_or_email =~ /^.+@.+$/ && guardian.can_invite_via_email?(self)
-
-      if target_user
-        rate_limit_topic_invitation(invited_by)
-        Invite.extend_permissions(self, target_user, invited_by)
-
-        create_invite_notification!(
-          target_user,
-          Notification.types[:invited_to_topic],
-          invited_by.username
-        )
-      else
-        invite_by_email(invited_by, username_or_email, group_ids, custom_message)
+    if target_user
+      if topic_allowed_users.exists?(user_id: target_user.id)
+        raise UserExists.new(I18n.t("topic_invite.user_exists"))
       end
 
-      true
-    elsif target_user &&
-          rate_limit_topic_invitation(invited_by) &&
-          topic_allowed_users.create!(user_id: target_user.id)
+      if invite_existing_muted?(target_user, invited_by)
+        return true
+      end
 
-      create_invite_notification!(
-        target_user,
-        Notification.types[:invited_to_topic],
-        invited_by.username
+      if private_message?
+        !!invite_to_private_message(invited_by, target_user, guardian)
+      else
+        !!invite_to_topic(invited_by, target_user, group_ids, guardian)
+      end
+    elsif is_email && guardian.can_invite_via_email?(self)
+      !!Invite.invite_by_email(
+        username_or_email, invited_by, self, group_ids, custom_message
       )
-
-      true
     end
-  end
-
-  def invite_by_email(invited_by, email, group_ids = nil, custom_message = nil)
-    Invite.invite_by_email(email, invited_by, self, group_ids, custom_message)
   end
 
   def invite_existing_muted?(target_user, invited_by)
@@ -922,7 +912,7 @@ class Topic < ActiveRecord::Base
 
   def grant_permission_to_user(lower_email)
     user = User.find_by_email(lower_email)
-    topic_allowed_users.create!(user_id: user.id)
+    topic_allowed_users.create!(user_id: user.id) unless topic_allowed_users.exists?(user_id: user.id)
   end
 
   def max_post_number
@@ -930,10 +920,10 @@ class Topic < ActiveRecord::Base
   end
 
   def move_posts(moved_by, post_ids, opts)
-    post_mover = PostMover.new(self, moved_by, post_ids)
+    post_mover = PostMover.new(self, moved_by, post_ids, move_to_pm: opts[:archetype].present? && opts[:archetype] == "private_message")
 
     if opts[:destination_topic_id]
-      topic = post_mover.to_topic(opts[:destination_topic_id])
+      topic = post_mover.to_topic(opts[:destination_topic_id], participants: opts[:participants])
 
       DiscourseEvent.trigger(:topic_merged,
         post_mover.original_topic,
@@ -953,10 +943,6 @@ class Topic < ActiveRecord::Base
     feature_topic_users
     update_action_counts
     Topic.reset_highest(id)
-  end
-
-  def update_flagged_posts_count
-    PostAction.update_flagged_posts_count
   end
 
   def update_action_counts
@@ -1390,17 +1376,80 @@ class Topic < ActiveRecord::Base
     post = ordered_posts.where(
       user_deleted: false,
       hidden: false,
-      post_type: Topic.visible_post_types
-    ).last
+      post_type: Post.types[:regular]
+    ).last || first_post
 
     update!(bumped_at: post.created_at)
   end
 
-  private
+  def auto_close_threshold_reached?
+    return if user&.staff?
+
+    scores = ReviewableScore.pending
+      .joins(:reviewable)
+      .where("reviewables.topic_id = ?", self.id)
+      .pluck("COUNT(DISTINCT reviewable_scores.user_id), COALESCE(SUM(reviewable_scores.score), 0.0)")
+      .first
+
+    scores[0] >= SiteSetting.num_flaggers_to_close_topic && scores[1] >= SiteSetting.score_to_auto_close_topic
+  end
 
   def update_category_topic_count_by(num)
     if category_id.present?
-      Category.where(['id = ?', category_id]).update_all("topic_count = topic_count " + (num > 0 ? '+' : '') + "#{num}")
+      Category
+        .where(['id = ?', category_id])
+        .update_all("topic_count = topic_count " + (num > 0 ? '+' : '') + "#{num}")
+    end
+  end
+
+  private
+
+  def invite_to_private_message(invited_by, target_user, guardian)
+    if !guardian.can_send_private_message?(target_user)
+      raise UserExists.new(I18n.t(
+        "activerecord.errors.models.topic.attributes.base.cant_send_pm"
+      ))
+    end
+
+    Topic.transaction do
+      rate_limit_topic_invitation(invited_by)
+      topic_allowed_users.create!(user_id: target_user.id) unless topic_allowed_users.exists?(user_id: target_user.id)
+      add_small_action(invited_by, "invited_user", target_user.username)
+
+      create_invite_notification!(
+        target_user,
+        Notification.types[:invited_to_private_message],
+        invited_by.username
+      )
+    end
+  end
+
+  def invite_to_topic(invited_by, target_user, group_ids, guardian)
+    Topic.transaction do
+      rate_limit_topic_invitation(invited_by)
+
+      if group_ids
+        (
+          self.category.groups.where(id: group_ids).where(automatic: false) -
+          target_user.groups.where(automatic: false)
+        ).each do |group|
+          if guardian.can_edit_group?(group)
+            group.add(target_user)
+
+            GroupActionLogger
+              .new(invited_by, group)
+              .log_add_user_to_group(target_user)
+          end
+        end
+      end
+
+      if Guardian.new(target_user).can_see_topic?(self)
+        create_invite_notification!(
+          target_user,
+          Notification.types[:invited_to_topic],
+          invited_by.username
+        )
+      end
     end
   end
 
@@ -1472,6 +1521,7 @@ end
 #  spam_count                :integer          default(0), not null
 #  pinned_at                 :datetime
 #  score                     :float
+#  percent_rank              :float            default(1.0), not null
 #  subtype                   :string
 #  slug                      :string
 #  deleted_by_id             :integer
@@ -1483,6 +1533,7 @@ end
 #  fancy_title               :string(400)
 #  highest_staff_post_number :integer          default(0), not null
 #  featured_link             :string
+#  reviewable_score          :float            default(0.0), not null
 #
 # Indexes
 #
@@ -1495,4 +1546,5 @@ end
 #  index_topics_on_lower_title             (lower((title)::text))
 #  index_topics_on_pinned_at               (pinned_at) WHERE (pinned_at IS NOT NULL)
 #  index_topics_on_pinned_globally         (pinned_globally) WHERE pinned_globally
+#  index_topics_on_updated_at_public       (updated_at,visible,highest_staff_post_number,highest_post_number,category_id,created_at,id) WHERE (((archetype)::text <> 'private_message'::text) AND (deleted_at IS NULL))
 #

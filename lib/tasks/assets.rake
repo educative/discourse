@@ -58,7 +58,8 @@ task 'assets:precompile:css' => 'environment' do
         STDERR.puts "Compiling css for #{db} #{Time.zone.now}"
         begin
           Stylesheet::Manager.precompile_css
-        rescue => PG::UndefinedColumn
+        rescue PG::UndefinedColumn, ActiveModel::MissingAttributeError => e
+          STDERR.puts "#{e.class} #{e.message}: #{e.backtrace.join("\n")}"
           STDERR.puts "Skipping precompilation of CSS cause schema is old, you are precompiling prior to running migrations."
         end
       end
@@ -114,32 +115,17 @@ def gzip(path)
   raise "gzip compression failed: exit code #{$?.exitstatus}" if $?.exitstatus != 0
 end
 
-if ENV['COMPRESS_BROTLI']&.to_i == 1
-  # different brotli versions use different parameters
-  ver_out, _ver_err, ver_status = Open3.capture3('brotli --version')
-  if !ver_status.success?
-    # old versions of brotli don't respond to --version
-    def brotli_command(path)
-      "brotli --quality 11 --input #{path} --output #{path}.br"
-    end
-  elsif ver_out >= "brotli 1.0.0"
-    def brotli_command(path)
-      "brotli -f --quality=11 #{path} --output=#{path}.br"
-    end
-  else
-    # not sure what to do here, not expecting this
-    raise "cannot determine brotli version"
-  end
+# different brotli versions use different parameters
+def brotli_command(path)
+  "brotli -f --quality=11 #{path} --output=#{path}.br"
 end
 
 def brotli(path)
-  if ENV['COMPRESS_BROTLI']&.to_i == 1
-    STDERR.puts brotli_command(path)
-    STDERR.puts `#{brotli_command(path)}`
-    raise "brotli compression failed: exit code #{$?.exitstatus}" if $?.exitstatus != 0
-    STDERR.puts `chmod +r #{path}.br`.strip
-    raise "chmod failed: exit code #{$?.exitstatus}" if $?.exitstatus != 0
-  end
+  STDERR.puts brotli_command(path)
+  STDERR.puts `#{brotli_command(path)}`
+  raise "brotli compression failed: exit code #{$?.exitstatus}" if $?.exitstatus != 0
+  STDERR.puts `chmod +r #{path}.br`.strip
+  raise "chmod failed: exit code #{$?.exitstatus}" if $?.exitstatus != 0
 end
 
 def compress(from, to)
@@ -163,6 +149,17 @@ def concurrent?
 end
 
 task 'assets:precompile' => 'assets:precompile:before' do
+  if refresh_days = SiteSetting.refresh_maxmind_db_during_precompile_days
+    mmdb_path = DiscourseIpInfo.mmdb_path('GeoLite2-City')
+    mmdb_time = File.exist?(mmdb_path) && File.mtime(mmdb_path)
+    if !mmdb_time || mmdb_time < refresh_days.days.ago
+      puts "Downloading MaxMindDB..."
+      mmdb_thread = Thread.new do
+        DiscourseIpInfo.mmdb_download('GeoLite2-City')
+        DiscourseIpInfo.mmdb_download('GeoLite2-ASN')
+      end
+    end
+  end
 
   if $bypass_sprockets_uglify
     puts "Compressing Javascript and Generating Source Maps"
@@ -217,6 +214,7 @@ task 'assets:precompile' => 'assets:precompile:before' do
     end
   end
 
+  mmdb_thread.join if mmdb_thread
 end
 
 Rake::Task["assets:precompile"].enhance do

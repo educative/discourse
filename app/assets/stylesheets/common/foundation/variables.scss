@@ -10,17 +10,19 @@ $medium-width: 995px !default;
 $large-width: 1110px !default;
 
 $input-padding: 4px 10px;
+$topic-body-width: 690px;
+$topic-body-width-padding: 11px;
+$topic-avatar-width: 45px;
 
 // Brand color variables
 // --------------------------------------------------
 
-$google: #5b76f7 !default;
-$instagram: #125688 !default;
-$facebook: #3b5998 !default;
+$google: #ffffff !default;
+$instagram: #e1306c !default;
+$facebook: #4267b2 !default;
 $cas: #70ba61 !default;
-$twitter: #00bced !default;
-$yahoo: #810293 !default;
-$github: #6d6d6d !default;
+$twitter: #1da1f2 !default;
+$github: #100e0f !default;
 
 // Badge color variables
 // --------------------------------------------------
@@ -32,7 +34,10 @@ $bronze: #cd7f32 !default;
 // Fonts
 // --------------------------------------------------
 
-$base-font-size: 14px !default;
+$base-font-size-smaller: 14px !default;
+$base-font-size: 15px !default;
+$base-font-size-larger: 17px !default;
+$base-font-size-largest: 19px !default;
 $base-font-family: Helvetica, Arial, sans-serif !default;
 
 // Font-size defintions, multiplier ^ (step / interval)
@@ -58,7 +63,7 @@ $line-height-large: 1.4; // Normal or small text
 // These files don't actually exist. They're injected by Stylesheet::Compiler.
 // --------------------------------------------------
 
-@import "theme_variables";
+@import "theme_colors";
 @import "plugins_variables";
 @import "common/foundation/math";
 
@@ -76,7 +81,9 @@ $z-layers: (
   ),
   "fullscreen": 1150,
   "mobile-composer": 1100,
+  "ipad-header-nav": 1020,
   "header": 1000,
+  "footer-nav": 900,
   "tooltip": 600,
   "composer": (
     "dropdown": 700,
@@ -120,10 +127,11 @@ $z-layers: (
 $box-shadow: (
   "modal": 0 8px 60px rgba(0, 0, 0, 0.6),
   "composer": 0 -1px 40px rgba(0, 0, 0, 0.12),
-  "menu-panel": 0 6px 14px rgba(0, 0, 0, 0.15),
+  "menu-panel": 0 12px 12px rgba(0, 0, 0, 0.15),
   "card": 0 4px 14px rgba(0, 0, 0, 0.15),
   "dropdown": 0 2px 3px 0 rgba(0, 0, 0, 0.2),
   "header": 0 2px 4px -1px rgba(0, 0, 0, 0.25),
+  "footer-nav": 0 0 2px 0 rgba(0, 0, 0, 0.25),
   "kbd": (
     0 2px 0 rgba(0, 0, 0, 0.2),
     0 0 0 1px dark-light-choose(#fff, #000) inset
@@ -195,21 +203,51 @@ $box-shadow: (
 // standard color transformations, use these if possible, and add any new dark-light-diffs here
 
 //primary
-$primary-very-low: dark-light-diff($primary, $secondary, 97%, -80%);
-$primary-low: dark-light-diff($primary, $secondary, 90%, -65%);
+$primary-very-low: dark-light-diff($primary, $secondary, 97%, -82%);
+$primary-low: dark-light-diff($primary, $secondary, 90%, -78%);
 $primary-low-mid: dark-light-diff($primary, $secondary, 70%, -45%);
 $primary-medium: dark-light-diff($primary, $secondary, 50%, -35%);
-$primary-high: dark-light-diff($primary, $secondary, 30%, -10%);
+$primary-high: dark-light-diff($primary, $secondary, 30%, -25%);
+$primary-very-high: dark-light-diff($primary, $secondary, 15%, -10%);
 
 //header_primary
-$header_primary-low: dark-light-diff($header_primary, $secondary, 90%, -65%);
-$header_primary-medium: dark-light-diff($header_primary, $secondary, 50%, -20%);
-$header_primary-high: dark-light-diff($header_primary, $secondary, 20%, 20%);
+$header_primary-low: dark-light-diff(
+  $header_primary,
+  $header_background,
+  90%,
+  -78%
+);
+$header_primary-low-mid: dark-light-diff(
+  $header_primary,
+  $header_background,
+  70%,
+  -45%
+);
+
+$header_primary-medium: dark-light-diff(
+  $header_primary,
+  $header_background,
+  50%,
+  -35%
+);
+$header_primary-high: dark-light-diff(
+  $header_primary,
+  $header_background,
+  30%,
+  -25%
+);
+$header_primary-very-high: dark-light-diff(
+  $header_primary,
+  $header_background,
+  15%,
+  -10%
+);
 
 //secondary
 $secondary-low: dark-light-diff($secondary, $primary, 70%, -70%);
 $secondary-medium: dark-light-diff($secondary, $primary, 50%, -50%);
 $secondary-high: dark-light-diff($secondary, $primary, 30%, -35%);
+$secondary-very-high: dark-light-diff($secondary, $primary, 7%, -7%);
 
 //tertiary
 $tertiary-low: dark-light-diff($tertiary, $secondary, 85%, -65%);
@@ -225,7 +263,7 @@ $highlight-medium: dark-light-diff($highlight, $secondary, 50%, -55%);
 $highlight-high: dark-light-diff($highlight, $secondary, -50%, -10%);
 
 //danger
-$danger-low: dark-light-diff($danger, $secondary, 85%, -85%);
+$danger-low: dark-light-diff($danger, $secondary, 85%, -64%);
 $danger-medium: dark-light-diff($danger, $secondary, 30%, -35%);
 
 //success

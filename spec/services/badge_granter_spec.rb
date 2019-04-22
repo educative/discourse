@@ -58,7 +58,7 @@ describe BadgeGranter do
     it 'can backfill the welcome badge' do
       post = Fabricate(:post)
       user2 = Fabricate(:user)
-      PostAction.act(user2, post, PostActionType.types[:like])
+      PostActionCreator.like(user2, post)
 
       UserBadge.destroy_all
       BadgeGranter.backfill(Badge.find(Badge::Welcome))
@@ -74,31 +74,30 @@ describe BadgeGranter do
     end
 
     it 'should grant missing badges' do
+      nice_topic = Badge.find(Badge::NiceTopic)
       good_topic = Badge.find(Badge::GoodTopic)
 
       post = Fabricate(:post, like_count: 30)
+
       2.times {
-        BadgeGranter.backfill(Badge.find(Badge::NiceTopic), post_ids: [post.id])
+        BadgeGranter.backfill(nice_topic, post_ids: [post.id])
         BadgeGranter.backfill(good_topic)
       }
 
       # TODO add welcome
-      expect(post.user.user_badges.pluck(:badge_id).sort).to eq([Badge::NiceTopic, Badge::GoodTopic])
-
+      expect(post.user.user_badges.pluck(:badge_id)).to contain_exactly(nice_topic.id, good_topic.id)
       expect(post.user.notifications.count).to eq(2)
 
-      notification = post.user.notifications.last
-      data = notification.data_hash
+      data = post.user.notifications.last.data_hash
       expect(data["badge_id"]).to eq(good_topic.id)
       expect(data["badge_slug"]).to eq(good_topic.slug)
       expect(data["username"]).to eq(post.user.username)
 
-      expect(Badge.find(Badge::NiceTopic).grant_count).to eq(1)
-      expect(Badge.find(Badge::GoodTopic).grant_count).to eq(1)
+      expect(nice_topic.grant_count).to eq(1)
+      expect(good_topic.grant_count).to eq(1)
     end
 
     it 'should grant badges in the user locale' do
-
       SiteSetting.allow_user_locale = true
 
       nice_topic = Badge.find(Badge::NiceTopic)
@@ -259,12 +258,12 @@ describe BadgeGranter do
     it "grants system like badges" do
       post = create_post(user: user)
       # Welcome badge
-      action = PostAction.act(liker, post, PostActionType.types[:like])
+      action = PostActionCreator.like(liker, post).post_action
       BadgeGranter.process_queue!
       expect(UserBadge.find_by(user_id: user.id, badge_id: 5)).not_to eq(nil)
 
       post = create_post(topic: post.topic, user: user)
-      action = PostAction.act(liker, post, PostActionType.types[:like])
+      action = PostActionCreator.like(liker, post).post_action
 
       # Nice post badge
       post.update_attributes like_count: 10

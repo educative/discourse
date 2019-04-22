@@ -16,6 +16,12 @@ class UserSilencer
     UserSilencer.new(user, by_user, opts).unsilence
   end
 
+  def self.was_silenced_for?(post)
+    return false if post.blank?
+
+    UserHistory.where(action: UserHistory.actions[:silence_user], post: post).exists?
+  end
+
   def silence
     hide_posts unless @opts[:keep_posts]
     unless @user.silenced_till.present?
@@ -71,6 +77,7 @@ class UserSilencer
   def unsilence
     @user.silenced_till = nil
     if @user.save
+      DiscourseEvent.trigger(:user_unsilenced, user: @user)
       SystemMessage.create(@user, :unsilenced)
       StaffActionLogger.new(@by_user).log_unsilence_user(@user) if @by_user
     end

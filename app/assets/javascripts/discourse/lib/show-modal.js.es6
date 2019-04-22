@@ -39,6 +39,7 @@ export default function(name, opts) {
   modalController.set("modalClass", opts.modalClass);
 
   const controllerName = opts.admin ? `modals/${name}` : name;
+  modalController.set("name", controllerName);
 
   let controller = container.lookup("controller:" + controllerName);
   const templateName = opts.templateName || Ember.String.dasherize(name);
@@ -61,6 +62,24 @@ export default function(name, opts) {
   route.render(fullName, renderArgs);
   if (opts.title) {
     modalController.set("title", I18n.t(opts.title));
+  }
+
+  if (opts.panels) {
+    modalController.setProperties({
+      panels: opts.panels,
+      selectedPanel: opts.panels[0]
+    });
+
+    if (controller.actions.onSelectPanel) {
+      modalController.set("onSelectPanel", controller.actions.onSelectPanel);
+    }
+
+    modalController.set(
+      "modalClass",
+      `${modalController.get("modalClass")} has-tabs`
+    );
+  } else {
+    modalController.setProperties({ panels: [], selectedPanel: null });
   }
 
   controller.set("modal", modalController);

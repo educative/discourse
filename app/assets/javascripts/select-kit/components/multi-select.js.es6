@@ -23,7 +23,7 @@ export default SelectKitComponent.extend({
   values: null,
 
   init() {
-    this._super();
+    this._super(...arguments);
 
     this.set("computedValues", []);
 
@@ -39,7 +39,9 @@ export default SelectKitComponent.extend({
   @on("didRender")
   _setChoicesMaxWidth() {
     const width = this.$body().outerWidth(false);
-    this.$(".choices").css({ maxWidth: width });
+    if (width > 0) {
+      this.$(".choices").css({ maxWidth: width });
+    }
   },
 
   @on("didReceiveAttrs")
@@ -112,6 +114,11 @@ export default SelectKitComponent.extend({
     this.set("values", computedValues);
   },
   mutateContent() {},
+
+  forceValues(values) {
+    this.mutateValues(values);
+    this._compute();
+  },
 
   filterComputedContent(computedContent, computedValues, filter) {
     return computedContent.filter(c => {
@@ -262,6 +269,17 @@ export default SelectKitComponent.extend({
       return;
     }
 
+    if (computedContentItem.__sk_row_type === "noopRow") {
+      applyOnSelectPluginApiCallbacks(
+        this.get("pluginApiIdentifiers"),
+        computedContentItem.value,
+        this
+      );
+
+      this._boundaryActionHandler("onSelect", computedContentItem.value);
+      return;
+    }
+
     if (computedContentItem.__sk_row_type === "createRow") {
       if (
         !this.get("computedValues").includes(computedContentItem.value) &&
@@ -313,20 +331,31 @@ export default SelectKitComponent.extend({
 
   deselect(rowComputedContentItems) {
     this.willDeselect(rowComputedContentItems);
+
     rowComputedContentItems = makeArray(rowComputedContentItems);
     const generatedComputedContents = this._filterRemovableComputedContents(
       makeArray(rowComputedContentItems)
     );
-    this.set("highlighted", null);
-    this.set("highlightedSelection", []);
+    this.setProperties({ highlighted: null, highlightedSelection: [] });
     this.get("computedValues").removeObjects(
       rowComputedContentItems.map(r => r.value)
     );
-    this.get("computedContent").removeObjects(generatedComputedContents);
-    run.next(() => this.mutateAttributes());
-    run.schedule("afterRender", () => {
-      this.didDeselect(rowComputedContentItems);
-      this.autoHighlight();
+    this.get("computedContent").removeObjects([
+      ...rowComputedContentItems,
+      ...generatedComputedContents
+    ]);
+
+    run.next(() => {
+      this.mutateAttributes();
+
+      run.schedule("afterRender", () => {
+        this.didDeselect(rowComputedContentItems);
+        this.autoHighlight();
+
+        if (!this.isDestroying && !this.isDestroyed) {
+          this._positionWrapper();
+        }
+      });
     });
   },
 

@@ -31,8 +31,10 @@
       overflow: hidden;
     }
     .d-icon {
-      padding-left: 1px; // prevents lock icon from being cut off on the left
       margin-right: 3px;
+      width: 0.74em;
+      height: 0.74em;
+      color: inherit;
     }
   }
 
@@ -41,7 +43,7 @@
   &.bullet {
     margin-right: 12px;
     span.badge-category {
-      color: $primary;
+      color: $primary-high;
       overflow: hidden;
       text-overflow: ellipsis;
       .extra-info-wrapper & {
@@ -50,6 +52,7 @@
     }
     .badge-category-parent-bg,
     .badge-category-bg {
+      flex: 0 0 auto;
       width: 9px;
       height: 9px;
       margin-right: 5px;
@@ -62,6 +65,9 @@
       + .badge-category-bg {
         width: 5px;
       }
+    }
+    .d-icon {
+      color: $primary-medium;
     }
   }
 
@@ -110,7 +116,7 @@
     margin-right: 5px;
 
     span.badge-category {
-      color: $primary;
+      color: $primary-high;
       padding: 1px 3px;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -135,7 +141,7 @@
   // ----- No category style
 
   &.none {
-    color: $primary;
+    color: $primary-high;
     margin-right: 5px;
   }
 }
@@ -158,9 +164,8 @@
 
 .badge-notification {
   @extend %badge;
-  padding: 3px 5px;
-  min-width: 8px;
-  vertical-align: middle;
+  padding: 0.21em 0.42em;
+  min-width: 0.5em;
   color: $secondary;
   font-size: $font-down-2;
   line-height: $line-height-small;

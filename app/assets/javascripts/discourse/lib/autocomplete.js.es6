@@ -97,7 +97,7 @@ export default function(options) {
     prevTerm = null;
   }
 
-  function addInputSelectedItem(item) {
+  function addInputSelectedItem(item, triggerChangeCallback) {
     var transformed,
       transformedItem = item;
 
@@ -131,7 +131,7 @@ export default function(options) {
       return d[0];
     });
 
-    if (options.onChangeItems) {
+    if (options.onChangeItems && triggerChangeCallback) {
       options.onChangeItems(inputSelectedItems);
     }
 
@@ -164,7 +164,7 @@ export default function(options) {
         if (options.single) {
           me.hide();
         }
-        addInputSelectedItem(term);
+        addInputSelectedItem(term, true);
       } else {
         if (options.transformComplete) {
           term = options.transformComplete(term);
@@ -201,7 +201,10 @@ export default function(options) {
       wrap = this.wrap(
         "<div class='ac-wrap clearfix" + (disabled ? " disabled" : "") + "'/>"
       ).parent();
-      wrap.width(width);
+
+      if (!options.fullWidthWrap) {
+        wrap.width(width);
+      }
     }
 
     if (options.single && !options.width) {
@@ -218,7 +221,7 @@ export default function(options) {
     );
 
     var vals = this.val().split(",");
-    _.each(vals, function(x) {
+    vals.forEach(x => {
       if (x !== "") {
         if (options.reverseTransform) {
           x = options.reverseTransform(x);
@@ -226,16 +229,16 @@ export default function(options) {
         if (options.single) {
           me.hide();
         }
-        addInputSelectedItem(x);
+        addInputSelectedItem(x, false);
       }
     });
 
     if (options.items) {
-      _.each(options.items, function(item) {
+      options.items.forEach(item => {
         if (options.single) {
           me.hide();
         }
-        addInputSelectedItem(item);
+        addInputSelectedItem(item, true);
       });
     }
 
@@ -398,10 +401,8 @@ export default function(options) {
   $(window).on("click.autocomplete", () => closeAutocomplete());
   $(this).on("click.autocomplete", () => closeAutocomplete());
 
-  $(this).on("paste.autocomplete", function() {
-    _.delay(function() {
-      me.trigger("keydown");
-    }, 50);
+  $(this).on("paste.autocomplete", () => {
+    Ember.run.later(() => me.trigger("keydown"), 50);
   });
 
   function checkTriggerRule(opts) {

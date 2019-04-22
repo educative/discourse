@@ -13,6 +13,11 @@ export function isValidLink($link) {
 
 export default {
   trackClick(e) {
+    // right clicks are not tracked
+    if (e.which === 3) {
+      return true;
+    }
+
     // cancel click if triggered as part of selection.
     if (selectedText() !== "") {
       return false;
@@ -109,7 +114,7 @@ export default {
     }
 
     // restore href
-    setTimeout(() => {
+    Ember.run.later(() => {
       $link.removeClass("no-href");
       $link.attr("href", $link.data("href"));
       $link.data("href", null);

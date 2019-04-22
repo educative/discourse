@@ -27,9 +27,9 @@
 
 .modal-header {
   display: flex;
-  align-items: flex-start;
   padding: 10px 15px;
   border-bottom: 1px solid $primary-low;
+  align-items: center;
 
   .title {
     h3 {
@@ -42,6 +42,7 @@
   }
 
   .modal-close {
+    align-self: flex-start;
     order: 2;
     margin-left: auto;
   }
@@ -104,6 +105,7 @@
   background-clip: padding-box;
   box-shadow: shadow("modal");
   padding: 1px;
+  box-sizing: border-box;
 
   @media screen and (min-width: 475px) {
     min-width: 475px;
@@ -147,6 +149,7 @@
 .modal-form {
   margin-bottom: 0;
 }
+
 .modal-footer {
   padding: 14px 15px 10px;
   border-top: 1px solid $primary-low;
@@ -154,11 +157,13 @@
     margin: 0 5px 5px 0;
   }
 }
+
 .modal-footer:before,
 .modal-footer:after {
   display: table;
   content: "";
 }
+
 .modal-footer:after {
   clear: both;
 }
@@ -202,11 +207,7 @@
       width: 99%;
       height: 80px;
     }
-    label {
-      color: $primary;
-    }
     p {
-      color: darken($primary, 40%);
       font-size: $font-0;
     }
     .archetype-option {
@@ -270,8 +271,10 @@
   }
 
   section.field {
-    margin-bottom: 20px;
+    padding: 0.25em 0;
+    margin-bottom: 5px;
   }
+
   section.field .field-item {
     display: inline-block;
     margin-right: 10px;
@@ -317,9 +320,13 @@
     }
   }
 }
+
 .d-modal-cancel {
   margin-left: 1em;
   color: $primary-medium;
+  &:hover {
+    color: $danger;
+  }
 }
 
 .delete-user-modal {
@@ -332,6 +339,25 @@
       margin-bottom: 10px;
       display: inline-block;
       margin-left: 0;
+    }
+  }
+}
+
+.delete-posts-progress {
+  .progress-bar {
+    height: 15px;
+    position: relative;
+    background: $primary-low-mid;
+    border-radius: 25px;
+    overflow: hidden;
+    margin: 30px 0 20px;
+    span {
+      display: block;
+      width: 0%;
+      height: 100%;
+      background-color: $tertiary;
+      position: relative;
+      transition: width 0.6s linear;
     }
   }
 }
@@ -370,22 +396,10 @@
 }
 
 .edit-category-modal {
-  input[type="number"] {
-    min-width: 15em;
-    margin-bottom: 0;
-    position: relative;
-    left: 2%;
-    margin-right: 4%;
-  }
-
-  .subcategory-list-style-field {
-    margin-left: 16px;
-  }
-
-  .edit-category-tab-settings {
-    section.field {
-      margin-bottom: 10px;
-    }
+  input:not([type="checkbox"]),
+  .controls {
+    display: block;
+    margin-bottom: 0.5em;
   }
 
   .disable_info_wrap {
@@ -413,14 +427,40 @@
     }
   }
 
-  section.minimum-required-tags {
-    input[type="number"] {
-      width: 50px;
-    }
+  .permission-selector {
+    margin-right: 0.25em;
   }
 
   .add-permission {
-    margin-top: 12px;
+    position: relative;
+    top: 0.1em;
+  }
+
+  .add-permission-icon {
+    margin: 0;
+  }
+
+  .edit-category-tab-settings {
+    $category-settings-width: 280px; // Consistent width makes this all easier to read
+    > section {
+      margin-bottom: 1.5em;
+    }
+    input[type="number"],
+    input[type="text"],
+    .select-kit {
+      width: $category-settings-width;
+    }
+    label {
+      max-width: $category-settings-width;
+    }
+    .category-email-in-outlet {
+      label {
+        flex-wrap: wrap; // Todo: fix all multi-element labels
+        a {
+          margin-left: 1.3em;
+        }
+      }
+    }
   }
 }
 
@@ -558,13 +598,29 @@
 
       .left,
       .right {
-        flex: 1;
+        flex: 1 0 0px;
       }
 
       .text {
         margin: 0 0.5em;
         color: $primary-medium;
       }
+    }
+  }
+}
+
+// move-to topic modal
+.move-to-modal {
+  // move to existing topic
+  .existing-topic {
+    .radio {
+      flex-wrap: wrap;
+    }
+    .topic-title {
+      max-width: 90%;
+    }
+    .topic-categories {
+      width: 100%;
     }
   }
 }
@@ -576,7 +632,39 @@
   }
 }
 
-.modal-tab {
-  position: absolute;
-  width: 95%;
+.modal:not(.has-tabs) {
+  .modal-tab {
+    position: absolute;
+    width: 95%;
+  }
+}
+
+.modal {
+  &.has-tabs {
+    .modal-tabs {
+      display: inline-flex;
+      flex-wrap: wrap;
+      width: calc(100% - 20px);
+      flex: 1 0 auto;
+      margin: 0;
+
+      .modal-tab {
+        list-style: none;
+        padding: s(1 2);
+        margin-right: s(1);
+        cursor: pointer;
+
+        &.is-active {
+          color: $secondary;
+          background: $danger;
+
+          &.single-tab {
+            background: none;
+            color: $primary;
+            padding: s(1 0);
+          }
+        }
+      }
+    }
+  }
 }

@@ -123,7 +123,7 @@ describe PostCreator do
 
       it "generates the correct messages for a secure topic" do
 
-        UserActionCreator.enable
+        UserActionManager.enable
 
         admin = Fabricate(:admin)
 
@@ -157,7 +157,7 @@ describe PostCreator do
 
       it 'generates the correct messages for a normal topic' do
 
-        UserActionCreator.enable
+        UserActionManager.enable
 
         p = nil
         messages = MessageBus.track_publish do
@@ -270,6 +270,21 @@ describe PostCreator do
         }.to_not change { topic.excerpt }
       end
 
+      it 'supports custom excerpts' do
+        raw = <<~MD
+          <div class='excerpt'>
+          I am
+
+          a custom excerpt
+          </div>
+
+          testing
+        MD
+        post = create_post(raw: raw)
+
+        expect(post.excerpt).to eq("I am\na custom excerpt")
+      end
+
       it 'creates post stats' do
 
         Draft.set(user, 'new_topic', 0, "test")
@@ -359,8 +374,8 @@ describe PostCreator do
 
             topic_timer.reload
 
-            expect(topic_timer.execute_at).to eq(Time.zone.now + 12.hours)
-            expect(topic_timer.created_at).to eq(Time.zone.now)
+            expect(topic_timer.execute_at).to eq_time(Time.zone.now + 12.hours)
+            expect(topic_timer.created_at).to eq_time(Time.zone.now)
           end
 
           describe "when auto_close_topics_post_count has been reached" do
@@ -386,7 +401,7 @@ describe PostCreator do
               ))
 
               expect(topic.closed).to eq(true)
-              expect(topic_timer.reload.deleted_at).to eq(Time.zone.now)
+              expect(topic_timer.reload.deleted_at).to eq_time(Time.zone.now)
             end
           end
         end
@@ -565,8 +580,9 @@ describe PostCreator do
 
       it "returns blank for another post with the same content" do
         creator.create
-        new_post_creator.create
-        expect(new_post_creator.errors).to be_present
+        post = new_post_creator.create
+
+        expect(post.errors[:raw]).to include(I18n.t(:just_posted_that))
       end
 
       it "returns a post for admins" do
@@ -760,6 +776,28 @@ describe PostCreator do
 
       expect(post.topic.topic_allowed_users.where(user_id: admin2.id).count).to eq(0)
     end
+
+    it 'does not increase posts count for small actions' do
+      topic = Fabricate(:private_message_topic, user: Fabricate(:user))
+
+      Fabricate(:post, topic: topic)
+
+      1.upto(3) do |i|
+        user = Fabricate(:user)
+        topic.invite(topic.user, user.username)
+        topic.reload
+        expect(topic.posts_count).to eq(1)
+        expect(topic.posts.where(post_type: Post.types[:small_action]).count).to eq(i)
+      end
+
+      Fabricate(:post, topic: topic)
+      Topic.reset_highest(topic.id)
+      expect(topic.reload.posts_count).to eq(2)
+
+      Fabricate(:post, topic: topic)
+      Topic.reset_all_highest!
+      expect(topic.reload.posts_count).to eq(3)
+    end
   end
 
   context "warnings" do
@@ -864,7 +902,7 @@ describe PostCreator do
     end
 
     it 'can post to a group correctly' do
-      SiteSetting.queue_jobs = false
+      Jobs.run_immediately!
 
       expect(post.topic.archetype).to eq(Archetype.private_message)
       expect(post.topic.topic_allowed_users.count).to eq(1)
@@ -1103,6 +1141,31 @@ describe PostCreator do
       post_creator = PostCreator.new(user, title: '', raw: '')
       expect { post_creator.create! }.to raise_error(ActiveRecord::RecordNotSaved)
     end
+
+    it "does not generate an alert for empty posts" do
+      Jobs.run_immediately!
+
+      user2 = Fabricate(:user)
+      topic = Fabricate(:private_message_topic,
+        topic_allowed_users: [
+          Fabricate.build(:topic_allowed_user, user: user),
+          Fabricate.build(:topic_allowed_user, user: user2)
+        ],
+      )
+      Fabricate(:topic_user,
+        topic: topic,
+        user: user2,
+        notification_level: TopicUser.notification_levels[:watching]
+      )
+
+      expect {
+        PostCreator.create!(user, raw: "", topic_id: topic.id, skip_validations: true)
+      }.to change { user2.notifications.count }.by(0)
+
+      expect {
+        PostCreator.create!(user, raw: "hello world", topic_id: topic.id, skip_validations: true)
+      }.to change { user2.notifications.count }.by(1)
+    end
   end
 
   context 'private message to a user that has disabled private messages' do
@@ -1131,6 +1194,7 @@ describe PostCreator do
 
   context "private message to a muted user" do
     let(:muted_me) { Fabricate(:evil_trout) }
+    let(:another_user) { Fabricate(:user) }
 
     it 'should fail' do
       updater = UserUpdater.new(muted_me, muted_me)
@@ -1141,10 +1205,14 @@ describe PostCreator do
         title: 'this message is to someone who muted me!',
         raw: "you will have to see this even if you muted me!",
         archetype: Archetype.private_message,
-        target_usernames: "#{muted_me.username}"
+        target_usernames: "#{muted_me.username},#{another_user.username}"
       )
+
       expect(pc).not_to be_valid
-      expect(pc.errors).to be_present
+
+      expect(pc.errors.full_messages).to contain_exactly(
+        I18n.t(:not_accepting_pms, username: muted_me.username)
+      )
     end
 
     let(:staff_user) { Fabricate(:admin) }
@@ -1163,6 +1231,48 @@ describe PostCreator do
       expect(pc).to be_valid
       expect(pc.errors).to be_blank
     end
+  end
+
+  context "private message to an ignored user" do
+    let(:ignorer) { Fabricate(:evil_trout) }
+    let(:another_user) { Fabricate(:user) }
+
+    context "when post author is ignored" do
+      let!(:ignored_user) { Fabricate(:ignored_user, user: ignorer, ignored_user: user) }
+
+      it 'should fail' do
+        pc = PostCreator.new(
+          user,
+          title: 'this message is to someone who ignored me!',
+          raw: "you will have to see this even if you ignored me!",
+          archetype: Archetype.private_message,
+          target_usernames: "#{ignorer.username},#{another_user.username}"
+        )
+
+        expect(pc).not_to be_valid
+        expect(pc.errors.full_messages).to contain_exactly(
+                                             I18n.t(:not_accepting_pms, username: ignorer.username)
+                                           )
+      end
+    end
+
+    context "when post author is admin who is ignored" do
+      let(:staff_user) { Fabricate(:admin) }
+      let!(:ignored_user) { Fabricate(:ignored_user, user: ignorer, ignored_user: staff_user) }
+
+      it 'succeeds if the user is staff' do
+        pc = PostCreator.new(
+          staff_user,
+          title: 'this message is to someone who ignored me!',
+          raw: "you will have to see this even if you ignored me!",
+          archetype: Archetype.private_message,
+          target_usernames: "#{ignorer.username}"
+        )
+        expect(pc).to be_valid
+        expect(pc.errors).to be_blank
+      end
+    end
+
   end
 
   context "private message recipients limit (max_allowed_message_recipients) reached" do
@@ -1214,6 +1324,44 @@ describe PostCreator do
         )
         expect(pc).to be_valid
         expect(pc.errors).to be_blank
+      end
+    end
+  end
+
+  context "#create_post_notice" do
+    let(:user) { Fabricate(:user) }
+    let(:staged) { Fabricate(:staged) }
+    let(:anonymous) { Fabricate(:anonymous) }
+
+    it "generates post notices for new users" do
+      post = PostCreator.create!(user, title: "one of my first topics", raw: "one of my first posts")
+      expect(post.custom_fields["notice_type"]).to eq("new_user")
+
+      post = PostCreator.create!(user, title: "another one of my first topics", raw: "another one of my first posts")
+      expect(post.custom_fields["notice_type"]).to eq(nil)
+    end
+
+    it "generates post notices for returning users" do
+      SiteSetting.returning_users_days = 30
+      old_post = Fabricate(:post, user: user, created_at: 31.days.ago)
+
+      post = PostCreator.create!(user, title: "this is a returning topic", raw: "this is a post")
+      expect(post.custom_fields["notice_type"]).to eq(Post.notices[:returning_user])
+      expect(post.custom_fields["notice_args"]).to eq(old_post.created_at.iso8601)
+
+      post = PostCreator.create!(user, title: "this is another topic", raw: "this is my another post")
+      expect(post.custom_fields["notice_type"]).to eq(nil)
+      expect(post.custom_fields["notice_args"]).to eq(nil)
+    end
+
+    it "does not generate for non-human, staged or anonymous users" do
+      SiteSetting.allow_anonymous_posting = true
+
+      [anonymous, Discourse.system_user, staged].each do |user|
+        expect(user.posts.size).to eq(0)
+        post = PostCreator.create!(user, title: "#{user.username}'s first topic", raw: "#{user.name}'s first post")
+        expect(post.custom_fields["notice_type"]).to eq(nil)
+        expect(post.custom_fields["notice_args"]).to eq(nil)
       end
     end
   end

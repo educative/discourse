@@ -74,7 +74,7 @@ describe EmbedController do
     let(:headers) { { 'REFERER' => embed_url } }
 
     before do
-      SiteSetting.queue_jobs = false
+      Jobs.run_immediately!
     end
 
     it "raises an error with no referer" do
@@ -140,7 +140,11 @@ describe EmbedController do
       end
 
       it "provides the topic retriever with the discourse username when provided" do
-        TopicRetriever.expects(:new).with(embed_url, has_entry(author_username: discourse_username))
+        retriever = mock
+        retriever.expects(:retrieve).returns(nil)
+        TopicRetriever.expects(:new)
+          .with(embed_url, has_entry(author_username: discourse_username))
+          .returns(retriever)
 
         get '/embed/comments',
           params: { embed_url: embed_url, discourse_username: discourse_username },

@@ -152,6 +152,7 @@ class GlobalSetting
         c[:password] = redis_password if redis_password.present?
         c[:db] = redis_db if redis_db != 0
         c[:db] = 1 if Rails.env == "test"
+        c[:id] = nil if redis_skip_client_commands
 
         c.freeze
       end
@@ -235,6 +236,10 @@ class GlobalSetting
 
   class BlankProvider < BaseProvider
     def lookup(key, default)
+
+      if key == :redis_port
+        return ENV["DISCOURSE_REDIS_PORT"] if ENV["DISCOURSE_REDIS_PORT"]
+      end
       default
     end
 

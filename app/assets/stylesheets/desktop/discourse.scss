@@ -8,37 +8,17 @@ body.widget-dragging {
   cursor: ns-resize;
 }
 
-header {
-  margin-bottom: 15px;
-}
-
 // Common classes
 .boxed {
   height: 100%;
 }
 
-.topic-statuses {
-  float: left;
-  padding: 0;
-
-  .topic-status {
-    padding: 0 2px 0 0;
-    margin: 0;
-    line-height: $line-height-small;
-
-    i {
-      font-size: $font-down-1;
-    }
-  }
-
-  .d-icon-envelope {
-    color: $danger;
-  }
-}
-
 .form-vertical {
   .control-group {
-    margin-bottom: 24px;
+    margin-bottom: 1.25em;
+  }
+  .controls:not(.controls-dropdown) + .controls {
+    margin-top: 0.5em;
   }
 }
 
@@ -121,7 +101,8 @@ input {
 }
 
 .input {
-  &-xxlarge {
+  &-xxlarge,
+  &-xxlarge + .control-instructions {
     width: 530px;
   }
 }

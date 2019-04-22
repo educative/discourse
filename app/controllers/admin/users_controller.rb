@@ -6,7 +6,6 @@ class Admin::UsersController < Admin::AdminController
 
   before_action :fetch_user, only: [:suspend,
                                     :unsuspend,
-                                    :refresh_browsers,
                                     :log_out,
                                     :revoke_admin,
                                     :grant_admin,
@@ -26,17 +25,19 @@ class Admin::UsersController < Admin::AdminController
                                     :revoke_api_key,
                                     :anonymize,
                                     :reset_bounce_score,
-                                    :disable_second_factor]
+                                    :disable_second_factor,
+                                    :delete_posts_batch]
 
   def index
     users = ::AdminUserIndexQuery.new(params).find_users
 
+    opts = {}
     if params[:show_emails] == "true"
-      guardian.can_see_emails = true
-      StaffActionLogger.new(current_user).log_show_emails(users)
+      StaffActionLogger.new(current_user).log_show_emails(users, context: request.path)
+      opts[:emails_desired] = true
     end
 
-    render_serialized(users, AdminUserListSerializer)
+    render_serialized(users, AdminUserListSerializer, opts)
   end
 
   def show
@@ -45,13 +46,11 @@ class Admin::UsersController < Admin::AdminController
     render_serialized(@user, AdminDetailedUserSerializer, root: false)
   end
 
-  def delete_all_posts
-    hijack do
-      user = User.find_by(id: params[:user_id])
-      user.delete_all_posts!(guardian)
-      # staff action logs will have an entry for each post
-      render body: nil
-    end
+  def delete_posts_batch
+    deleted_posts = @user.delete_posts_in_batches(guardian)
+    # staff action logs will have an entry for each post
+
+    render json: { posts_deleted: deleted_posts.length }
   end
 
   # DELETE action to delete penalty history for a user
@@ -156,6 +155,8 @@ class Admin::UsersController < Admin::AdminController
     @user.save!
     StaffActionLogger.new(current_user).log_user_unsuspend(@user)
 
+    DiscourseEvent.trigger(:user_unsuspended, user: @user)
+
     render_json_dump(
       suspension: {
         suspended: false
@@ -171,11 +172,6 @@ class Admin::UsersController < Admin::AdminController
     else
       render json: { error: I18n.t('admin_js.admin.users.id_not_found') }, status: 404
     end
-  end
-
-  def refresh_browsers
-    refresh_browser @user
-    render body: nil
   end
 
   def revoke_admin
@@ -293,14 +289,16 @@ class Admin::UsersController < Admin::AdminController
 
   def approve
     guardian.ensure_can_approve!(@user)
-    @user.approve(current_user)
+
+    reviewable = ReviewableUser.find_by(target: @user) ||
+      Jobs::CreateUserReviewable.new.execute(user_id: @user.id).reviewable
+
+    reviewable.perform(current_user, :approve_user)
     render body: nil
   end
 
   def approve_bulk
-    User.where(id: params[:users]).each do |u|
-      u.approve(current_user) if guardian.can_approve?(u)
-    end
+    Reviewable.bulk_perform_targets(current_user, :approve_user, 'ReviewableUser', params[:users])
     render body: nil
   end
 
@@ -315,7 +313,7 @@ class Admin::UsersController < Admin::AdminController
 
   def deactivate
     guardian.ensure_can_deactivate!(@user)
-    @user.deactivate
+    @user.deactivate(current_user)
     StaffActionLogger.new(current_user).log_user_deactivate(@user, I18n.t('user.deactivated_by_staff'), params.slice(:context))
     refresh_browser @user
     render body: nil
@@ -370,7 +368,10 @@ class Admin::UsersController < Admin::AdminController
     )
   end
 
+  # Kept for backwards compatibility, but is replaced by the Reviewable Queue
   def reject_bulk
+    Discourse.deprecate("AdminUsersController#reject_bulk is deprecated. Please use the Reviewable API instead.", since: "2.3.0beta5", drop_from: "2.4")
+
     success_count = 0
     d = UserDestroyer.new(current_user)
 
@@ -407,6 +408,7 @@ class Admin::UsersController < Admin::AdminController
 
     options = params.slice(:block_email, :block_urls, :block_ip, :context, :delete_as_spammer)
     options[:delete_posts] = ActiveModel::Type::Boolean.new.cast(params[:delete_posts])
+    options[:prepare_for_destroy] = true
 
     hijack do
       begin
@@ -435,24 +437,18 @@ class Admin::UsersController < Admin::AdminController
 
   def ip_info
     params.require(:ip)
-    ip = params[:ip]
 
-    # should we cache results in redis?
-    begin
-      location = Excon.get(
-        "https://ipinfo.io/#{ip}/json",
-        read_timeout: 10, connect_timeout: 10
-      )&.body
-    rescue Excon::Error
-    end
-
-    render json: location
+    render json: DiscourseIpInfo.get(params[:ip], resolve_hostname: true)
   end
 
   def sync_sso
     return render body: nil, status: 404 unless SiteSetting.enable_sso
 
-    sso = DiscourseSingleSignOn.parse("sso=#{params[:sso]}&sig=#{params[:sig]}")
+    begin
+      sso = DiscourseSingleSignOn.parse("sso=#{params[:sso]}&sig=#{params[:sig]}")
+    rescue DiscourseSingleSignOn::ParseError => e
+      return render json: failed_json.merge(message: I18n.t("sso.login_error")), status: 422
+    end
 
     begin
       user = sso.lookup_or_create_user
@@ -568,6 +564,7 @@ class Admin::UsersController < Admin::AdminController
 
   def fetch_user
     @user = User.find_by(id: params[:user_id])
+    raise Discourse::NotFound unless @user
   end
 
   def refresh_browser(user)

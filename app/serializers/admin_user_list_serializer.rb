@@ -18,7 +18,6 @@ class AdminUserListSerializer < BasicUserSerializer
              :username,
              :title,
              :avatar_template,
-             :can_approve,
              :approved,
              :suspended_at,
              :suspended_till,
@@ -38,8 +37,8 @@ class AdminUserListSerializer < BasicUserSerializer
 
   def include_email?
     # staff members can always see their email
-    (scope.is_staff? && object.id == scope.user.id) || scope.can_see_emails? ||
-      (scope.is_staff? && object.staged?)
+    (scope.is_staff? && (object.id == scope.user.id || object.staged?)) ||
+      (@options[:emails_desired] && scope.can_check_emails?(object))
   end
 
   alias_method :include_secondary_emails?, :include_email?
@@ -106,20 +105,14 @@ class AdminUserListSerializer < BasicUserSerializer
     Time.now - object.created_at
   end
 
-  def can_approve
-    scope.can_approve?(object)
-  end
-
-  def include_can_approve?
-    SiteSetting.must_approve_users
-  end
-
   def include_approved?
     SiteSetting.must_approve_users
   end
 
   def include_second_factor_enabled?
-    object.totp_enabled?
+    !SiteSetting.enable_sso &&
+      SiteSetting.enable_local_logins &&
+      object.totps.present?
   end
 
   def second_factor_enabled

@@ -34,35 +34,32 @@
       {{group-membership-button
           class="inline"
           model=model
-          showLogin='showLogin'}}
+          showLogin=(route-action  "showLogin")}}
 
       {{#if displayGroupMessageButton}}
         {{d-button
-            action="messageGroup"
+            action=(action "messageGroup")
             class="btn-primary group-message-button inline"
             icon="envelope"
             label="groups.message"}}
       {{/if}}
 
       {{#if currentUser.admin}}
-        {{d-button action="destroy"
+        {{d-button action=(action "destroy")
             disabled=destroying
-            icon="trash"
+            icon="trash-alt"
             class='btn-danger'
             label="admin.groups.delete"}}
       {{/if}}
     </div>
   </div>
-
-  <div class="list-controls">
+<div class="user-content-wrapper">
+  <section class="user-primary-navigation">
     <div class="container">
       {{group-navigation group=model currentPath=application.currentPath tabs=tabs}}
     </div>
-  </div>
+  </section>
 
-    <div class='user-table'>
-      <div class='wrapper'>
         {{outlet}}
-      </div>
-    </div>
+</div>
 </div>

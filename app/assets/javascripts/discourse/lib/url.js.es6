@@ -22,7 +22,8 @@ const SERVER_SIDE_ONLY = [
   /^\/wizard/,
   /\.rss$/,
   /\.json$/,
-  /^\/admin\/upgrade$/
+  /^\/admin\/upgrade$/,
+  /^\/logs($|\/)/
 ];
 
 export function rewritePath(path) {
@@ -49,6 +50,10 @@ export function clearRewrites() {
 
 export function userPath(subPath) {
   return Discourse.getURL(subPath ? `/u/${subPath}` : "/u");
+}
+
+export function groupPath(subPath) {
+  return Discourse.getURL(subPath ? `/g/${subPath}` : "/g");
 }
 
 let _jumpScheduled = false;
@@ -158,7 +163,7 @@ const DiscourseURL = Ember.Object.extend({
       return false;
     }
 
-    if (a.host !== document.location.host) {
+    if (a.host && a.host !== document.location.host) {
       document.location = a.href;
       return false;
     }
@@ -176,7 +181,7 @@ const DiscourseURL = Ember.Object.extend({
   routeTo(path, opts) {
     opts = opts || {};
 
-    if (Em.isEmpty(path)) {
+    if (Ember.isEmpty(path)) {
       return;
     }
 

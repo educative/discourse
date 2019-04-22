@@ -11,7 +11,7 @@ export default Ember.Component.extend({
   nameInput: null,
 
   didInsertElement() {
-    this._super();
+    this._super(...arguments);
     const name = this.get("model.name");
 
     if (name) {
@@ -20,6 +20,8 @@ export default Ember.Component.extend({
       this.set("disableSave", true);
     }
   },
+
+  canEdit: Ember.computed.not("model.automatic"),
 
   @computed("basicNameValidation", "uniqueNameValidation")
   nameValidation(basicNameValidation, uniqueNameValidation) {

@@ -1,7 +1,19 @@
-import { acceptance, replaceCurrentUser } from "helpers/qunit-helpers";
+import { acceptance } from "helpers/qunit-helpers";
+import { toggleCheckDraftPopup } from "discourse/controllers/composer";
 
 acceptance("Composer", {
   loggedIn: true,
+  pretend(server, helper) {
+    server.get("/draft.json", () => {
+      return helper.response({
+        draft: null,
+        draft_sequence: 42
+      });
+    });
+    server.post("/uploads/lookup-urls", () => {
+      return helper.response([]);
+    });
+  },
   settings: {
     enable_whispers: true
   }
@@ -243,6 +255,8 @@ QUnit.test("Posting on a different topic", async assert => {
 QUnit.test("Create an enqueued Reply", async assert => {
   await visit("/t/internationalization-localization/280");
 
+  assert.notOk(find(".pending-posts .reviewable-item").length);
+
   await click("#topic-footer-buttons .btn.create");
   assert.ok(exists(".d-editor-input"), "the composer input is visible");
   assert.ok(!exists("#reply-title"), "there is no title since this is a reply");
@@ -258,6 +272,8 @@ QUnit.test("Create an enqueued Reply", async assert => {
 
   await click(".modal-footer button");
   assert.ok(invisible(".d-modal"), "the modal can be dismissed");
+
+  assert.ok(find(".pending-posts .reviewable-item").length);
 });
 
 QUnit.test("Edit the first post", async assert => {
@@ -366,33 +382,117 @@ QUnit.test("Composer can toggle between edit and reply", async assert => {
 });
 
 QUnit.test("Composer can toggle whispers", async assert => {
+  const menu = selectKit(".toolbar-popup-menu-options");
+
   await visit("/t/this-is-a-test-topic/9");
   await click(".topic-post:eq(0) button.reply");
 
-  await selectKit(".toolbar-popup-menu-options").expand();
-  await selectKit(".toolbar-popup-menu-options").selectRowByValue(
-    "toggleWhisper"
-  );
+  await menu.expand();
+  await menu.selectRowByValue("toggleWhisper");
 
   assert.ok(
-    find(".composer-fields .whisper")
-      .text()
-      .indexOf(I18n.t("composer.whisper")) > 0,
+    find(".composer-fields .whisper .d-icon-far-eye-slash").length === 1,
     "it sets the post type to whisper"
   );
 
-  await selectKit(".toolbar-popup-menu-options").expand();
-  await selectKit(".toolbar-popup-menu-options").selectRowByValue(
-    "toggleWhisper"
-  );
+  await menu.expand();
+  await menu.selectRowByValue("toggleWhisper");
 
   assert.ok(
-    find(".composer-fields .whisper")
-      .text()
-      .indexOf(I18n.t("composer.whisper")) <= 0,
+    find(".composer-fields .whisper .d-icon-far-eye-slash").length === 0,
     "it removes the whisper mode"
   );
+
+  await menu.expand();
+  await menu.selectRowByValue("toggleWhisper");
+
+  await click(".toggle-fullscreen");
+
+  assert.ok(
+    menu.rowByValue("toggleWhisper").exists(),
+    "whisper toggling is still present when going fullscreen"
+  );
 });
+
+QUnit.test("Switching composer whisper state", async assert => {
+  const menu = selectKit(".toolbar-popup-menu-options");
+
+  await visit("/t/this-is-a-test-topic/9");
+  await click(".topic-post:eq(0) button.reply");
+
+  await menu.expand();
+  await menu.selectRowByValue("toggleWhisper");
+
+  await fillIn(".d-editor-input", "this is the content of my reply");
+  await click("#reply-control button.create");
+
+  assert.ok(find(".topic-post:last").hasClass("whisper"));
+
+  await click("#topic-footer-buttons .btn.create");
+
+  assert.ok(
+    find(".composer-fields .whisper .d-icon-far-eye-slash").length === 0,
+    "doesn’t set topic reply as whisper"
+  );
+
+  await click(".topic-post:last button.reply");
+
+  assert.ok(find(".topic-post:last").hasClass("whisper"));
+  assert.ok(
+    find(".composer-fields .whisper .d-icon-far-eye-slash").length === 1,
+    "sets post reply as a whisper"
+  );
+
+  await click(".topic-post:nth-last-child(2) button.reply");
+
+  assert.notOk(find(".topic-post:nth-last-child(2)").hasClass("whisper"));
+  assert.ok(
+    find(".composer-fields .whisper .d-icon-far-eye-slash").length === 0,
+    "doesn’t set post reply as a whisper"
+  );
+});
+
+QUnit.test(
+  "Composer can toggle layouts (open, fullscreen and draft)",
+  async assert => {
+    await visit("/t/this-is-a-test-topic/9");
+    await click(".topic-post:eq(0) button.reply");
+
+    assert.ok(
+      find("#reply-control.open").length === 1,
+      "it starts in open state by default"
+    );
+
+    await click(".toggle-fullscreen");
+
+    assert.ok(
+      find("#reply-control.fullscreen").length === 1,
+      "it expands composer to full screen"
+    );
+
+    await click(".toggle-fullscreen");
+
+    assert.ok(
+      find("#reply-control.open").length === 1,
+      "it collapses composer to regular size"
+    );
+
+    await fillIn(".d-editor-input", "This is a dirty reply");
+    await click(".toggler");
+
+    assert.ok(
+      find("#reply-control.draft").length === 1,
+      "it collapses composer to draft bar"
+    );
+
+    await click(".toggle-fullscreen");
+
+    assert.ok(
+      find("#reply-control.open").length === 1,
+      "from draft, it expands composer back to open state"
+    );
+  }
+);
 
 QUnit.test(
   "Composer can toggle between reply and createTopic",
@@ -406,9 +506,7 @@ QUnit.test(
     );
 
     assert.ok(
-      find(".composer-fields .whisper")
-        .text()
-        .indexOf(I18n.t("composer.whisper")) > 0,
+      find(".composer-fields .whisper .d-icon-far-eye-slash").length === 1,
       "it sets the post type to whisper"
     );
 
@@ -417,9 +515,7 @@ QUnit.test(
 
     await click("#create-topic");
     assert.ok(
-      find(".composer-fields .whisper")
-        .text()
-        .indexOf(I18n.t("composer.whisper")) === -1,
+      find(".composer-fields .whisper .d-icon-far-eye-slash").length === 0,
       "it should reset the state of the composer's model"
     );
 
@@ -485,49 +581,199 @@ QUnit.test(
   }
 );
 
-acceptance("Composer and uncategorized is not allowed", {
-  loggedIn: true,
-  settings: {
-    enable_whispers: true,
-    allow_uncategorized_topics: false
-  }
+QUnit.test("Checks for existing draft", async assert => {
+  toggleCheckDraftPopup(true);
+
+  // prettier-ignore
+  server.get("/draft.json", () => { // eslint-disable-line no-undef
+    return [ 200, { "Content-Type": "application/json" }, {
+      draft: "{\"reply\":\"This is a draft of the first post\",\"action\":\"reply\",\"categoryId\":1,\"archetypeId\":\"regular\",\"metaData\":null,\"composerTime\":2863,\"typingTime\":200}",
+      draft_sequence: 42
+    } ];
+  });
+
+  await visit("/t/internationalization-localization/280");
+
+  await click(".topic-post:eq(0) button.show-more-actions");
+  await click(".topic-post:eq(0) button.edit");
+
+  assert.equal(find(".modal-body").text(), I18n.t("drafts.abandon.confirm"));
+
+  await click(".modal-footer .btn.btn-default");
+
+  toggleCheckDraftPopup(false);
 });
 
-QUnit.test("Disable body until category is selected", async assert => {
-  replaceCurrentUser({ admin: false, staff: false, trust_level: 1 });
+QUnit.test("Can switch states without abandon popup", async assert => {
+  const composerActions = selectKit(".composer-actions");
+  toggleCheckDraftPopup(true);
 
+  await visit("/t/internationalization-localization/280");
+
+  const longText = "a".repeat(256);
+
+  await click(".btn-primary.create.btn");
+
+  await fillIn(".d-editor-input", longText);
+
+  // prettier-ignore
+  server.get("/draft.json", () => { // eslint-disable-line no-undef
+    return [ 200, { "Content-Type": "application/json" }, {
+      draft: "{\"reply\":\"This is a draft of the first post\",\"action\":\"reply\",\"categoryId\":1,\"archetypeId\":\"regular\",\"metaData\":null,\"composerTime\":2863,\"typingTime\":200}",
+      draft_sequence: 42
+    } ];
+  });
+
+  await click("article#post_3 button.reply");
+
+  await composerActions.expand();
+  await composerActions.selectRowByValue("reply_to_topic");
+
+  assert.equal(find(".modal-body").text(), "", "abandon popup shouldn't come");
+
+  assert.equal(
+    find(".d-editor-input").val(),
+    longText,
+    "entered text should still be there"
+  );
+
+  assert.ok(
+    find('.action-title a[href="/t/internationalization-localization/280"]'),
+    "mode should have changed"
+  );
+
+  assert.ok(find(".save-animation"), "save animation should show");
+
+  toggleCheckDraftPopup(false);
+});
+
+QUnit.test("Loading draft also replaces the recipients", async assert => {
+  toggleCheckDraftPopup(true);
+
+  // prettier-ignore
+  server.get("/draft.json", () => { // eslint-disable-line no-undef
+    return [ 200, { "Content-Type": "application/json" }, {
+       "draft":"{\"reply\":\"hello\",\"action\":\"privateMessage\",\"title\":\"hello\",\"categoryId\":null,\"archetypeId\":\"private_message\",\"metaData\":null,\"usernames\":\"codinghorror\",\"composerTime\":9159,\"typingTime\":2500}",
+       "draft_sequence":0
+    } ];
+  });
+
+  await visit("/u/charlie");
+  await click("button.compose-pm");
+  await click(".modal .btn-default");
+
+  assert.equal(find(".users-input .item:eq(0)").text(), "codinghorror");
+});
+
+QUnit.test(
+  "Deleting the text content of the first post in a private message",
+  async assert => {
+    Discourse.SiteSettings.allow_uncategorized_topics = false;
+
+    await visit("/t/34");
+
+    await click("#post_1 .d-icon-ellipsis-h");
+
+    await click("#post_1 .d-icon-pencil-alt");
+
+    await fillIn(".d-editor-input", "");
+
+    assert.equal(
+      find(".d-editor-container textarea").attr("placeholder"),
+      I18n.t("composer.reply_placeholder"),
+      "it should not block because of missing category"
+    );
+  }
+);
+
+const assertImageResized = (assert, uploads) => {
+  assert.equal(
+    find(".d-editor-input").val(),
+    uploads.join("\n"),
+    "it resizes uploaded image"
+  );
+};
+
+QUnit.test("Image resizing buttons", async assert => {
   await visit("/");
   await click("#create-topic");
-  assert.ok(exists(".d-editor-input"), "the composer input is visible");
-  assert.ok(
-    exists(".title-input .popup-tip.bad.hide"),
-    "title errors are hidden by default"
-  );
-  assert.ok(
-    exists(".d-editor-textarea-wrapper .popup-tip.bad.hide"),
-    "body errors are hidden by default"
-  );
-  assert.ok(
-    exists(".d-editor-textarea-wrapper.disabled"),
-    "textarea is disabled"
-  );
 
-  const categoryChooser = selectKit(".category-chooser");
+  let uploads = [
+    "![test|690x313](upload://test.png)",
+    "[img]http://example.com/image.jpg[/img]",
+    "![anotherOne|690x463](upload://anotherOne.jpeg)",
+    "![](upload://withoutAltAndSize.jpeg)",
+    "`![test|690x313](upload://test.png)`",
+    "![withoutSize](upload://withoutSize.png)",
+    "<img src='http://someimage.jpg' wight='20' height='20'>",
+    "![onTheSameLine1|200x200](upload://onTheSameLine1.jpeg) ![onTheSameLine2|250x250](upload://onTheSameLine2.jpeg)",
+    "![identicalImage|300x300](upload://identicalImage.png)",
+    "![identicalImage|300x300](upload://identicalImage.png)"
+  ];
 
-  await categoryChooser.expand();
-  await categoryChooser.selectRowByValue(2);
+  await fillIn(".d-editor-input", uploads.join("\n"));
 
   assert.ok(
-    find(".d-editor-textarea-wrapper.disabled").length === 0,
-    "textarea is enabled"
+    find(".button-wrapper").length === 0,
+    "it does not append scaling buttons before hovering images"
   );
 
-  await fillIn(".d-editor-input", "Now I can type stuff");
-  await categoryChooser.expand();
-  await categoryChooser.selectRowByValue("__none__");
+  await triggerEvent($(".d-editor-preview img"), "mouseover");
 
   assert.ok(
-    find(".d-editor-textarea-wrapper.disabled").length === 0,
-    "textarea is still enabled"
+    find(".button-wrapper").length === 6,
+    "it adds correct amount of scaling button groups"
+  );
+
+  uploads[0] = "![test|690x313,50%](upload://test.png)";
+  await click(find(".button-wrapper .scale-btn[data-scale='50']")[0]);
+  assertImageResized(assert, uploads);
+
+  await triggerEvent($(".d-editor-preview img"), "mouseover");
+
+  uploads[2] = "![anotherOne|690x463,75%](upload://anotherOne.jpeg)";
+  await click(find(".button-wrapper .scale-btn[data-scale='75']")[1]);
+  assertImageResized(assert, uploads);
+
+  await triggerEvent($(".d-editor-preview img"), "mouseover");
+
+  uploads[7] =
+    "![onTheSameLine1|200x200,50%](upload://onTheSameLine1.jpeg) ![onTheSameLine2|250x250](upload://onTheSameLine2.jpeg)";
+  await click(find(".button-wrapper .scale-btn[data-scale='50']")[2]);
+  assertImageResized(assert, uploads);
+
+  await triggerEvent($(".d-editor-preview img"), "mouseover");
+
+  uploads[7] =
+    "![onTheSameLine1|200x200,50%](upload://onTheSameLine1.jpeg) ![onTheSameLine2|250x250,75%](upload://onTheSameLine2.jpeg)";
+  await click(find(".button-wrapper .scale-btn[data-scale='75']")[3]);
+  assertImageResized(assert, uploads);
+
+  await triggerEvent($(".d-editor-preview img"), "mouseover");
+
+  uploads[8] = "![identicalImage|300x300,50%](upload://identicalImage.png)";
+  await click(find(".button-wrapper .scale-btn[data-scale='50']")[4]);
+  assertImageResized(assert, uploads);
+
+  await triggerEvent($(".d-editor-preview img"), "mouseover");
+
+  uploads[9] = "![identicalImage|300x300,75%](upload://identicalImage.png)";
+  await click(find(".button-wrapper .scale-btn[data-scale='75']")[5]);
+  assertImageResized(assert, uploads);
+
+  await fillIn(
+    ".d-editor-input",
+    `
+![test|690x313](upload://test.png)
+
+\`<script>alert("xss")</script>\`
+    `
+  );
+
+  await triggerEvent($(".d-editor-preview img"), "mouseover");
+
+  assert.ok(
+    find("script").length === 0,
+    "it does not unescapes script tags in code blocks"
   );
 });

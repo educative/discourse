@@ -10,14 +10,10 @@ class Admin::EmailController < Admin::AdminController
   def test
     params.require(:email_address)
     begin
-      Jobs::TestEmail.new.execute(to_address: params[:email_address])
-      if SiteSetting.disable_emails == "yes"
-        render json: { sent_test_email_message: I18n.t("admin.email.sent_test_disabled") }
-      elsif SiteSetting.disable_emails == "non-staff" && !User.find_by_email(params[:email_address])&.staff?
-        render json: { sent_test_email_message: I18n.t("admin.email.sent_test_disabled_for_non_staff") }
-      else
-        render json: { sent_test_email_message: I18n.t("admin.email.sent_test") }
-      end
+      message = TestMailer.send_test(params[:email_address])
+      Email::Sender.new(message, :test_message).send
+
+      render json: { sent_test_email_message: I18n.t("admin.email.sent_test") }
     rescue => e
       render json: { errors: [e.message] }, status: 422
     end
@@ -32,10 +28,16 @@ class Admin::EmailController < Admin::AdminController
 
     email_logs = filter_logs(email_logs, params)
 
-    if params[:reply_key].present?
-      email_logs = email_logs.where(
-        "post_reply_keys.reply_key ILIKE ?", "%#{params[:reply_key]}%"
-      )
+    if (reply_key = params[:reply_key]).present?
+      email_logs =
+        if reply_key.length == 32
+          email_logs.where("post_reply_keys.reply_key = ?", reply_key)
+        else
+          email_logs.where(
+            "replace(post_reply_keys.reply_key::VARCHAR, '-', '') ILIKE ?",
+            "%#{reply_key}%"
+          )
+        end
     end
 
     email_logs = email_logs.to_a
@@ -53,8 +55,8 @@ class Admin::EmailController < Admin::AdminController
           *tuples
         )
         .pluck(:post_id, :user_id, "reply_key::text")
-        .each do |post_id, user_id, reply_key|
-          reply_keys[[post_id, user_id]] = reply_key
+        .each do |post_id, user_id, key|
+          reply_keys[[post_id, user_id]] = key
         end
     end
 
@@ -85,8 +87,23 @@ class Admin::EmailController < Admin::AdminController
     params.require(:last_seen_at)
     params.require(:username)
     user = User.find_by_username(params[:username])
+    raise Discourse::InvalidParameters unless user
+
     renderer = Email::Renderer.new(UserNotifications.digest(user, since: params[:last_seen_at]))
     render json: MultiJson.dump(html_content: renderer.html, text_content: renderer.text)
+  end
+
+  def advanced_test
+    params.require(:email)
+
+    receiver = Email::Receiver.new(params['email'])
+    text, elided, format = receiver.select_body
+
+    render json: success_json.merge!(
+      text: text,
+      elided: elided,
+      format: format
+    )
   end
 
   def send_digest
@@ -158,13 +175,20 @@ class Admin::EmailController < Admin::AdminController
     params.require(:id)
 
     begin
-      bounced = EmailLog.find_by(id: params[:id].to_i)
-      raise Discourse::InvalidParameters if bounced.nil?
+      email_log = EmailLog.find_by(id: params[:id].to_i, bounced: true)
+      raise Discourse::InvalidParameters if email_log&.bounce_key.blank?
 
-      email_local_part, email_domain = SiteSetting.notification_email.split('@')
-      bounced_to_address = "#{email_local_part}+verp-#{bounced.bounce_key}@#{email_domain}"
+      if Email::Sender.bounceable_reply_address?
+        bounced_to_address = Email::Sender.bounce_address(email_log.bounce_key)
+        incoming_email = IncomingEmail.find_by(to_addresses: bounced_to_address)
+      end
 
-      incoming_email = IncomingEmail.find_by(to_addresses: bounced_to_address)
+      if incoming_email.nil?
+        email_local_part, email_domain = SiteSetting.notification_email.split('@')
+        bounced_to_address = "#{email_local_part}+verp-#{email_log.bounce_key}@#{email_domain}"
+        incoming_email = IncomingEmail.find_by(to_addresses: bounced_to_address)
+      end
+
       raise Discourse::NotFound if incoming_email.nil?
 
       serializer = IncomingEmailDetailsSerializer.new(incoming_email, root: false)

@@ -7,14 +7,15 @@
           class="silence-until"
           label="admin.user.silence_duration"
           includeFarFuture=true
+          clearable=false
           input=silenceUntil}}
       </label>
     </div>
 
     {{silence-details reason=reason message=message}}
-    {{#if post}}
+    {{#if postId}}
       {{penalty-post-action
-        post=post
+        postId=postId
         postAction=postAction
         postEdit=postEdit}}
     {{/if}}
@@ -26,10 +27,10 @@
 <div class="modal-footer">
   {{d-button
     class="btn-danger perform-silence"
-    action="silence"
+    action=(action "silence")
     disabled=submitDisabled
     icon="microphone-slash"
     label="admin.user.silence"}}
-  {{d-modal-cancel close=(action "closeModal")}}
+  {{d-modal-cancel close=(route-action "closeModal")}}
   {{conditional-loading-spinner condition=loading size="small"}}
 </div>

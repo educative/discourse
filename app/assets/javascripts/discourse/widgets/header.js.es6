@@ -6,7 +6,7 @@ import { wantsNewWindow } from "discourse/lib/intercept-click";
 import { applySearchAutocomplete } from "discourse/lib/search";
 import { ajax } from "discourse/lib/ajax";
 import { addExtraUserClasses } from "discourse/helpers/user-avatar";
-
+import { scrollTop } from "discourse/mixins/scroll-top";
 import { h } from "virtual-dom";
 
 const dropdown = {
@@ -67,7 +67,10 @@ createWidget("header-notifications", {
 
     const unreadPMs = user.get("unread_private_messages");
     if (!!unreadPMs) {
-      if (!user.get("read_first_notification")) {
+      if (
+        !user.get("read_first_notification") &&
+        !user.get("enforcedSecondFactor")
+      ) {
         contents.push(h("span.ring"));
         if (!attrs.active && attrs.ringBackdrop) {
           contents.push(h("span.ring-backdrop-spotlight"));
@@ -162,7 +165,7 @@ createWidget(
 );
 
 createWidget("header-icons", {
-  tagName: "ul.icons.d-header-icons.clearfix",
+  tagName: "ul.icons.d-header-icons",
 
   buildAttributes() {
     return { role: "navigation" };
@@ -181,18 +184,18 @@ createWidget("header-icons", {
       action: "toggleHamburger",
       href: "",
       contents() {
-        if (!attrs.flagCount) {
-          return;
+        let { currentUser } = this;
+        if (currentUser && currentUser.reviewable_count) {
+          return h(
+            "div.badge-notification.reviewables",
+            {
+              attributes: {
+                title: I18n.t("notifications.reviewable_items")
+              }
+            },
+            this.currentUser.reviewable_count
+          );
         }
-        return h(
-          "div.badge-notification.flagged-posts",
-          {
-            attributes: {
-              title: I18n.t("notifications.total_flagged")
-            }
-          },
-          attrs.flagCount
-        );
       }
     });
 
@@ -251,6 +254,15 @@ createWidget("header-buttons", {
     );
     return buttons;
   }
+});
+
+createWidget("header-cloak", {
+  tagName: "div.header-cloak",
+  html() {
+    return "";
+  },
+  click() {},
+  scheduleRerender() {}
 });
 
 const forceContextEnabled = ["category", "user", "private_messages"];
@@ -327,6 +339,10 @@ export default createWidget("header", {
         }
       });
 
+      if (this.site.mobileView) {
+        panels.push(this.attach("header-cloak"));
+      }
+
       return panels;
     };
 
@@ -348,6 +364,7 @@ export default createWidget("header", {
     this.state.userVisible = false;
     this.state.hamburgerVisible = false;
     this.state.searchVisible = false;
+    this.toggleBodyScrolling(false);
   },
 
   linkClickedEvent(attrs) {
@@ -387,7 +404,17 @@ export default createWidget("header", {
         }&skip_context=${this.state.skipSearchContext}`;
       }
 
-      return DiscourseURL.routeTo("/search" + params);
+      const currentPath = this.register
+        .lookup("controller:application")
+        .get("currentPath");
+
+      if (currentPath === "full-page-search") {
+        scrollTop();
+        $(".full-page-search").focus();
+        return false;
+      } else {
+        return DiscourseURL.routeTo("/search" + params);
+      }
     }
 
     this.state.searchVisible = !this.state.searchVisible;
@@ -416,10 +443,36 @@ export default createWidget("header", {
     }
 
     this.state.userVisible = !this.state.userVisible;
+    this.toggleBodyScrolling(this.state.userVisible);
   },
 
   toggleHamburger() {
     this.state.hamburgerVisible = !this.state.hamburgerVisible;
+    this.toggleBodyScrolling(this.state.hamburgerVisible);
+  },
+
+  toggleBodyScrolling(bool) {
+    if (!this.site.mobileView) return;
+    if (bool) {
+      document.body.addEventListener("touchmove", this.preventDefault, {
+        passive: false
+      });
+    } else {
+      document.body.removeEventListener("touchmove", this.preventDefault, {
+        passive: false
+      });
+    }
+  },
+
+  preventDefault(e) {
+    // prevent all scrollin on menu panels, except on overflow
+    const height = window.innerHeight ? window.innerHeight : $(window).height();
+    if (
+      !$(e.target).parents(".menu-panel").length ||
+      $(".menu-panel .panel-body-contents").height() <= height
+    ) {
+      e.preventDefault();
+    }
   },
 
   togglePageSearch() {

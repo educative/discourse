@@ -5,6 +5,8 @@ require_dependency 'final_destination'
 Dir["#{Rails.root}/lib/onebox/engine/*_onebox.rb"].sort.each { |f| require f }
 
 module Oneboxer
+  ONEBOX_CSS_CLASS = "onebox"
+
   # keep reloaders happy
   unless defined? Oneboxer::Result
     Result = Struct.new(:doc, :changed) do
@@ -67,11 +69,11 @@ module Oneboxer
   end
 
   # Parse URLs out of HTML, returning the document when finished.
-  def self.each_onebox_link(string_or_doc)
+  def self.each_onebox_link(string_or_doc, extra_paths: [])
     doc = string_or_doc
     doc = Nokogiri::HTML::fragment(doc) if doc.is_a?(String)
 
-    onebox_links = doc.search("a.onebox")
+    onebox_links = doc.css("a.#{ONEBOX_CSS_CLASS}", *extra_paths)
     if onebox_links.present?
       onebox_links.each do |link|
         yield(link['href'], link) if link['href'].present?
@@ -83,13 +85,14 @@ module Oneboxer
 
   HTML5_BLOCK_ELEMENTS ||= %w{address article aside blockquote canvas center dd div dl dt fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr li main nav noscript ol output p pre section table tfoot ul video}
 
-  def self.apply(string_or_doc, args = nil)
+  def self.apply(string_or_doc, extra_paths: nil)
     doc = string_or_doc
     doc = Nokogiri::HTML::fragment(doc) if doc.is_a?(String)
     changed = false
 
-    each_onebox_link(doc) do |url, element|
+    each_onebox_link(doc, extra_paths: extra_paths) do |url, element|
       onebox, _ = yield(url, element)
+
       if onebox
         parsed_onebox = Nokogiri::HTML::fragment(onebox)
         next unless parsed_onebox.children.count > 0
@@ -231,11 +234,14 @@ module Oneboxer
     username = route[:username] || ""
 
     if user = User.find_by(username_lower: username.downcase)
+
+      name = user.name if SiteSetting.enable_names
+
       args = {
         user_id: user.id,
         username: user.username,
         avatar: PrettyText.avatar_img(user.avatar_template, "extra_large"),
-        name: user.name,
+        name: name,
         bio: user.user_profile.bio_excerpt(230),
         location: user.user_profile.location,
         joined: I18n.t('joined'),
@@ -256,9 +262,13 @@ module Oneboxer
     SiteSetting.onebox_domains_blacklist.split("|")
   end
 
+  def self.preserve_fragment_url_hosts
+    @preserve_fragment_url_hosts ||= ['http://github.com']
+  end
+
   def self.external_onebox(url)
     Rails.cache.fetch(onebox_cache_key(url), expires_in: 1.day) do
-      fd = FinalDestination.new(url, ignore_redirects: ignore_redirects, ignore_hostnames: blacklisted_domains, force_get_hosts: force_get_hosts)
+      fd = FinalDestination.new(url, ignore_redirects: ignore_redirects, ignore_hostnames: blacklisted_domains, force_get_hosts: force_get_hosts, preserve_fragment_url_hosts: preserve_fragment_url_hosts)
       uri = fd.resolve
       return blank_onebox if uri.blank? || blacklisted_domains.map { |hostname| uri.hostname.match?(hostname) }.any?
 

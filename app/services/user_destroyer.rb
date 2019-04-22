@@ -18,15 +18,25 @@ class UserDestroyer
     raise PostsExistError if !opts[:delete_posts] && user.posts.count != 0
     @guardian.ensure_can_delete_user!(user)
 
-    User.transaction do
+    # default to using a transaction
+    opts[:transaction] = true if opts[:transaction] != false
+
+    prepare_for_destroy(user) if opts[:prepare_for_destroy] == true
+
+    result = nil
+
+    optional_transaction(open_transaction: opts[:transaction]) do
 
       Draft.where(user_id: user.id).delete_all
-      QueuedPost.where(user_id: user.id).delete_all
+      Reviewable.where(created_by_id: user.id).delete_all
 
       if opts[:delete_posts]
         user.posts.each do |post|
+
           # agree with flags
-          PostAction.agree_flags!(post, @actor) if opts[:delete_as_spammer]
+          if opts[:delete_as_spammer] && reviewable = post.reviewable_flag
+            reviewable.perform(@actor, :agree_and_keep)
+          end
 
           # block all external urls
           if opts[:block_urls]
@@ -63,46 +73,71 @@ class UserDestroyer
       # keep track of emails used
       user_emails = user.user_emails.pluck(:email)
 
-      user.destroy.tap do |u|
-        if u
-          if opts[:block_email]
-            user_emails.each do |email|
-              ScreenedEmail.block(email, ip_address: u.ip_address)&.record_match!
-            end
+      if result = user.destroy
+        if opts[:block_email]
+          user_emails.each do |email|
+            ScreenedEmail.block(email, ip_address: result.ip_address)&.record_match!
           end
-
-          if opts[:block_ip] && u.ip_address
-            ScreenedIpAddress.watch(u.ip_address)&.record_match!
-            if u.registration_ip_address && u.ip_address != u.registration_ip_address
-              ScreenedIpAddress.watch(u.registration_ip_address)&.record_match!
-            end
-          end
-
-          Post.unscoped.where(user_id: u.id).update_all(user_id: nil)
-
-          # If this user created categories, fix those up:
-          Category.where(user_id: u.id).each do |c|
-            c.user_id = Discourse::SYSTEM_USER_ID
-            c.save!
-            if topic = Topic.unscoped.find_by(id: c.topic_id)
-              topic.recover!
-              topic.user_id = Discourse::SYSTEM_USER_ID
-              topic.save!
-            end
-          end
-
-          unless opts[:quiet]
-            if @actor == user
-              deleted_by = Discourse.system_user
-              opts[:context] = I18n.t("staff_action_logs.user_delete_self", url: opts[:context])
-            else
-              deleted_by = @actor
-            end
-            StaffActionLogger.new(deleted_by).log_user_deletion(user, opts.slice(:context))
-          end
-          MessageBus.publish "/file-change", ["refresh"], user_ids: [u.id]
         end
+
+        if opts[:block_ip] && result.ip_address
+          ScreenedIpAddress.watch(result.ip_address)&.record_match!
+          if result.registration_ip_address && result.ip_address != result.registration_ip_address
+            ScreenedIpAddress.watch(result.registration_ip_address)&.record_match!
+          end
+        end
+
+        Post.unscoped.where(user_id: result.id).update_all(user_id: nil)
+
+        # If this user created categories, fix those up:
+        Category.where(user_id: result.id).each do |c|
+          c.user_id = Discourse::SYSTEM_USER_ID
+          c.save!
+          if topic = Topic.unscoped.find_by(id: c.topic_id)
+            topic.recover!
+            topic.user_id = Discourse::SYSTEM_USER_ID
+            topic.save!
+          end
+        end
+
+        unless opts[:quiet]
+          if @actor == user
+            deleted_by = Discourse.system_user
+            opts[:context] = I18n.t("staff_action_logs.user_delete_self", url: opts[:context])
+          else
+            deleted_by = @actor
+          end
+          StaffActionLogger.new(deleted_by).log_user_deletion(user, opts.slice(:context))
+        end
+        MessageBus.publish "/file-change", ["refresh"], user_ids: [result.id]
       end
+    end
+
+    # After the user is deleted, remove the reviewable
+    if reviewable = Reviewable.pending.find_by(target: user)
+      reviewable.perform(@actor, :reject_user_delete)
+    end
+
+    result
+  end
+
+  protected
+
+  def prepare_for_destroy(user)
+    PostAction.where(user_id: user.id).delete_all
+    UserAction.where('user_id = :user_id OR target_user_id = :user_id OR acting_user_id = :user_id', user_id: user.id).delete_all
+    PostTiming.where(user_id: user.id).delete_all
+    TopicViewItem.where(user_id: user.id).delete_all
+    TopicUser.where(user_id: user.id).delete_all
+    TopicAllowedUser.where(user_id: user.id).delete_all
+    Notification.where(user_id: user.id).delete_all
+  end
+
+  def optional_transaction(open_transaction: true)
+    if open_transaction
+      User.transaction { yield  }
+    else
+      yield
     end
   end
 

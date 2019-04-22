@@ -1,6 +1,5 @@
 require_dependency 'post_creator'
 require_dependency 'new_post_result'
-require_dependency 'post_enqueuer'
 require_dependency 'word_watcher'
 
 # Determines what actions should be taken with new posts.
@@ -74,16 +73,31 @@ class NewPostManager
   def self.post_needs_approval?(manager)
     user = manager.user
 
-    return false if exempt_user?(user)
+    return :skip if exempt_user?(user)
 
-    (user.trust_level <= TrustLevel.levels[:basic] && user.post_count < SiteSetting.approve_post_count) ||
-    (user.trust_level < SiteSetting.approve_unless_trust_level.to_i) ||
-    (manager.args[:title].present? && user.trust_level < SiteSetting.approve_new_topics_unless_trust_level.to_i) ||
-    is_fast_typer?(manager) ||
-    matches_auto_silence_regex?(manager) ||
-    WordWatcher.new("#{manager.args[:title]} #{manager.args[:raw]}").requires_approval? ||
-    (SiteSetting.approve_unless_staged && user.staged) ||
-    post_needs_approval_in_its_category?(manager)
+    return :post_count if (
+      user.trust_level <= TrustLevel.levels[:basic] &&
+      user.post_count < SiteSetting.approve_post_count
+    )
+
+    return :trust_level if user.trust_level < SiteSetting.approve_unless_trust_level.to_i
+
+    return :new_topics_unless_trust_level if (
+      manager.args[:title].present? &&
+      user.trust_level < SiteSetting.approve_new_topics_unless_trust_level.to_i
+    )
+
+    return :fast_typer if is_fast_typer?(manager)
+
+    return :auto_silence_regex if matches_auto_silence_regex?(manager)
+
+    return :watched_word if WordWatcher.new("#{manager.args[:title]} #{manager.args[:raw]}").requires_approval?
+
+    return :staged if SiteSetting.approve_unless_staged? && user.staged?
+
+    return :category if post_needs_approval_in_its_category?(manager)
+
+    :skip
   end
 
   def self.post_needs_approval_in_its_category?(manager)
@@ -99,38 +113,46 @@ class NewPostManager
   end
 
   def self.default_handler(manager)
-    if post_needs_approval?(manager)
-      validator = Validators::PostValidator.new
-      post = Post.new(raw: manager.args[:raw])
-      post.user = manager.user
-      validator.validate(post)
-      if post.errors[:raw].present?
+
+    reason = post_needs_approval?(manager)
+    return if reason == :skip
+
+    validator = Validators::PostValidator.new
+    post = Post.new(raw: manager.args[:raw])
+    post.user = manager.user
+    validator.validate(post)
+
+    if post.errors[:raw].present?
+      result = NewPostResult.new(:created_post, false)
+      result.errors[:base] << post.errors[:raw]
+      return result
+    elsif manager.args[:topic_id]
+      topic = Topic.unscoped.where(id: manager.args[:topic_id]).first
+
+      unless manager.user.guardian.can_create_post_on_topic?(topic)
         result = NewPostResult.new(:created_post, false)
-        result.errors[:base] << post.errors[:raw]
+        result.errors[:base] << I18n.t(:topic_not_found)
         return result
       end
+    elsif manager.args[:category]
+      category = Category.find_by(id: manager.args[:category])
 
-      # Can the user create the post in the first place?
-      if manager.args[:topic_id]
-        topic = Topic.unscoped.where(id: manager.args[:topic_id]).first
-
-        unless manager.user.guardian.can_create_post_on_topic?(topic)
-          result = NewPostResult.new(:created_post, false)
-          result.errors[:base] << I18n.t(:topic_not_found)
-          return result
-        end
+      unless manager.user.guardian.can_create_topic_on_category?(category)
+        result = NewPostResult.new(:created_post, false)
+        result.errors[:base] << I18n.t("js.errors.reasons.forbidden")
+        return result
       end
-
-      result = manager.enqueue('default')
-
-      if is_fast_typer?(manager)
-        UserSilencer.silence(manager.user, Discourse.system_user, keep_posts: true, reason: I18n.t("user.new_user_typed_too_fast"))
-      elsif matches_auto_silence_regex?(manager)
-        UserSilencer.silence(manager.user, Discourse.system_user, keep_posts: true, reason: I18n.t("user.content_matches_auto_silence_regex"))
-      end
-
-      result
     end
+
+    result = manager.enqueue(reason)
+
+    if is_fast_typer?(manager)
+      UserSilencer.silence(manager.user, Discourse.system_user, keep_posts: true, reason: I18n.t("user.new_user_typed_too_fast"))
+    elsif matches_auto_silence_regex?(manager)
+      UserSilencer.silence(manager.user, Discourse.system_user, keep_posts: true, reason: I18n.t("user.content_matches_auto_silence_regex"))
+    end
+
+    result
   end
 
   def self.queue_enabled?
@@ -172,23 +194,46 @@ class NewPostManager
     perform_create_post unless handled
   end
 
-  # Enqueue this post in a queue
-  def enqueue(queue, reason = nil)
+  # Enqueue this post
+  def enqueue(reason = nil)
     result = NewPostResult.new(:enqueued)
-    enqueuer = PostEnqueuer.new(@user, queue)
 
-    queued_args = { post_options: @args.dup }
-    queued_args[:raw] = queued_args[:post_options].delete(:raw)
-    queued_args[:topic_id] = queued_args[:post_options].delete(:topic_id)
+    reviewable = ReviewableQueuedPost.new(
+      created_by: @user,
+      payload: { raw: @args[:raw], tags: @args[:tags] },
+      topic_id: @args[:topic_id],
+      reviewable_by_moderator: true
+    )
+    reviewable.payload['title'] = @args[:title] if @args[:title].present?
+    reviewable.category_id = args[:category] if args[:category].present?
 
-    post = enqueuer.enqueue(queued_args)
+    create_options = reviewable.create_options
 
-    QueuedPost.broadcast_new! if post && post.errors.empty?
+    creator = @args[:topic_id] ?
+      PostCreator.new(@user, create_options) :
+      TopicCreator.new(@user, Guardian.new(@user), create_options)
 
-    result.queued_post = post
+    errors = Set.new
+    creator.valid?
+    creator.errors.full_messages.each { |msg| errors << msg }
+    errors = creator.errors.full_messages.uniq
+    if errors.blank?
+      if reviewable.save
+        reviewable.add_score(
+          Discourse.system_user,
+          ReviewableScore.types[:needs_approval],
+          reason: reason,
+          force_review: true
+        )
+      else
+        reviewable.errors.full_messages.each { |msg| errors << msg }
+      end
+    end
+
+    result.reviewable = reviewable
     result.reason = reason if reason
-    result.check_errors_from(enqueuer)
-    result.pending_count = QueuedPost.new_posts.where(user_id: @user.id).count
+    result.check_errors(errors)
+    result.pending_count = Reviewable.where(created_by: @user).pending.count
     result
   end
 

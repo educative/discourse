@@ -1,7 +1,4 @@
 class UserOption < ActiveRecord::Base
-  # TODO: remove in 2019
-  self.ignored_columns = ["theme_key"]
-
   self.primary_key = :user_id
   belongs_to :user
   before_create :set_defaults
@@ -28,20 +25,34 @@ class UserOption < ActiveRecord::Base
     @like_notification_frequency_type ||= Enum.new(always: 0, first_time_and_daily: 1, first_time: 2, never: 3)
   end
 
+  def self.text_sizes
+    @text_sizes ||= Enum.new(normal: 0, larger: 1, largest: 2, smaller: 3)
+  end
+
+  def self.title_count_modes
+    @title_count_modes ||= Enum.new(notifications: 0, contextual: 1)
+  end
+
+  def self.email_level_types
+    @email_level_type ||= Enum.new(always: 0, only_when_away: 1, never: 2)
+  end
+
+  validates :text_size_key, inclusion: { in: UserOption.text_sizes.values }
+  validates :email_level, inclusion: { in: UserOption.email_level_types.values }
+  validates :email_messages_level, inclusion: { in: UserOption.email_level_types.values }
+
   def set_defaults
-    self.email_always = SiteSetting.default_email_always
     self.mailing_list_mode = SiteSetting.default_email_mailing_list_mode
     self.mailing_list_mode_frequency = SiteSetting.default_email_mailing_list_mode_frequency
-    self.email_direct = SiteSetting.default_email_direct
+    self.email_level = SiteSetting.default_email_level
+    self.email_messages_level = SiteSetting.default_email_messages_level
     self.automatically_unpin_topics = SiteSetting.default_topics_automatic_unpin
-    self.email_private_messages = SiteSetting.default_email_personal_messages
     self.email_previous_replies = SiteSetting.default_email_previous_replies
     self.email_in_reply_to = SiteSetting.default_email_in_reply_to
 
     self.enable_quoting = SiteSetting.default_other_enable_quoting
     self.external_links_in_new_tab = SiteSetting.default_other_external_links_in_new_tab
     self.dynamic_favicon = SiteSetting.default_other_dynamic_favicon
-    self.disable_jump_reply = SiteSetting.default_other_disable_jump_reply
 
     self.new_topic_duration_minutes = SiteSetting.default_other_new_topic_duration_minutes
     self.auto_track_topics_after_msecs = SiteSetting.default_other_auto_track_topics_after_msecs
@@ -57,6 +68,10 @@ class UserOption < ActiveRecord::Base
     end
 
     self.include_tl0_in_digests = SiteSetting.default_include_tl0_in_digests
+
+    self.text_size = SiteSetting.default_text_size
+
+    self.title_count_mode = SiteSetting.default_title_count_mode
 
     true
   end
@@ -146,6 +161,22 @@ class UserOption < ActiveRecord::Base
     end
   end
 
+  def text_size
+    UserOption.text_sizes[text_size_key]
+  end
+
+  def text_size=(value)
+    self.text_size_key = UserOption.text_sizes[value.to_sym]
+  end
+
+  def title_count_mode
+    UserOption.title_count_modes[title_count_mode_key]
+  end
+
+  def title_count_mode=(value)
+    self.title_count_mode_key = UserOption.title_count_modes[value.to_sym]
+  end
+
   private
 
   def update_tracked_topics
@@ -155,16 +186,17 @@ class UserOption < ActiveRecord::Base
 
 end
 
+# TODO: Drop disable_jump_reply column. Functionality removed April 2019
+
 # == Schema Information
 #
 # Table name: user_options
 #
 #  user_id                          :integer          not null, primary key
-#  email_always                     :boolean          default(FALSE), not null
 #  mailing_list_mode                :boolean          default(FALSE), not null
 #  email_digests                    :boolean
-#  email_direct                     :boolean          default(TRUE), not null
-#  email_private_messages           :boolean          default(TRUE), not null
+#  email_level                      :integer          default(1), not null
+#  email_messages_level             :integer          default(0), not null
 #  external_links_in_new_tab        :boolean          default(FALSE), not null
 #  enable_quoting                   :boolean          default(TRUE), not null
 #  dynamic_favicon                  :boolean          default(FALSE), not null
@@ -184,6 +216,9 @@ end
 #  allow_private_messages           :boolean          default(TRUE), not null
 #  homepage_id                      :integer
 #  theme_ids                        :integer          default([]), not null, is an Array
+#  hide_profile_and_presence        :boolean          default(FALSE), not null
+#  text_size_key                    :integer          default(0), not null
+#  text_size_seq                    :integer          default(0), not null
 #
 # Indexes
 #

@@ -1,5 +1,6 @@
 require_dependency 'rate_limiter'
 require_dependency 'single_sign_on'
+require_dependency 'single_sign_on_provider'
 require_dependency 'url_helper'
 
 class SessionController < ApplicationController
@@ -11,7 +12,7 @@ class SessionController < ApplicationController
   before_action :check_local_login_allowed, only: %i(create forgot_password email_login)
   before_action :rate_limit_login, only: %i(create email_login)
   skip_before_action :redirect_to_login_if_required
-  skip_before_action :preload_json, :check_xhr, only: %i(sso sso_login sso_provider destroy email_login)
+  skip_before_action :preload_json, :check_xhr, only: %i(sso sso_login sso_provider destroy email_login one_time_password)
 
   ACTIVATE_USER_KEY = "activate_user"
 
@@ -46,7 +47,7 @@ class SessionController < ApplicationController
     payload ||= request.query_string
 
     if SiteSetting.enable_sso_provider
-      sso = SingleSignOn.parse(payload, SiteSetting.sso_secret)
+      sso = SingleSignOnProvider.parse(payload)
 
       if sso.return_sso_url.blank?
         render plain: "return_sso_url is blank, it must be provided", status: 400
@@ -108,7 +109,20 @@ class SessionController < ApplicationController
   def sso_login
     raise Discourse::NotFound.new unless SiteSetting.enable_sso
 
-    sso = DiscourseSingleSignOn.parse(request.query_string)
+    params.require(:sso)
+    params.require(:sig)
+
+    begin
+      sso = DiscourseSingleSignOn.parse(request.query_string)
+    rescue DiscourseSingleSignOn::ParseError => e
+      if SiteSetting.verbose_sso_logging
+        Rails.logger.warn("Verbose SSO log: Signature parse error\n\n#{e.message}\n\n#{sso&.diagnostics}")
+      end
+
+      # Do NOT pass the error text to the client, it would give them the correct signature
+      return render_sso_error(text: I18n.t("sso.login_error"), status: 422)
+    end
+
     if !sso.nonce_valid?
       if SiteSetting.verbose_sso_logging
         Rails.logger.warn("Verbose SSO log: Nonce has already expired\n\n#{sso.diagnostics}")
@@ -150,17 +164,30 @@ class SessionController < ApplicationController
           if SiteSetting.verbose_sso_logging
             Rails.logger.warn("Verbose SSO log: User was logged on #{user.username}\n\n#{sso.diagnostics}")
           end
-          log_on_user user
+          if user.id != current_user&.id
+            log_on_user user
+          end
         end
 
         # If it's not a relative URL check the host
         if return_path !~ /^\/[^\/]/
           begin
             uri = URI(return_path)
-            return_path = path("/") unless SiteSetting.sso_allows_all_return_paths || uri.host == Discourse.current_hostname
+            if (uri.hostname == Discourse.current_hostname)
+              return_path = uri.to_s
+            elsif !SiteSetting.sso_allows_all_return_paths
+              return_path = path("/")
+            end
           rescue
             return_path = path("/")
           end
+        end
+
+        # this can be done more surgically with a regex
+        # but it the edge case of never supporting redirects back to
+        # any url with `/session/sso` in it anywhere is reasonable
+        if return_path.include?(path("/session/sso"))
+          return_path = path("/")
         end
 
         redirect_to return_path
@@ -294,6 +321,20 @@ class SessionController < ApplicationController
     render layout: 'no_ember'
   end
 
+  def one_time_password
+    otp_username = $redis.get "otp_#{params[:token]}"
+
+    if otp_username && user = User.find_by_username(otp_username)
+      log_on_user(user)
+      $redis.del "otp_#{params[:token]}"
+      return redirect_to path("/")
+    else
+      @error = I18n.t('user_api_key.invalid_token')
+    end
+
+    render layout: 'no_ember'
+  end
+
   def forgot_password
     params.require(:login)
 
@@ -304,7 +345,7 @@ class SessionController < ApplicationController
     RateLimiter.new(nil, "forgot-password-login-min-#{params[:login].to_s[0..100]}", 3, 1.minute).performed!
 
     user = User.find_by_username_or_email(params[:login])
-    user_presence = user.present? && user.id > 0 && !user.staged
+    user_presence = user.present? && user.human? && !user.staged
     if user_presence
       email_token = user.email_tokens.create(email: user.email)
       Jobs.enqueue(:critical_user_email, type: :forgot_password, user_id: user.id, email_token: email_token.token)

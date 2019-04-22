@@ -2,6 +2,7 @@ class WebHook < ActiveRecord::Base
   has_and_belongs_to_many :web_hook_event_types
   has_and_belongs_to_many :groups
   has_and_belongs_to_many :categories
+  has_and_belongs_to_many :tags
 
   has_many :web_hook_events, dependent: :destroy
 
@@ -15,6 +16,10 @@ class WebHook < ActiveRecord::Base
 
   before_save :strip_url
 
+  def tag_names=(tag_names_arg)
+    DiscourseTagging.add_or_create_tags_by_name(self, tag_names_arg, unlimited: true)
+  end
+
   def self.content_types
     @content_types ||= Enum.new('application/json' => 1,
                                 'application/x-www-form-urlencoded' => 2)
@@ -23,7 +28,8 @@ class WebHook < ActiveRecord::Base
   def self.last_delivery_statuses
     @last_delivery_statuses ||= Enum.new(inactive: 1,
                                          failed: 2,
-                                         successful: 3)
+                                         successful: 3,
+                                         disabled: 4)
   end
 
   def self.default_event_types
@@ -50,6 +56,10 @@ class WebHook < ActiveRecord::Base
   end
 
   def self.enqueue_object_hooks(type, object, event, serializer = nil)
+    if type == :flag
+      Discourse.deprecate("The flags webhook is deprecated. Please use reviewable instead.")
+    end
+
     if active_web_hooks(type).exists?
       payload = WebHook.generate_payload(type, object, serializer)
 
@@ -60,26 +70,30 @@ class WebHook < ActiveRecord::Base
     end
   end
 
-  def self.enqueue_topic_hooks(event, topic)
-    if active_web_hooks('topic').exists?
-      topic_view = TopicView.new(topic.id, Discourse.system_user)
-      payload = WebHook.generate_payload(:topic, topic_view, WebHookTopicViewSerializer)
+  def self.enqueue_topic_hooks(event, topic, payload = nil)
+    if active_web_hooks('topic').exists? && topic.present?
+      payload ||= begin
+        topic_view = TopicView.new(topic.id, Discourse.system_user)
+        WebHook.generate_payload(:topic, topic_view, WebHookTopicViewSerializer)
+      end
 
       WebHook.enqueue_hooks(:topic, event,
         id: topic.id,
-        category_id: topic&.category_id,
+        category_id: topic.category_id,
+        tag_ids: topic.tags.pluck(:id),
         payload: payload
       )
     end
   end
 
-  def self.enqueue_post_hooks(event, post)
-    if active_web_hooks('post').exists?
-      payload = WebHook.generate_payload(:post, post)
+  def self.enqueue_post_hooks(event, post, payload = nil)
+    if active_web_hooks('post').exists? && post.present?
+      payload ||= WebHook.generate_payload(:post, post)
 
       WebHook.enqueue_hooks(:post, event,
         id: post.id,
-        category_id: post&.topic&.category_id,
+        category_id: post.topic&.category_id,
+        tag_ids: post.topic&.tags&.pluck(:id),
         payload: payload
       )
     end

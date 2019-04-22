@@ -2,6 +2,7 @@ module DiscourseTagging
 
   TAGS_FIELD_NAME = "tags"
   TAGS_FILTER_REGEXP = /[\/\?#\[\]@!\$&'\(\)\*\+,;=\.%\\`^\s|\{\}"<>]+/ # /?#[]@!$&'()*+,;=.%\`^|{}"<>
+  TAGS_STAFF_CACHE_KEY = "staff_tag_names"
 
   def self.tag_topic_by_names(topic, guardian, tag_names_arg, append: false)
     if guardian.can_tag?(topic)
@@ -99,21 +100,35 @@ module DiscourseTagging
     category = opts[:category]
 
     if category && (category.tags.count > 0 || category.tag_groups.count > 0)
-      if category.tags.count > 0 && category.tag_groups.count > 0
-        tag_group_ids = category.tag_groups.pluck(:id)
-
-        query = query.where(
-          "tags.id IN (SELECT tag_id FROM category_tags WHERE category_id = ?
+      if category.allow_global_tags
+        # Select tags that:
+        #   * are restricted to the given category
+        #   * belong to no tag groups and aren't restricted to other categories
+        #   * belong to tag groups that are not restricted to any categories
+        query = query.where(<<~SQL, category.tag_groups.pluck(:id), category.id)
+          tags.id IN (
+            SELECT t.id FROM tags t
+            LEFT JOIN category_tags ct ON t.id = ct.tag_id
+            LEFT JOIN (
+              SELECT xtgm.tag_id, xtgm.tag_group_id
+              FROM tag_group_memberships xtgm
+              INNER JOIN category_tag_groups ctg
+              ON xtgm.tag_group_id = ctg.tag_group_id
+            ) AS tgm ON t.id = tgm.tag_id
+            WHERE (tgm.tag_group_id IS NULL AND ct.category_id IS NULL)
+               OR tgm.tag_group_id IN (?)
+               OR ct.category_id = ?
+          )
+        SQL
+      else
+        # Select only tags that are restricted to the given category
+        query = query.where(<<~SQL, category.id, category.tag_groups.pluck(:id))
+          tags.id IN (
+            SELECT tag_id FROM category_tags WHERE category_id = ?
             UNION
-            SELECT tag_id FROM tag_group_memberships WHERE tag_group_id IN (?))",
-          category.id, tag_group_ids
-        )
-      elsif category.tags.count > 0
-        query = query.where("tags.id IN (SELECT tag_id FROM category_tags WHERE category_id = ?)", category.id)
-      else # category.tag_groups.count > 0
-        tag_group_ids = category.tag_groups.pluck(:id)
-
-        query = query.where("tags.id IN (SELECT tag_id FROM tag_group_memberships WHERE tag_group_id IN (?))", tag_group_ids)
+            SELECT tag_id FROM tag_group_memberships WHERE tag_group_id IN (?)
+          )
+        SQL
       end
     elsif opts[:for_input] || opts[:for_topic] || category
       # exclude tags that are restricted to other categories
@@ -194,18 +209,32 @@ module DiscourseTagging
   end
 
   def self.staff_tag_names
-    Tag.joins(tag_groups: :tag_group_permissions)
-      .where('tag_group_permissions.group_id = ? AND tag_group_permissions.permission_type = ?',
-        Group::AUTO_GROUPS[:everyone],
-        TagGroupPermission.permission_types[:readonly]
-      ).pluck(:name)
+    tag_names = Discourse.cache.read(TAGS_STAFF_CACHE_KEY, tag_names)
+
+    if !tag_names
+      tag_names = Tag.joins(tag_groups: :tag_group_permissions)
+        .where('tag_group_permissions.group_id = ? AND tag_group_permissions.permission_type = ?',
+          Group::AUTO_GROUPS[:everyone],
+          TagGroupPermission.permission_types[:readonly]
+        ).pluck(:name)
+      Discourse.cache.write(TAGS_STAFF_CACHE_KEY, tag_names, expires_in: 1.hour)
+    end
+
+    tag_names
+  end
+
+  def self.clear_cache!
+    Discourse.cache.delete(TAGS_STAFF_CACHE_KEY)
   end
 
   def self.clean_tag(tag)
+    tag = tag.dup
     tag.downcase! if SiteSetting.force_lowercase_tags
-    tag.strip
-      .gsub(/\s+/, '-').squeeze('-')
-      .gsub(TAGS_FILTER_REGEXP, '')[0...SiteSetting.max_tag_length]
+    tag.strip!
+    tag.gsub!(/\s+/, '-')
+    tag.squeeze!('-')
+    tag.gsub!(TAGS_FILTER_REGEXP, '')
+    tag[0...SiteSetting.max_tag_length]
   end
 
   def self.tags_for_saving(tags_arg, guardian, opts = {})

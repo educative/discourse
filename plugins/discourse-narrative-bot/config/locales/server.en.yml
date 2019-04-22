@@ -93,7 +93,7 @@ en:
         "8": "Outlook good"
         "9": "Yes"
         "10": "Signs point to yes"
-        "11": "Reply hazy try again"
+        "11": "Reply hazy, try again"
         "12": "Ask again later"
         "13": "Better not tell you now"
         "14": "Cannot predict now"
@@ -139,7 +139,7 @@ en:
         second_response: |-
           Aw, sorry. I’m still not getting it. :anguished:
 
-          I’m just a bot, but if you’d like to reach a real person, see [our contact page](/about).
+          I’m just a bot, but if you’d like to reach a real person, see [our contact page](%{base_path}/about).
 
           In the meantime, I’ll stay out of your way.
 
@@ -149,7 +149,7 @@ en:
       cert_title: "In recognition of successful completion of the new user tutorial"
 
       hello:
-        title: ":robot: Greetings!"
+        title: "Greetings!"
         message: |-
           Thanks for joining %{title}, and welcome!
 
@@ -163,11 +163,11 @@ en:
         instructions: |-
           Next, can you share one of these links with me? Reply with **a link on a line by itself**, and it’ll automatically expand to include a nifty summary.
 
-          To copy a link, tap and hold on mobile, or right click your mouse:
+          To copy any link, tap and hold on mobile, or right click your pointing device:
 
-          - https://en.wikipedia.org/wiki/Inherently_funny_word
-          - https://en.wikipedia.org/wiki/Death_by_coconut
-          - https://en.wikipedia.org/wiki/Calculator_spelling
+           <https://en.wikipedia.org/wiki/Inherently_funny_word>
+           <https://en.wikipedia.org/wiki/Death_by_coconut>
+           <https://en.wikipedia.org/wiki/Calculator_spelling>
         reply: |-
           Cool! This will work for most <img src="%{base_uri}/plugins/discourse-narrative-bot/images/font-awesome-link.png" width="16" height="16"> links. Remember, it must be on a line _all by itself_, with nothing else in front, or behind.
         not_found: |-

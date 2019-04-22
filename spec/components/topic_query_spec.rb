@@ -3,7 +3,12 @@ require 'topic_view'
 
 describe TopicQuery do
 
+  # TODO: this let! here has impact on all tests
+  #  it indeed happens first, but is not obvious later in the tests we depend on the user being
+  #  created so early otherwise finding new topics does not work
+  #  we should remove the let! here and use freeze time to communicate how the clock moves
   let!(:user) { Fabricate(:coding_horror) }
+
   let(:creator) { Fabricate(:user) }
   let(:topic_query) { TopicQuery.new(user) }
 
@@ -102,8 +107,8 @@ describe TopicQuery do
 
       post2 = Fabricate(:post)
 
-      PostAction.act(user, post, PostActionType.types[:bookmark])
-      PostAction.act(user, reply, PostActionType.types[:bookmark])
+      PostActionCreator.create(user, post, :bookmark)
+      PostActionCreator.create(user, reply, :bookmark)
       TopicUser.change(user, post.topic, notification_level: 1)
       TopicUser.change(user, post2.topic, notification_level: 1)
 
@@ -212,9 +217,9 @@ describe TopicQuery do
 
       it "returns topics in the given category with the given tag" do
         tagged_topic1 = Fabricate(:topic, category: category1, tags: [tag])
-        tagged_topic2 = Fabricate(:topic, category: category2, tags: [tag])
+        _tagged_topic2 = Fabricate(:topic, category: category2, tags: [tag])
         tagged_topic3 = Fabricate(:topic, category: category1, tags: [tag, other_tag])
-        no_tags_topic = Fabricate(:topic, category: category1)
+        _no_tags_topic = Fabricate(:topic, category: category1)
 
         expect(TopicQuery.new(moderator, category: category1.id, tags: [tag.name]).list_latest.topics.map(&:id).sort).to eq([tagged_topic1.id, tagged_topic3.id].sort)
         expect(TopicQuery.new(moderator, category: category2.id, tags: [other_tag.name]).list_latest.topics.size).to eq(0)
@@ -489,7 +494,7 @@ describe TopicQuery do
 
       context 'list_unread' do
         it 'lists topics correctly' do
-          new_topic = Fabricate(:post, user: creator).topic
+          _new_topic = Fabricate(:post, user: creator).topic
 
           expect(topic_query.list_unread.topics).to eq([])
           expect(topic_query.list_read.topics).to match_array([fully_read, partially_read])
@@ -644,7 +649,7 @@ describe TopicQuery do
     end
   end
 
-  context 'suggested_for message do' do
+  context 'list_related_for do' do
 
     let(:user) do
       Fabricate(:admin)
@@ -679,11 +684,6 @@ describe TopicQuery do
       pm_to_group = create_pm(sender, target_group_names: [group_with_user.name])
       pm_to_user = create_pm(sender, target_usernames: [user.username])
 
-      new_pm = create_pm(target_usernames: [user.username])
-
-      unread_pm = create_pm(target_usernames: [user.username])
-      read(user, unread_pm, 0)
-
       old_unrelated_pm = create_pm(target_usernames: [user.username])
       read(user, old_unrelated_pm, 1)
 
@@ -693,17 +693,17 @@ describe TopicQuery do
       related_by_group_pm = create_pm(sender, target_group_names: [group_with_user.name])
       read(user, related_by_group_pm, 1)
 
-      expect(TopicQuery.new(user).list_suggested_for(pm_to_group).topics.map(&:id)).to(
-        eq([related_by_group_pm.id, related_by_user_pm.id, pm_to_user.id])
+      expect(TopicQuery.new(user).list_related_for(pm_to_group).topics.map(&:id)).to(
+        eq([related_by_group_pm.id])
       )
 
-      expect(TopicQuery.new(user).list_suggested_for(pm_to_user).topics.map(&:id)).to(
-        eq([new_pm.id, unread_pm.id, related_by_user_pm.id])
+      expect(TopicQuery.new(user).list_related_for(pm_to_user).topics.map(&:id)).to(
+        eq([related_by_user_pm.id])
       )
 
       SiteSetting.enable_personal_messages = false
-      expect(TopicQuery.new(user).list_suggested_for(pm_to_group)).to be_blank
-      expect(TopicQuery.new(user).list_suggested_for(pm_to_user)).to be_blank
+      expect(TopicQuery.new(user).list_related_for(pm_to_group)).to be_blank
+      expect(TopicQuery.new(user).list_related_for(pm_to_user)).to be_blank
     end
   end
 
@@ -739,12 +739,16 @@ describe TopicQuery do
 
     context 'when logged in' do
 
+      def suggested_for(topic)
+        topic_query.list_suggested_for(topic).topics.map { |t| t.id }
+      end
+
       let(:topic) { Fabricate(:topic) }
       let(:suggested_topics) {
         tt = topic
         # lets clear cache once category is created - working around caching is hard
         clear_cache!
-        topic_query.list_suggested_for(tt).topics.map { |t| t.id }
+        suggested_for(tt)
       }
 
       it "should return empty results when there is nothing to find" do
@@ -844,7 +848,19 @@ describe TopicQuery do
       end
 
       context 'with some existing topics' do
-        let!(:partially_read) { Fabricate(:post, user: creator).topic }
+
+        let!(:old_partially_read) {
+          topic = Fabricate(:post, user: creator).topic
+          Fabricate(:post, user: creator, topic: topic)
+          topic
+        }
+
+        let!(:partially_read) {
+          topic = Fabricate(:post, user: creator).topic
+          Fabricate(:post, user: creator, topic: topic)
+          topic
+        }
+
         let!(:new_topic) { Fabricate(:post, user: creator).topic }
         let!(:fully_read) { Fabricate(:post, user: creator).topic }
         let!(:closed_topic) { Fabricate(:topic, user: creator, closed: true) }
@@ -854,42 +870,49 @@ describe TopicQuery do
         let!(:fully_read_archived) { Fabricate(:post, user: creator).topic }
 
         before do
-          user.user_option.auto_track_topics_after_msecs = 0
-          user.user_option.save
-          TopicUser.update_last_read(user, partially_read.id, 0, 0, 0)
+          user.user_option.update!(
+            auto_track_topics_after_msecs: 0,
+            new_topic_duration_minutes: User::NewTopicDuration::ALWAYS
+          )
+
+          freeze_time 3.weeks.from_now
+
+          TopicUser.update_last_read(user, old_partially_read.id, 1, 1, 0)
+          TopicUser.update_last_read(user, partially_read.id, 1, 1, 0)
           TopicUser.update_last_read(user, fully_read.id, 1, 1, 0)
           TopicUser.update_last_read(user, fully_read_closed.id, 1, 1, 0)
           TopicUser.update_last_read(user, fully_read_archived.id, 1, 1, 0)
+
           fully_read_closed.closed = true
           fully_read_closed.save
           fully_read_archived.archived = true
           fully_read_archived.save
+
+          old_partially_read.update!(updated_at: 2.weeks.ago)
+          partially_read.update!(updated_at: Time.now)
+
         end
 
-        it "returns unread, then new, then random" do
-          SiteSetting.suggested_topics = 7
-          expect(suggested_topics[0]).to eq(partially_read.id)
-          expect(suggested_topics[1, 3]).to include(new_topic.id)
-          expect(suggested_topics[1, 3]).to include(closed_topic.id)
-          expect(suggested_topics[1, 3]).to include(archived_topic.id)
+        it "operates correctly" do
 
-          # The line below appears to randomly fail, no idea why need to restructure test
-          #expect(suggested_topics[4]).to eq(fully_read.id)
-          # random doesn't include closed and archived
-        end
+          # Note, this is a pretty slow integration test
+          # it tests that suggested is returned in the expected order
+          # hence we run suggested_for twice here to save on all the setup
 
-        it "won't return new or fully read if there are enough partially read topics" do
-          SiteSetting.suggested_topics = 1
-          expect(suggested_topics).to eq([partially_read.id])
-        end
-
-        it "won't return fully read if there are enough partially read topics and new topics" do
           SiteSetting.suggested_topics = 4
+          SiteSetting.suggested_topics_unread_max_days_old = 7
+
           expect(suggested_topics[0]).to eq(partially_read.id)
-          expect(suggested_topics[1, 3]).to include(new_topic.id)
-          expect(suggested_topics[1, 3]).to include(closed_topic.id)
-          expect(suggested_topics[1, 3]).to include(archived_topic.id)
+          expect(suggested_topics[1, 3]).to contain_exactly(new_topic.id, closed_topic.id, archived_topic.id)
+
+          expect(suggested_topics.length).to eq(4)
+
+          SiteSetting.suggested_topics = 2
+          SiteSetting.suggested_topics_unread_max_days_old = 15
+
+          expect(suggested_for(topic)).to contain_exactly(partially_read.id, old_partially_read.id)
         end
+
       end
     end
   end
@@ -1018,6 +1041,32 @@ describe TopicQuery do
       it "doesn't include shared topics unless filtering by category" do
         list = TopicQuery.new(moderator).list_latest
         expect(list.topics).not_to include(topic)
+      end
+
+      it "doesn't include shared draft topics for regular users" do
+        group.add(user)
+        SiteSetting.shared_drafts_category = nil
+        list = TopicQuery.new(user).list_latest
+        expect(list.topics).to include(topic)
+
+        SiteSetting.shared_drafts_category = shared_drafts_category.id
+        list = TopicQuery.new(user).list_latest
+        expect(list.topics).not_to include(topic)
+      end
+    end
+
+    context "unread" do
+      let!(:partially_read) do
+        topic = Fabricate(:topic, category: shared_drafts_category)
+        Fabricate(:post, user: creator, topic: topic).topic
+        TopicUser.update_last_read(admin, topic.id, 0, 0, 0)
+        TopicUser.change(admin.id, topic.id, notification_level: TopicUser.notification_levels[:tracking])
+        topic
+      end
+
+      it 'does not remove topics from unread' do
+        expect(TopicQuery.new(admin).list_latest.topics).not_to include(partially_read) # Check we set up the topic/category correctly
+        expect(TopicQuery.new(admin).list_unread.topics).to include(partially_read)
       end
     end
   end

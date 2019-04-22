@@ -15,10 +15,9 @@ export function startPageTracking(router, appEvents) {
   if (_started) {
     return;
   }
-
-  router.on("didTransition", function() {
-    this.send("refreshTitle");
-    const url = Discourse.getURL(this.get("url"));
+  router.on("routeDidChange", () => {
+    router.send("refreshTitle");
+    const url = Discourse.getURL(router.get("url"));
 
     // Refreshing the title is debounced, so we need to trigger this in the
     // next runloop to have the correct title.
@@ -32,12 +31,14 @@ export function startPageTracking(router, appEvents) {
     });
 
     transitionCount++;
-    _.each(cache, (v, k) => {
+    Object.keys(cache).forEach(k => {
+      const v = cache[k];
       if (v && v.target && v.target < transitionCount) {
         delete cache[k];
       }
     });
   });
+
   _started = true;
 }
 
@@ -56,7 +57,7 @@ export function googleTagManagerPageChanged(data) {
     }
   };
 
-  _.each(_gtmPageChangedCallbacks, callback => callback(gtmData));
+  _gtmPageChangedCallbacks.forEach(callback => callback(gtmData));
 
   window.dataLayer.push(gtmData);
 }

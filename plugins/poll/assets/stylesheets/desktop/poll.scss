@@ -15,7 +15,7 @@ div.poll {
     }
 
     p {
-      margin: 1.5em;
+      margin: 0.5em 0;
     }
 
     .info-label {
@@ -30,7 +30,11 @@ div.poll {
 
   .poll-buttons {
     border-top: 1px solid $primary-low;
-    padding: 1em 1.25em;
+    padding: 1em;
+
+    .info-text {
+      line-height: 2em;
+    }
 
     .toggle-status {
       float: right;
@@ -47,16 +51,20 @@ div.poll {
 
   .poll {
     li[data-poll-option-id]:before {
-      font-family: FontAwesome;
-      content: "\f10c";
-      margin-right: 0.25em;
       position: relative;
       vertical-align: baseline;
+      border: 2px solid $primary;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 0.5em;
+      width: 12px;
+      height: 12px;
+      content: "";
     }
 
     &[data-poll-type="multiple"] {
       li[data-poll-option-id]:before {
-        content: "\f096";
+        border-radius: 3px;
       }
     }
   }

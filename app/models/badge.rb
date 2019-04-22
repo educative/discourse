@@ -15,6 +15,7 @@ class Badge < ActiveRecord::Base
   GreatPost = 8
   Autobiographer = 9
   Editor = 10
+  WikiEditor = 48
 
   FirstLike = 11
   FirstShare = 12
@@ -111,6 +112,10 @@ class Badge < ActiveRecord::Base
 
   before_create :ensure_not_system
 
+  after_commit do
+    SvgSprite.expire_cache
+  end
+
   # fields that can not be edited on system badges
   def self.protected_system_fields
     [
@@ -194,7 +199,7 @@ class Badge < ActiveRecord::Base
 
   def default_badge_grouping_id=(val)
     # allow to correct orphans
-    if !self.badge_grouping_id || self.badge_grouping_id < 0
+    if !self.badge_grouping_id || self.badge_grouping_id <= BadgeGrouping::Other
       self.badge_grouping_id = val
     end
   end

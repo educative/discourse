@@ -4,6 +4,8 @@ require_dependency 'distributed_cache'
 
 class ColorScheme < ActiveRecord::Base
 
+  # rubocop:disable Layout/AlignHash
+
   CUSTOM_SCHEMES = {
     'Dark': {
       "primary" =>           'dddddd',
@@ -97,8 +99,11 @@ class ColorScheme < ActiveRecord::Base
     }
   }
 
+  # rubocop:enable Layout/AlignHash
+
   def self.base_color_scheme_colors
     base_with_hash = {}
+
     base_colors.each do |name, color|
       base_with_hash[name] = "#{color}"
     end
@@ -110,6 +115,7 @@ class ColorScheme < ActiveRecord::Base
     CUSTOM_SCHEMES.each do |k, v|
       list.push(id: k.to_s, colors: v)
     end
+
     list
   end
 
@@ -136,13 +142,15 @@ class ColorScheme < ActiveRecord::Base
   @mutex = Mutex.new
 
   def self.base_colors
+    return @base_colors if @base_colors
     @mutex.synchronize do
       return @base_colors if @base_colors
-      @base_colors = {}
+      base_colors = {}
       File.readlines(BASE_COLORS_FILE).each do |line|
         matches = /\$([\w]+):\s*#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})(?:[;]|\s)/.match(line.strip)
-        @base_colors[matches[1]] = matches[2] if matches
+        base_colors[matches[1]] = matches[2] if matches
       end
+      @base_colors = base_colors
     end
     @base_colors
   end
@@ -208,6 +216,7 @@ class ColorScheme < ActiveRecord::Base
   def colors_by_name
     @colors_by_name ||= self.colors.inject({}) { |sum, c| sum[c.name] = c; sum; }
   end
+
   def clear_colors_cache
     @colors_by_name = nil
   end

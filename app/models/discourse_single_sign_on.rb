@@ -24,7 +24,7 @@ class DiscourseSingleSignOn < SingleSignOn
 
   def register_nonce(return_path)
     if nonce
-      $redis.setex(nonce_key, NONCE_EXPIRY_TIME, return_path)
+      $redis.setex(nonce_key, SingleSignOn.nonce_expiry_time, return_path)
     end
   end
 
@@ -83,6 +83,9 @@ class DiscourseSingleSignOn < SingleSignOn
     # optionally save the user and sso_record if they have changed
     user.user_avatar.save! if user.user_avatar
     user.save!
+
+    # The user might require approval
+    user.create_reviewable
 
     if bio && (user.user_profile.bio_raw.blank? || SiteSetting.sso_overrides_bio)
       user.user_profile.bio_raw = bio

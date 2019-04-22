@@ -21,7 +21,7 @@ module Jobs
       end
 
       cp = CookedPostProcessor.new(post, args)
-      cp.post_process(args[:bypass_bump])
+      cp.post_process(bypass_bump: args[:bypass_bump], new_post: args[:new_post])
 
       # If we changed the document, save it
       cooked = cp.html
@@ -42,7 +42,7 @@ module Jobs
         s = post.cooked
         s << " #{post.topic.title}" if post.post_number == 1
         if !args[:bypass_bump] && WordWatcher.new(s).should_flag?
-          PostAction.act(Discourse.system_user, post, PostActionType.types[:inappropriate]) rescue PostAction::AlreadyActed
+          PostActionCreator.create(Discourse.system_user, post, :inappropriate)
         end
       end
     end

@@ -5,8 +5,12 @@ require_dependency 'trust_level'
 class Site
   include ActiveModel::Serialization
 
+  cattr_accessor :preloaded_category_custom_fields
+  self.preloaded_category_custom_fields = Set.new
+
   def initialize(guardian)
     @guardian = guardian
+    Category.preload_custom_fields(categories, preloaded_category_custom_fields) if preloaded_category_custom_fields.present?
   end
 
   def site_setting
@@ -71,6 +75,10 @@ class Site
     end
   end
 
+  def groups
+    Group.visible_groups(@guardian.user, "name ASC", include_everyone: true)
+  end
+
   def suppressed_from_latest_category_ids
     categories.select { |c| c.suppress_from_latest == true }.map(&:id)
   end
@@ -125,10 +133,12 @@ class Site
     json
   end
 
+  SITE_JSON_CHANNEL = '/site_json'
+
   def self.clear_anon_cache!
     # publishing forces the sequence up
     # the cache is validated based on the sequence
-    MessageBus.publish('/site_json', '')
+    MessageBus.publish(SITE_JSON_CHANNEL, '')
   end
 
 end

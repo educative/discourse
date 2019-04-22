@@ -28,7 +28,13 @@ en:
       average_rating: "Average rating: <strong>%{average}</strong>."
 
       public:
-        title: "Votes are public."
+        title: "Votes are <strong>public</strong>."
+
+      results:
+        vote:
+          title: "Results will be shown on <strong>vote</strong>."
+        closed:
+          title: "Results will be shown once <strong>closed</strong>."
 
       multiple:
         help:
@@ -66,8 +72,8 @@ en:
         confirm: "Are you sure you want to close this poll?"
 
       automatic_close:
-        closes_in: "closes in <strong>%{timeLeft}</strong>"
-        age: "closed <strong>%{age}</strong>"
+        closes_in: "Closes in <strong>%{timeLeft}</strong>."
+        age: "Closed <strong>%{age}</strong>"
 
       error_while_toggling_status: "Sorry, there was an error toggling the status of this poll."
       error_while_casting_votes: "Sorry, there was an error casting your votes."
@@ -85,6 +91,11 @@ en:
           regular: Single Choice
           multiple: Multiple Choice
           number: Number Rating
+        poll_result:
+          label: Results
+          always: Always visible
+          vote: On vote
+          closed: When closed
         poll_config:
           max: Max
           min: Min

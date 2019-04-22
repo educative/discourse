@@ -12,12 +12,14 @@ class Group < ActiveRecord::Base
 
   has_many :category_groups, dependent: :destroy
   has_many :group_users, dependent: :destroy
+  has_many :group_requests, dependent: :destroy
   has_many :group_mentions, dependent: :destroy
 
   has_many :group_archived_messages, dependent: :destroy
 
   has_many :categories, through: :category_groups
   has_many :users, through: :group_users
+  has_many :requesters, through: :group_requests, source: :user
   has_many :group_histories, dependent: :destroy
 
   has_and_belongs_to_many :web_hooks
@@ -42,6 +44,7 @@ class Group < ActiveRecord::Base
 
   def expire_cache
     ApplicationSerializer.expire_cache_fragment!("group_names")
+    SvgSprite.expire_cache
   end
 
   validate :name_format_validator
@@ -49,7 +52,7 @@ class Group < ActiveRecord::Base
   validate :automatic_membership_email_domains_format_validator
   validate :incoming_email_validator
   validate :can_allow_membership_requests, if: :allow_membership_requests
-  validates :flair_url, url: true, if: Proc.new { |g| g.flair_url && g.flair_url[0, 3] != 'fa-' }
+  validates :flair_url, url: true, if: Proc.new { |g| g.flair_url && g.flair_url.exclude?('fa-') }
   validate :validate_grant_trust_level, if: :will_save_change_to_grant_trust_level?
 
   AUTO_GROUPS = {
@@ -87,8 +90,12 @@ class Group < ActiveRecord::Base
   validates :mentionable_level, inclusion: { in: ALIAS_LEVELS.values }
   validates :messageable_level, inclusion: { in: ALIAS_LEVELS.values }
 
-  scope :visible_groups, Proc.new { |user, order|
-    groups = Group.order(order || "name ASC").where("groups.id > 0")
+  scope :visible_groups, Proc.new { |user, order, opts|
+    groups = Group.order(order || "name ASC")
+
+    if !opts || !opts[:include_everyone]
+      groups = groups.where("groups.id > 0")
+    end
 
     unless user&.admin
       sql = <<~SQL
@@ -132,22 +139,30 @@ class Group < ActiveRecord::Base
   }
 
   scope :mentionable, lambda { |user|
-
-    where("mentionable_level in (:levels) OR
-          (
-            mentionable_level = #{ALIAS_LEVELS[:members_mods_and_admins]} AND id in (
-            SELECT group_id FROM group_users WHERE user_id = :user_id)
-          )", levels: alias_levels(user), user_id: user && user.id)
+    where(self.mentionable_sql_clause,
+      levels: alias_levels(user),
+      user_id: user&.id
+    )
   }
 
   scope :messageable, lambda { |user|
-
     where("messageable_level in (:levels) OR
           (
             messageable_level = #{ALIAS_LEVELS[:members_mods_and_admins]} AND id in (
             SELECT group_id FROM group_users WHERE user_id = :user_id)
           )", levels: alias_levels(user), user_id: user && user.id)
   }
+
+  def self.mentionable_sql_clause
+    <<~SQL
+    mentionable_level in (:levels)
+    OR (
+      mentionable_level = #{ALIAS_LEVELS[:members_mods_and_admins]}
+      AND id in (
+        SELECT group_id FROM group_users WHERE user_id = :user_id)
+      )
+    SQL
+  end
 
   def self.alias_levels(user)
     levels = [ALIAS_LEVELS[:everyone]]
@@ -193,10 +208,10 @@ class Group < ActiveRecord::Base
 
   def posts_for(guardian, opts = nil)
     opts ||= {}
-    user_ids = group_users.map { |gu| gu.user_id }
-    result = Post.includes(:user, :topic, topic: :category)
+    result = Post.joins(:topic, user: :groups, topic: :category)
+      .preload(:topic, user: :groups, topic: :category)
       .references(:posts, :topics, :category)
-      .where(user_id: user_ids)
+      .where(groups: { id: id })
       .where('topics.archetype <> ?', Archetype.private_message)
       .where('topics.visible')
       .where(post_type: Post.types[:regular])
@@ -266,10 +281,10 @@ class Group < ActiveRecord::Base
     end
 
     # don't allow shoddy localization to break this
-    localized_name = I18n.t("groups.default_names.#{name}").downcase
+    localized_name = I18n.t("groups.default_names.#{name}", locale: SiteSetting.default_locale).downcase
     validator = UsernameValidator.new(localized_name)
 
-    if !Group.where("LOWER(name) = ?", localized_name).exists? && validator.valid_format?
+    if validator.valid_format? && !User.username_exists?(localized_name)
       group.name = localized_name
     end
 
@@ -277,7 +292,7 @@ class Group < ActiveRecord::Base
     # way to have the membership in a table
     case name
     when :everyone
-      group.visibility_level = Group.visibility_levels[:owners]
+      group.visibility_level = Group.visibility_levels[:staff]
       group.save!
       return group
     when :moderators
@@ -613,15 +628,8 @@ class Group < ActiveRecord::Base
     UsernameValidator.perform_validation(self, 'name') || begin
       name_lower = self.name.downcase
 
-      if self.will_save_change_to_name? && self.name_was&.downcase != name_lower
-
-        existing = DB.exec(
-          User::USERNAME_EXISTS_SQL, username: name_lower
-        ) > 0
-
-        if existing
-          errors.add(:name, I18n.t("activerecord.errors.messages.taken"))
-        end
+      if self.will_save_change_to_name? && self.name_was&.downcase != name_lower && User.username_exists?(name_lower)
+        errors.add(:name, I18n.t("activerecord.errors.messages.taken"))
       end
     end
   end

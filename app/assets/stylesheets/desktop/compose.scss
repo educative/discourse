@@ -67,6 +67,14 @@
   }
 }
 
+.discourse-touch {
+  .open {
+    .grippie {
+      padding: 7px 0;
+    }
+  }
+}
+
 .composer-popup-container {
   max-width: 1500px;
   margin-left: auto;
@@ -106,6 +114,8 @@
   }
 
   a.close {
+    display: flex;
+    align-items: center;
     position: absolute;
     right: 10px;
     top: 10px;
@@ -123,7 +133,7 @@
     opacity: 1;
   }
 
-  ul.topics {
+  ul {
     list-style: none;
     margin: 0;
     padding: 0;
@@ -156,31 +166,34 @@
   }
 
   .posts-count {
-    background-color: dark-light-choose($tertiary, $tertiary-medium);
+    background-color: $tertiary;
   }
 
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
   .search-link {
+    .topic-title {
+      flex: 0 1 auto;
+      margin-right: 0.5em;
+    }
+    .topic-statuses:empty {
+      display: none;
+    }
+    span.badge-wrapper {
+      margin-left: 0;
+    }
     .blurb {
-      color: dark-light-choose($primary-high, $secondary-medium);
+      color: $primary-high;
     }
     .topic-title,
     .blurb {
-      .fa {
-        color: dark-light-choose($primary-high, $secondary-medium);
+      .d-icon {
+        color: $primary-high;
       }
     }
     span.topic {
       display: flex;
+      align-items: baseline;
       flex-wrap: wrap;
     }
-  }
-  .badge-wrapper {
-    margin-left: 5px;
   }
 }
 
@@ -202,4 +215,54 @@
 #file-uploading {
   flex-grow: 1;
   text-align: right;
+}
+
+// fullscreen composer styles
+.fullscreen-composer {
+  overflow: hidden;
+
+  .profiler-results {
+    display: none;
+  }
+  #reply-control {
+    &.fullscreen {
+      // important needed because of inline styles when height is changed manually with grippie
+      height: 100vh !important;
+      z-index: z("header") + 1;
+      .d-editor-preview-wrapper {
+        margin-top: 1%;
+      }
+      .reply-to {
+        border-bottom: 1px solid $primary-low;
+        padding-bottom: 3px;
+        margin: 0;
+        .composer-controls {
+          margin-right: 0;
+        }
+      }
+      .d-editor-textarea-wrapper {
+        border: none;
+      }
+      &.show-preview .d-editor-textarea-wrapper {
+        border-right: 1px solid $primary-low;
+      }
+      #draft-status,
+      #file-uploading {
+        margin-left: 0;
+        text-align: initial;
+      }
+      .composer-popup {
+        top: 30px;
+      }
+      &:before {
+        content: "";
+        background: $secondary;
+        width: 100%;
+        height: 100%;
+        position: fixed;
+        z-index: -1;
+        left: 0;
+      }
+    }
+  }
 }

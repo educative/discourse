@@ -1,5 +1,4 @@
 require 'rails_helper'
-require_dependency 'post_destroyer'
 
 describe PostActionNotifier do
 
@@ -9,26 +8,6 @@ describe PostActionNotifier do
 
   let!(:evil_trout) { Fabricate(:evil_trout) }
   let(:post) { Fabricate(:post) }
-
-  context 'liking' do
-    context 'when liking a post' do
-      it 'creates a notification' do
-        expect {
-          PostAction.act(evil_trout, post, PostActionType.types[:like])
-          # one like (welcome badge deferred)
-        }.to change(Notification, :count).by(1)
-      end
-    end
-
-    context 'when removing a liked post' do
-      it 'removes a notification' do
-        PostAction.act(evil_trout, post, PostActionType.types[:like])
-        expect {
-          PostAction.remove_act(evil_trout, post, PostActionType.types[:like])
-        }.to change(Notification, :count).by(-1)
-      end
-    end
-  end
 
   context 'when editing a post' do
     it 'notifies a user of the revision' do
@@ -84,7 +63,7 @@ describe PostActionNotifier do
       other_user = Fabricate(:user)
       topic.allowed_users << user << other_user
       expect {
-        PostAction.act(other_user, mention_post, PostActionType.types[:like])
+        PostActionCreator.like(other_user, mention_post)
       }.to change(user.notifications, :count)
     end
   end

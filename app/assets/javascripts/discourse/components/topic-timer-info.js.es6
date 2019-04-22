@@ -41,7 +41,7 @@ export default Ember.Component.extend(
 
       let autoCloseHours = this.get("duration") || 0;
 
-      buffer.push(`<h3>${iconHTML("clock-o")} `);
+      buffer.push(`<h3>${iconHTML("far-clock")} `);
 
       let options = {
         timeLeft: duration.humanize(true),
@@ -62,7 +62,12 @@ export default Ember.Component.extend(
         );
       }
 
-      buffer.push(`<span>${I18n.t(this._noticeKey(), options)}</span>`);
+      buffer.push(
+        `<span title="${moment(this.get("executeAt")).format("LLLL")}">${I18n.t(
+          this._noticeKey(),
+          options
+        )}</span>`
+      );
       buffer.push("</h3>");
 
       // TODO Sam: concerned this can cause a heavy rerender loop
@@ -77,7 +82,7 @@ export default Ember.Component.extend(
 
     willDestroyElement() {
       if (this._delayedRerender) {
-        Em.run.cancel(this._delayedRerender);
+        Ember.run.cancel(this._delayedRerender);
       }
     },
 

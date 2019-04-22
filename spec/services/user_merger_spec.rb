@@ -36,12 +36,20 @@ describe UserMerger do
   end
 
   it "changes owner of personal messages" do
-    pm_topic = Fabricate(:private_message_topic)
+    pm_topic = Fabricate(:private_message_topic, topic_allowed_users: [
+      Fabricate.build(:topic_allowed_user, user: target_user),
+      Fabricate.build(:topic_allowed_user, user: walter),
+      Fabricate.build(:topic_allowed_user, user: source_user)
+    ])
 
     post1 = Fabricate(:post, topic: pm_topic, user: source_user)
     post2 = Fabricate(:post, topic: pm_topic, user: walter)
     post3 = Fabricate(:post, topic: pm_topic, user: target_user)
     post4 = Fabricate(:post, topic: pm_topic, user: source_user, deleted_at: Time.now)
+
+    small1 = pm_topic.add_small_action(source_user, "invited_user", "carol")
+    small2 = pm_topic.add_small_action(target_user, "invited_user", "david")
+    small3 = pm_topic.add_small_action(walter, "invited_user", "eve")
 
     merge_users!
 
@@ -49,6 +57,10 @@ describe UserMerger do
     expect(post2.reload.user).to eq(walter)
     expect(post3.reload.user).to eq(target_user)
     expect(post4.reload.user).to eq(target_user)
+
+    expect(small1.reload.user).to eq(target_user)
+    expect(small2.reload.user).to eq(target_user)
+    expect(small3.reload.user).to eq(walter)
   end
 
   it "changes owner of categories" do
@@ -150,17 +162,17 @@ describe UserMerger do
       now = Time.zone.now
 
       freeze_time(now - 1.day)
-      PostAction.act(source_user, p1, PostActionType.types[:like])
-      PostAction.act(source_user, p2, PostActionType.types[:like])
-      PostAction.act(target_user, p2, PostActionType.types[:like])
-      PostAction.act(target_user, p3, PostActionType.types[:like])
+      PostActionCreator.like(source_user, p1)
+      PostActionCreator.like(source_user, p2)
+      PostActionCreator.like(target_user, p2)
+      PostActionCreator.like(target_user, p3)
 
       freeze_time(now)
-      PostAction.act(source_user, p4, PostActionType.types[:like])
-      PostAction.act(source_user, p5, PostActionType.types[:like])
-      PostAction.act(target_user, p5, PostActionType.types[:like])
-      PostAction.act(source_user, p6, PostActionType.types[:like])
-      PostAction.remove_act(source_user, p6, PostActionType.types[:like])
+      PostActionCreator.like(source_user, p4)
+      PostActionCreator.like(source_user, p5)
+      PostActionCreator.like(target_user, p5)
+      PostActionCreator.like(source_user, p6)
+      PostActionDestroyer.destroy(source_user, p6, :like)
 
       merge_users!
 
@@ -278,6 +290,32 @@ describe UserMerger do
     expect(MutedUser.where(muted_user_id: source_user.id).count).to eq(0)
   end
 
+  it "merges ignored users" do
+    ignored1 = Fabricate(:user)
+    ignored2 = Fabricate(:user)
+    ignored3 = Fabricate(:user)
+    coding_horror = Fabricate(:coding_horror)
+
+    IgnoredUser.create!(user_id: source_user.id, ignored_user_id: ignored1.id)
+    IgnoredUser.create!(user_id: source_user.id, ignored_user_id: ignored2.id)
+    IgnoredUser.create!(user_id: target_user.id, ignored_user_id: ignored2.id)
+    IgnoredUser.create!(user_id: target_user.id, ignored_user_id: ignored3.id)
+    IgnoredUser.create!(user_id: walter.id, ignored_user_id: source_user.id)
+    IgnoredUser.create!(user_id: coding_horror.id, ignored_user_id: source_user.id)
+    IgnoredUser.create!(user_id: coding_horror.id, ignored_user_id: target_user.id)
+
+    merge_users!
+
+    [ignored1, ignored2, ignored3].each do |m|
+      expect(IgnoredUser.where(user_id: target_user.id, ignored_user_id: m.id).count).to eq(1)
+    end
+    expect(IgnoredUser.where(user_id: source_user.id).count).to eq(0)
+
+    expect(IgnoredUser.where(user_id: walter.id, ignored_user_id: target_user.id).count).to eq(1)
+    expect(IgnoredUser.where(user_id: coding_horror.id, ignored_user_id: target_user.id).count).to eq(1)
+    expect(IgnoredUser.where(ignored_user_id: source_user.id).count).to eq(0)
+  end
+
   context "notifications" do
     it "updates notifications" do
       Fabricate(:notification, user: source_user)
@@ -299,10 +337,10 @@ describe UserMerger do
       type_ids = PostActionType.public_type_ids + [PostActionType.flag_types.values.first]
 
       type_ids.each do |type|
-        PostAction.act(source_user, p1, type)
-        PostAction.act(source_user, p2, type)
-        PostAction.act(target_user, p2, type)
-        PostAction.act(target_user, p3, type)
+        PostActionCreator.new(source_user, p1, type).perform
+        PostActionCreator.new(source_user, p2, type).perform
+        PostActionCreator.new(target_user, p2, type).perform
+        PostActionCreator.new(target_user, p3, type).perform
       end
 
       merge_users!
@@ -321,16 +359,16 @@ describe UserMerger do
       p3 = Fabricate(:post)
       p4 = Fabricate(:post)
 
-      action1 = PostAction.act(source_user, p1, PostActionType.flag_types[:off_topic])
+      action1 = PostActionCreator.create(source_user, p1, :off_topic).post_action
       action1.update_attribute(:deleted_by_id, source_user.id)
 
-      action2 = PostAction.act(source_user, p2, PostActionType.flag_types[:off_topic])
+      action2 = PostActionCreator.create(source_user, p2, :off_topic).post_action
       action2.update_attribute(:deferred_by_id, source_user.id)
 
-      action3 = PostAction.act(source_user, p3, PostActionType.flag_types[:off_topic])
+      action3 = PostActionCreator.create(source_user, p3, :off_topic).post_action
       action3.update_attribute(:agreed_by_id, source_user.id)
 
-      action4 = PostAction.act(source_user, p4, PostActionType.flag_types[:off_topic])
+      action4 = PostActionCreator.create(source_user, p4, :off_topic).post_action
       action4.update_attribute(:disagreed_by_id, source_user.id)
 
       merge_users!
@@ -414,8 +452,8 @@ describe UserMerger do
 
       PostActionType.types.each do |type_name, type_id|
         posts[type_name] = post = Fabricate(:post, user: walter)
-        PostAction.act(source_user, post, type_id)
-        PostAction.act(target_user, post, type_id)
+        PostActionCreator.new(source_user, post, type_id).perform
+        PostActionCreator.new(target_user, post, type_id).perform
       end
 
       merge_users!
@@ -427,17 +465,13 @@ describe UserMerger do
     end
   end
 
-  it "updates queued posts" do
-    topic = Fabricate(:topic)
-    post1 = Fabricate(:queued_post, topic: topic, user: source_user)
-    post2 = Fabricate(:queued_post, topic: topic, approved_by: source_user)
-    post3 = Fabricate(:queued_post, topic: topic, rejected_by: source_user)
+  it "updates reviewables and reviewable history" do
+    reviewable = Fabricate(:reviewable_queued_post, created_by: source_user)
 
     merge_users!
 
-    expect(post1.reload.user).to eq(target_user)
-    expect(post2.reload.approved_by).to eq(target_user)
-    expect(post3.reload.rejected_by).to eq(target_user)
+    expect(reviewable.reload.created_by).to eq(target_user)
+    expect(reviewable.reviewable_histories.first.created_by).to eq(target_user)
   end
 
   describe 'search logs' do
@@ -645,14 +679,6 @@ describe UserMerger do
     let(:post2) { Fabricate(:post) }
     let(:post3) { Fabricate(:post) }
 
-    def log_pending_action(user, post)
-      UserAction.log_action!(action_type: UserAction::PENDING,
-                             user_id: user.id,
-                             acting_user_id: user.id,
-                             target_topic_id: post.topic.id,
-                             queued_post_id: post.id)
-    end
-
     def log_like_action(acting_user, user, post)
       UserAction.log_action!(action_type: UserAction::LIKE,
                              user_id: user.id,
@@ -669,24 +695,8 @@ describe UserMerger do
                              target_post_id: -1)
     end
 
-    it "merges when target_post_id is not set" do
-      a1 = log_pending_action(source_user, post1)
-      a2 = log_pending_action(source_user, post2)
-      a3 = log_pending_action(target_user, post2)
-      a4 = log_pending_action(target_user, post3)
-
-      merge_users!
-
-      expect(UserAction.count).to eq(3)
-
-      action_ids = UserAction.where(action_type: UserAction::PENDING,
-                                    user_id: target_user.id,
-                                    acting_user_id: target_user.id).pluck(:id)
-      expect(action_ids).to contain_exactly(a1.id, a3.id, a4.id)
-    end
-
     it "merges when target_post_id is set" do
-      a1 = log_like_action(source_user, walter, post1)
+      _a1 = log_like_action(source_user, walter, post1)
       a2 = log_like_action(target_user, walter, post1)
       a3 = log_like_action(source_user, walter, post2)
 
@@ -720,9 +730,9 @@ describe UserMerger do
         Fabricate.build(:topic_allowed_user, user: target_user)
       ])
 
-      a1 = log_got_private_message(walter, source_user, pm_topic1)
+      _a1 = log_got_private_message(walter, source_user, pm_topic1)
       a2 = log_got_private_message(walter, target_user, pm_topic1)
-      a3 = log_got_private_message(walter, coding_horror, pm_topic1)
+      _a3 = log_got_private_message(walter, coding_horror, pm_topic1)
       a4 = log_got_private_message(walter, source_user, pm_topic2)
       a5 = log_got_private_message(walter, target_user, pm_topic3)
 
@@ -964,24 +974,18 @@ describe UserMerger do
   end
 
   it "deletes external auth infos of source user" do
-    FacebookUserInfo.create(user_id: source_user.id, facebook_user_id: "example")
+    UserAssociatedAccount.create(user_id: source_user.id, provider_name: "facebook", provider_uid: "1234")
     GithubUserInfo.create(user_id: source_user.id, screen_name: "example", github_user_id: "examplel123123")
-    GoogleUserInfo.create(user_id: source_user.id, google_user_id: "google@gmail.com")
-    InstagramUserInfo.create(user_id: source_user.id, screen_name: "example", instagram_user_id: "examplel123123")
     Oauth2UserInfo.create(user_id: source_user.id, uid: "example", provider: "example")
     SingleSignOnRecord.create(user_id: source_user.id, external_id: "example", last_payload: "looks good")
-    TwitterUserInfo.create(user_id: source_user.id, screen_name: "example", twitter_user_id: "examplel123123")
     UserOpenId.create(user_id: source_user.id, email: source_user.email, url: "http://example.com/openid", active: true)
 
     merge_users!
 
-    expect(FacebookUserInfo.where(user_id: source_user.id).count).to eq(0)
+    expect(UserAssociatedAccount.where(user_id: source_user.id).count).to eq(0)
     expect(GithubUserInfo.where(user_id: source_user.id).count).to eq(0)
-    expect(GoogleUserInfo.where(user_id: source_user.id).count).to eq(0)
-    expect(InstagramUserInfo.where(user_id: source_user.id).count).to eq(0)
     expect(Oauth2UserInfo.where(user_id: source_user.id).count).to eq(0)
     expect(SingleSignOnRecord.where(user_id: source_user.id).count).to eq(0)
-    expect(TwitterUserInfo.where(user_id: source_user.id).count).to eq(0)
     expect(UserOpenId.where(user_id: source_user.id).count).to eq(0)
   end
 

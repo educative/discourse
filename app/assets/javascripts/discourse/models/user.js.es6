@@ -26,9 +26,9 @@ export const SECOND_FACTOR_METHODS = { TOTP: 1, BACKUP_CODE: 2 };
 const isForever = dt => moment().diff(dt, "years") < -500;
 
 const User = RestModel.extend({
-  hasPMs: Em.computed.gt("private_messages_stats.all", 0),
-  hasStartedPMs: Em.computed.gt("private_messages_stats.mine", 0),
-  hasUnreadPMs: Em.computed.gt("private_messages_stats.unread", 0),
+  hasPMs: Ember.computed.gt("private_messages_stats.all", 0),
+  hasStartedPMs: Ember.computed.gt("private_messages_stats.mine", 0),
+  hasUnreadPMs: Ember.computed.gt("private_messages_stats.unread", 0),
 
   redirected_to_top: {
     reason: null
@@ -54,7 +54,7 @@ const User = RestModel.extend({
     return UserDraftsStream.create({ user: this });
   },
 
-  staff: Em.computed.or("admin", "moderator"),
+  staff: Ember.computed.or("admin", "moderator"),
 
   destroySession() {
     return ajax(`/session/${this.get("username")}`, { type: "DELETE" });
@@ -80,7 +80,7 @@ const User = RestModel.extend({
   @computed("profile_background")
   profileBackground(bgUrl) {
     if (
-      Em.isEmpty(bgUrl) ||
+      Ember.isEmpty(bgUrl) ||
       !Discourse.SiteSettings.allow_profile_backgrounds
     ) {
       return "".htmlSafe();
@@ -103,7 +103,7 @@ const User = RestModel.extend({
     const keys = this.get("user_api_keys");
     if (keys) {
       return keys.map(raw => {
-        let obj = Em.Object.create(raw);
+        let obj = Ember.Object.create(raw);
 
         obj.revoke = () => {
           this.revokeApiKey(obj);
@@ -190,10 +190,10 @@ const User = RestModel.extend({
     );
   },
 
-  isBasic: Em.computed.equal("trust_level", 0),
-  isLeader: Em.computed.equal("trust_level", 3),
-  isElder: Em.computed.equal("trust_level", 4),
-  canManageTopic: Em.computed.or("staff", "isElder"),
+  isBasic: Ember.computed.equal("trust_level", 0),
+  isLeader: Ember.computed.equal("trust_level", 3),
+  isElder: Ember.computed.equal("trust_level", 4),
+  canManageTopic: Ember.computed.or("staff", "isElder"),
 
   @computed("previous_visit_at")
   previousVisitAt(previous_visit_at) {
@@ -249,6 +249,7 @@ const User = RestModel.extend({
       "custom_fields",
       "user_fields",
       "muted_usernames",
+      "ignored_usernames",
       "profile_background",
       "card_background",
       "muted_tags",
@@ -263,18 +264,16 @@ const User = RestModel.extend({
     );
 
     let userOptionFields = [
-      "email_always",
       "mailing_list_mode",
       "mailing_list_mode_frequency",
       "external_links_in_new_tab",
       "email_digests",
-      "email_direct",
       "email_in_reply_to",
-      "email_private_messages",
+      "email_messages_level",
+      "email_level",
       "email_previous_replies",
       "dynamic_favicon",
       "enable_quoting",
-      "disable_jump_reply",
       "automatically_unpin_topics",
       "digest_after_minutes",
       "new_topic_duration_minutes",
@@ -285,7 +284,9 @@ const User = RestModel.extend({
       "theme_ids",
       "allow_private_messages",
       "homepage_id",
-      "hide_profile_and_presence"
+      "hide_profile_and_presence",
+      "text_size",
+      "title_count_mode"
     ];
 
     if (fields) {
@@ -337,7 +338,7 @@ const User = RestModel.extend({
     })
       .then(result => {
         this.set("bio_excerpt", result.user.bio_excerpt);
-        const userProps = Em.getProperties(
+        const userProps = Ember.getProperties(
           this.get("user_option"),
           "enable_quoting",
           "external_links_in_new_tab",
@@ -366,20 +367,24 @@ const User = RestModel.extend({
     });
   },
 
-  toggleSecondFactor(token, enable, method) {
+  toggleSecondFactor(authToken, authMethod, targetMethod, enable) {
     return ajax("/u/second_factor.json", {
       data: {
-        second_factor_token: token,
-        second_factor_method: method,
+        second_factor_token: authToken,
+        second_factor_method: authMethod,
+        second_factor_target: targetMethod,
         enable
       },
       type: "PUT"
     });
   },
 
-  generateSecondFactorCodes(token) {
+  generateSecondFactorCodes(authToken, authMethod) {
     return ajax("/u/second_factors_backup.json", {
-      data: { second_factor_token: token },
+      data: {
+        second_factor_token: authToken,
+        second_factor_method: authMethod
+      },
       type: "PUT"
     });
   },
@@ -446,7 +451,7 @@ const User = RestModel.extend({
   statsCountNonPM() {
     if (Ember.isEmpty(this.get("statsExcludingPms"))) return 0;
     let count = 0;
-    _.each(this.get("statsExcludingPms"), val => {
+    this.get("statsExcludingPms").forEach(val => {
       if (this.inAllStream(val)) {
         count += val.count;
       }
@@ -467,16 +472,16 @@ const User = RestModel.extend({
     return PreloadStore.getAndRemove(`user_${user.get("username")}`, () => {
       return ajax(userPath(`${user.get("username")}.json`), { data: options });
     }).then(json => {
-      if (!Em.isEmpty(json.user.stats)) {
+      if (!Ember.isEmpty(json.user.stats)) {
         json.user.stats = Discourse.User.groupStats(
-          _.map(json.user.stats, s => {
+          json.user.stats.map(s => {
             if (s.count) s.count = parseInt(s.count, 10);
             return UserActionStat.create(s);
           })
         );
       }
 
-      if (!Em.isEmpty(json.user.groups)) {
+      if (!Ember.isEmpty(json.user.groups)) {
         const groups = [];
 
         for (let i = 0; i < json.user.groups.length; i++) {
@@ -492,7 +497,7 @@ const User = RestModel.extend({
         json.user.invited_by = Discourse.User.create(json.user.invited_by);
       }
 
-      if (!Em.isEmpty(json.user.featured_user_badge_ids)) {
+      if (!Ember.isEmpty(json.user.featured_user_badge_ids)) {
         const userBadgesMap = {};
         UserBadge.createFromJson(json).forEach(userBadge => {
           userBadgesMap[userBadge.get("id")] = userBadge;
@@ -610,6 +615,22 @@ const User = RestModel.extend({
     }
   },
 
+  updateNotificationLevel(level, expiringAt) {
+    return ajax(`${userPath(this.get("username"))}/notification_level.json`, {
+      type: "PUT",
+      data: { notification_level: level, expiring_at: expiringAt }
+    }).then(() => {
+      const currentUser = Discourse.User.current();
+      if (currentUser) {
+        if (level === "normal" || level === "mute") {
+          currentUser.ignored_users.removeObject(this.get("username"));
+        } else if (level === "ignore") {
+          currentUser.ignored_users.addObject(this.get("username"));
+        }
+      }
+    });
+  },
+
   dismissBanner(bannerKey) {
     this.set("dismissed_banner_key", bannerKey);
     ajax(userPath(this.get("username") + ".json"), {
@@ -633,7 +654,8 @@ const User = RestModel.extend({
   },
 
   summary() {
-    let { store } = this;
+    // let { store } = this; would fail in tests
+    const store = Discourse.__container__.lookup("service:store");
 
     return ajax(userPath(`${this.get("username_lower")}/summary.json`)).then(
       json => {
@@ -686,23 +708,55 @@ const User = RestModel.extend({
       : this.get("admin") || group.get("is_group_owner");
   },
 
-  @computed("groups.@each.title", "badges.@each")
+  @computed("groups.@each.title", "badges.[]")
   availableTitles() {
     let titles = [];
 
-    _.each(this.get("groups"), group => {
+    (this.get("groups") || []).forEach(group => {
       if (group.get("title")) {
         titles.push(group.get("title"));
       }
     });
 
-    _.each(this.get("badges"), badge => {
+    (this.get("badges") || []).forEach(badge => {
       if (badge.get("allow_title")) {
         titles.push(badge.get("name"));
       }
     });
 
     return _.uniq(titles).sort();
+  },
+
+  @computed("user_option.text_size_seq", "user_option.text_size")
+  currentTextSize(serverSeq, serverSize) {
+    if ($.cookie("text_size")) {
+      const [cookieSize, cookieSeq] = $.cookie("text_size").split("|");
+      if (cookieSeq >= serverSeq) {
+        return cookieSize;
+      }
+    }
+    return serverSize;
+  },
+
+  updateTextSizeCookie(newSize) {
+    if (newSize) {
+      const seq = this.get("user_option.text_size_seq");
+      $.cookie("text_size", `${newSize}|${seq}`, {
+        path: "/",
+        expires: 9999
+      });
+    } else {
+      $.removeCookie("text_size", { path: "/", expires: 1 });
+    }
+  },
+
+  @computed("second_factor_enabled", "staff")
+  enforcedSecondFactor(secondFactorEnabled, staff) {
+    const enforce = Discourse.SiteSettings.enforce_second_factor;
+    return (
+      !secondFactorEnabled &&
+      (enforce === "all" || (enforce === "staff" && staff))
+    );
   }
 });
 
@@ -716,6 +770,16 @@ User.reopenClass(Singleton, {
   // TODO: Use app.register and junk Singleton
   createCurrent() {
     const userJson = PreloadStore.get("currentUser");
+
+    if (userJson && userJson.primary_group_id) {
+      const primaryGroup = userJson.groups.find(
+        group => group.id === userJson.primary_group_id
+      );
+      if (primaryGroup) {
+        userJson.primary_group_name = primaryGroup.name;
+      }
+    }
+
     if (userJson) {
       const store = Discourse.__container__.lookup("service:store");
       return store.createRecord("user", userJson);
@@ -739,7 +803,7 @@ User.reopenClass(Singleton, {
       responses.set("count", responses.get("count") + stat.get("count"));
     });
 
-    const result = Em.A();
+    const result = Ember.A();
     result.pushObjects(stats.rejectBy("isResponse"));
 
     let insertAt = 0;

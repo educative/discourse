@@ -19,7 +19,10 @@ task 'javascript:update' do
 
   dependencies = [
     {
-      source: 'ace-builds/src-min',
+      source: 'bootstrap/js/modal.js',
+      destination: 'bootstrap-modal.js'
+    }, {
+      source: 'ace-builds/src-min-noconflict/.',
       destination: 'ace',
       public: true
     }, {
@@ -45,7 +48,8 @@ task 'javascript:update' do
     }, {
       source: 'handlebars/dist/handlebars.runtime.js'
     }, {
-      source: 'htmlparser/lib/htmlparser.js'
+      source: 'highlight.js/build/.',
+      destination: 'highlightjs'
     }, {
       source: 'jquery-resize/jquery.ba-resize.js'
     }, {
@@ -56,7 +60,7 @@ task 'javascript:update' do
     }, {
       source: 'jquery.cookie/jquery.cookie.js'
     }, {
-      source: 'jQuery/dist/jquery.js'
+      source: 'jquery/dist/jquery.js'
     }, {
       source: 'jquery-tags-input/src/jquery.tagsinput.js'
     }, {
@@ -64,7 +68,22 @@ task 'javascript:update' do
     }, {
       source: 'mousetrap/mousetrap.js'
     }, {
+      source: 'moment/moment.js'
+    }, {
+      source: 'moment/locale/.',
+      destination: 'moment-locale',
+    }, {
+      source: 'moment-timezone/builds/moment-timezone-with-data.js'
+    }, {
+      source: 'moment-timezone-names-translations/locales/.',
+      destination: 'moment-timezone-names-locale'
+    }, {
+      source: 'mousetrap/plugins/global-bind/mousetrap-global-bind.js'
+    }, {
       source: 'resumablejs/resumable.js'
+    }, {
+      # TODO: drop when we eventually drop IE11, this will land in iOS in version 13
+      source: 'intersection-observer/intersection-observer.js'
     }
   ]
 
@@ -77,6 +96,23 @@ task 'javascript:update' do
       filename = f[:source].split("/").last
     else
       filename = f[:destination]
+    end
+
+    # Highlight.js needs building
+    if src.include? "highlight.js"
+      puts "Install Highlight.js dependencies"
+      system("cd node_modules/highlight.js && yarn install")
+
+      puts "Build Highlight.js"
+      system("cd node_modules/highlight.js && node tools/build.js -t cdn none")
+
+      puts "Cleanup unused styles folder"
+      system("rm -rf node_modules/highlight.js/build/styles")
+    end
+
+    if src.include? "ace-builds"
+      puts "Cleanup unused snippets folder for ACE"
+      system("rm -rf node_modules/ace-builds/src-min-noconflict/snippets")
     end
 
     if f[:public]

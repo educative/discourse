@@ -42,6 +42,8 @@ describe Jobs::NotifyMailingListSubscribers do
       before do
         SiteSetting.login_required = true
         SiteSetting.must_approve_users = true
+
+        User.update_all(approved: false)
       end
       include_examples "no emails"
     end
@@ -105,6 +107,11 @@ describe Jobs::NotifyMailingListSubscribers do
 
       context "from a muted user" do
         before { MutedUser.create(user: mailing_list_user, muted_user: user) }
+        include_examples "no emails"
+      end
+
+      context "from an ignored user" do
+        before { Fabricate(:ignored_user, user: mailing_list_user, ignored_user: user) }
         include_examples "no emails"
       end
 

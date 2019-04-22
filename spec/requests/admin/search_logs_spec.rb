@@ -32,24 +32,36 @@ RSpec.describe Admin::SearchLogsController do
 
       json = ::JSON.parse(response.body)
       expect(json[0]['term']).to eq('ruby')
+      expect(json[0]['searches']).to eq(1)
+      expect(json[0]['ctr']).to eq(0)
     end
   end
 
   context "#term" do
     it "raises an error if you aren't logged in" do
-      get '/admin/logs/search_logs/term/ruby.json'
+      get '/admin/logs/search_logs/term.json', params: {
+        term: "ruby"
+      }
+
       expect(response.status).to eq(404)
     end
 
     it "raises an error if you aren't an admin" do
       sign_in(user)
-      get '/admin/logs/search_logs/term/ruby.json'
+
+      get '/admin/logs/search_logs/term.json', params: {
+        term: "ruby"
+      }
+
       expect(response.status).to eq(404)
     end
 
     it "should work if you are an admin" do
       sign_in(admin)
-        get '/admin/logs/search_logs/term/ruby.json'
+
+      get '/admin/logs/search_logs/term.json', params: {
+        term: "ruby"
+      }
 
       expect(response.status).to eq(200)
 

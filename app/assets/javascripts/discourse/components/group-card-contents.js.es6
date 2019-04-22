@@ -2,6 +2,7 @@ import { setting } from "discourse/lib/computed";
 import { default as computed } from "ember-addons/ember-computed-decorators";
 import CardContentsBase from "discourse/mixins/card-contents-base";
 import CleansUp from "discourse/mixins/cleans-up";
+import { groupPath } from "discourse/lib/url";
 
 const maxMembersToDisplay = 10;
 
@@ -23,6 +24,11 @@ export default Ember.Component.extend(CardContentsBase, CleansUp, {
   viewingTopic: Ember.computed.match("currentPath", /^topic\./),
 
   showMoreMembers: Ember.computed.gt("moreMembersCount", 0),
+  hasMembersOrIsMember: Ember.computed.or(
+    "group.members",
+    "group.is_group_owner_display",
+    "group.is_group_user"
+  ),
 
   group: null,
 
@@ -35,7 +41,7 @@ export default Ember.Component.extend(CardContentsBase, CleansUp, {
 
   @computed("group")
   groupPath(group) {
-    return `${Discourse.BaseUri}/groups/${group.name}`;
+    return groupPath(group.name);
   },
 
   _showCallback(username, $target) {
@@ -55,10 +61,9 @@ export default Ember.Component.extend(CardContentsBase, CleansUp, {
   },
 
   _close() {
-    this._super();
-    this.setProperties({
-      group: null
-    });
+    this._super(...arguments);
+
+    this.set("group", null);
   },
 
   cleanUp() {
@@ -77,16 +82,17 @@ export default Ember.Component.extend(CardContentsBase, CleansUp, {
       this._close();
     },
 
-    composePrivateMessage(...args) {
-      this.sendAction("composePrivateMessage", ...args);
-    },
-
     messageGroup() {
-      this.sendAction("createNewMessageViaParams", this.get("group.name"));
+      this.createNewMessageViaParams(this.get("group.name"));
     },
 
-    showGroup() {
-      this.sendAction("showGroup", this.get("group"));
+    showGroup(group) {
+      this.showGroup(group);
+      this._close();
+    },
+
+    showUser(user) {
+      this.showUser(user);
       this._close();
     }
   }

@@ -5,12 +5,15 @@ require "htmlentities"
 
 class BulkImport::VBulletin < BulkImport::Base
 
+  TABLE_PREFIX = "vb_"
   SUSPENDED_TILL ||= Date.new(3000, 1, 1)
+  ATTACHMENT_DIR ||= ENV['ATTACHMENT_DIR'] || '/shared/import/data/attachments'
+  AVATAR_DIR ||= ENV['AVATAR_DIR'] || '/shared/import/data/customavatars'
 
   def initialize
     super
 
-    host     = ENV["DB_HOST"]
+    host     = ENV["DB_HOST"] || "localhost"
     username = ENV["DB_USERNAME"] || "root"
     password = ENV["DB_PASSWORD"]
     database = ENV["DB_NAME"] || "vbulletin"
@@ -24,7 +27,8 @@ class BulkImport::VBulletin < BulkImport::Base
       username: username,
       password: password,
       database: database,
-      encoding: charset
+      encoding: charset,
+      reconnect: true
     )
 
     @client.query_options.merge!(as: :array, cache_rows: false)
@@ -40,6 +44,15 @@ class BulkImport::VBulletin < BulkImport::Base
   end
 
   def execute
+    # enable as per requirement:
+    # SiteSetting.automatic_backups_enabled = false
+    # SiteSetting.disable_emails = "non-staff"
+    # SiteSetting.authorized_extensions = '*'
+    # SiteSetting.max_image_size_kb = 102400
+    # SiteSetting.max_attachment_size_kb = 102400
+    # SiteSetting.clean_up_uploads = false
+    # SiteSetting.clean_orphan_uploads_grace_period_hours = 43200
+
     import_groups
     import_users
     import_group_users
@@ -60,6 +73,11 @@ class BulkImport::VBulletin < BulkImport::Base
     import_private_topics
     import_topic_allowed_users
     import_private_posts
+
+    create_permalink_file
+    import_attachments
+    import_avatars
+    import_signatures
   end
 
   def import_groups
@@ -67,7 +85,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     groups = mysql_stream <<-SQL
         SELECT usergroupid, title, description, usertitle
-          FROM usergroup
+          FROM #{TABLE_PREFIX}usergroup
          WHERE usergroupid > #{@last_imported_group_id}
       ORDER BY usergroupid
     SQL
@@ -86,11 +104,11 @@ class BulkImport::VBulletin < BulkImport::Base
     puts "Importing users..."
 
     users = mysql_stream <<-SQL
-        SELECT user.userid, username, email, joindate, birthday, ipaddress, user.usergroupid, bandate, liftdate
-          FROM user
-     LEFT JOIN userban ON userban.userid = user.userid
-         WHERE user.userid > #{@last_imported_user_id}
-      ORDER BY user.userid
+        SELECT u.userid, username, email, joindate, birthday, ipaddress, u.usergroupid, bandate, liftdate
+          FROM #{TABLE_PREFIX}user u
+     LEFT JOIN #{TABLE_PREFIX}userban ub ON ub.userid = u.userid
+         WHERE u.userid > #{@last_imported_user_id}
+      ORDER BY u.userid
     SQL
 
     create_users(users) do |row|
@@ -115,10 +133,10 @@ class BulkImport::VBulletin < BulkImport::Base
     puts "Importing user emails..."
 
     users = mysql_stream <<-SQL
-        SELECT user.userid, email, joindate
-          FROM user
-         WHERE user.userid > #{@last_imported_user_id}
-      ORDER BY user.userid
+        SELECT u.userid, email, joindate
+          FROM #{TABLE_PREFIX}user u
+         WHERE u.userid > #{@last_imported_user_id}
+      ORDER BY u.userid
     SQL
 
     create_user_emails(users) do |row|
@@ -135,14 +153,14 @@ class BulkImport::VBulletin < BulkImport::Base
     puts "Importing user stats..."
 
     users = mysql_stream <<-SQL
-              SELECT user.userid, joindate, posts, COUNT(thread.threadid) AS threads, post.dateline
+              SELECT u.userid, joindate, posts, COUNT(t.threadid) AS threads, p.dateline
                      #{", post_thanks_user_amount, post_thanks_thanked_times" if @has_post_thanks}
-                FROM user
-     LEFT OUTER JOIN post ON post.postid = user.lastpostid
-     LEFT OUTER JOIN thread ON user.userid = thread.postuserid
-               WHERE user.userid > #{@last_imported_user_id}
-            GROUP BY user.userid
-            ORDER BY user.userid
+                FROM #{TABLE_PREFIX}user u
+     LEFT OUTER JOIN #{TABLE_PREFIX}post p ON p.postid = u.lastpostid
+     LEFT OUTER JOIN #{TABLE_PREFIX}thread t ON u.userid = t.postuserid
+               WHERE u.userid > #{@last_imported_user_id}
+            GROUP BY u.userid
+            ORDER BY u.userid
     SQL
 
     create_user_stats(users) do |row|
@@ -169,7 +187,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     group_users = mysql_stream <<-SQL
       SELECT usergroupid, userid
-        FROM user
+        FROM #{TABLE_PREFIX}user
        WHERE userid > #{@last_imported_user_id}
     SQL
 
@@ -186,7 +204,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     user_passwords = mysql_stream <<-SQL
         SELECT userid, password
-          FROM user
+          FROM #{TABLE_PREFIX}user
          WHERE userid > #{@last_imported_user_id}
       ORDER BY userid
     SQL
@@ -204,7 +222,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     user_salts = mysql_stream <<-SQL
         SELECT userid, salt
-          FROM user
+          FROM #{TABLE_PREFIX}user
          WHERE userid > #{@last_imported_user_id}
            AND LENGTH(COALESCE(salt, '')) > 0
       ORDER BY userid
@@ -223,7 +241,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     user_profiles = mysql_stream <<-SQL
         SELECT userid, homepage, profilevisits
-          FROM user
+          FROM #{TABLE_PREFIX}user
          WHERE userid > #{@last_imported_user_id}
       ORDER BY userid
     SQL
@@ -242,7 +260,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     categories = mysql_query(<<-SQL
         SELECT forumid, parentid, title, description, displayorder
-          FROM forum
+          FROM #{TABLE_PREFIX}forum
          WHERE forumid > #{@last_imported_category_id}
       ORDER BY forumid
     SQL
@@ -289,9 +307,9 @@ class BulkImport::VBulletin < BulkImport::Base
 
     topics = mysql_stream <<-SQL
         SELECT threadid, title, forumid, postuserid, open, dateline, views, visible, sticky
-          FROM thread
+          FROM #{TABLE_PREFIX}thread t
          WHERE threadid > #{@last_imported_topic_id}
-           AND EXISTS (SELECT 1 FROM post WHERE post.threadid = thread.threadid)
+           AND EXISTS (SELECT 1 FROM #{TABLE_PREFIX}post p WHERE p.threadid = t.threadid)
       ORDER BY threadid
     SQL
 
@@ -319,11 +337,11 @@ class BulkImport::VBulletin < BulkImport::Base
     puts "Importing posts..."
 
     posts = mysql_stream <<-SQL
-        SELECT postid, post.threadid, parentid, userid, post.dateline, post.visible, pagetext
+        SELECT postid, p.threadid, parentid, userid, p.dateline, p.visible, pagetext
                #{", post_thanks_amount" if @has_post_thanks}
 
-          FROM post
-          JOIN thread ON thread.threadid = post.threadid
+          FROM #{TABLE_PREFIX}post p
+          JOIN #{TABLE_PREFIX}thread t ON t.threadid = p.threadid
          WHERE postid > #{@last_imported_post_id}
       ORDER BY postid
     SQL
@@ -357,7 +375,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     post_thanks = mysql_stream <<-SQL
         SELECT postid, userid, date
-          FROM post_thanks
+          FROM #{TABLE_PREFIX}post_thanks
          WHERE postid > #{@last_imported_post_id}
       ORDER BY postid
     SQL
@@ -385,7 +403,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     topics = mysql_stream <<-SQL
         SELECT pmtextid, title, fromuserid, touserarray, dateline
-          FROM pmtext
+          FROM #{TABLE_PREFIX}pmtext
          WHERE pmtextid > (#{@last_imported_private_topic_id - PRIVATE_OFFSET})
       ORDER BY pmtextid
     SQL
@@ -414,7 +432,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     mysql_stream(<<-SQL
         SELECT pmtextid, touserarray
-          FROM pmtext
+          FROM #{TABLE_PREFIX}pmtext
          WHERE pmtextid > (#{@last_imported_private_topic_id - PRIVATE_OFFSET})
       ORDER BY pmtextid
     SQL
@@ -439,7 +457,7 @@ class BulkImport::VBulletin < BulkImport::Base
 
     posts = mysql_stream <<-SQL
         SELECT pmtextid, title, fromuserid, touserarray, dateline, message
-          FROM pmtext
+          FROM #{TABLE_PREFIX}pmtext
          WHERE pmtextid > #{@last_imported_private_post_id - PRIVATE_OFFSET}
       ORDER BY pmtextid
     SQL
@@ -461,6 +479,201 @@ class BulkImport::VBulletin < BulkImport::Base
     end
   end
 
+  def create_permalink_file
+    puts '', 'Creating Permalink File...', ''
+
+    id_mapping = []
+
+    Topic.listable_topics.find_each do |topic|
+      pcf = topic.first_post.custom_fields
+      if pcf && pcf["import_id"]
+        id = pcf["import_id"].split('-').last
+        id_mapping.push("XXX#{id}  YYY#{topic.id}")
+      end
+    end
+
+    # Category.find_each do |cat|
+    #   ccf = cat.custom_fields
+    #   if ccf && ccf["import_id"]
+    #     id = ccf["import_id"].to_i
+    #     id_mapping.push("/forumdisplay.php?#{id}  http://forum.quartertothree.com#{cat.url}")
+    #   end
+    # end
+
+    CSV.open(File.expand_path("../vb_map.csv", __FILE__), "w") do |csv|
+      id_mapping.each do |value|
+        csv << [value]
+      end
+    end
+  end
+
+  # find the uploaded file information from the db
+  def find_upload(post, attachment_id)
+    sql = "SELECT a.attachmentid attachment_id, a.userid user_id, a.filename filename,
+                  a.filedata filedata, a.extension extension
+             FROM #{TABLE_PREFIX}attachment a
+            WHERE a.attachmentid = #{attachment_id}"
+    results = mysql_query(sql)
+
+    unless row = results.first
+      puts "Couldn't find attachment record for attachment_id = #{attachment_id} post.id = #{post.id}"
+      return
+    end
+
+    attachment_id = row[0]
+    user_id = row[1]
+    db_filename = row[2]
+
+    filename = File.join(ATTACHMENT_DIR, user_id.to_s.split('').join('/'), "#{attachment_id}.attach")
+    real_filename = db_filename
+    real_filename.prepend SecureRandom.hex if real_filename[0] == '.'
+
+    unless File.exists?(filename)
+      puts "Attachment file #{row.inspect} doesn't exist"
+      return nil
+    end
+
+    upload = create_upload(post.user.id, filename, real_filename)
+
+    if upload.nil? || !upload.valid?
+      puts "Upload not valid :("
+      puts upload.errors.inspect if upload
+      return
+    end
+
+    [upload, real_filename]
+  rescue Mysql2::Error => e
+    puts "SQL Error"
+    puts e.message
+    puts sql
+  end
+
+  def import_attachments
+    puts '', 'importing attachments...'
+
+    RateLimiter.disable
+    current_count = 0
+
+    total_count = mysql_query(<<-SQL
+      SELECT COUNT(p.postid) count
+        FROM #{TABLE_PREFIX}post p
+        JOIN #{TABLE_PREFIX}thread t ON t.threadid = p.threadid
+       WHERE t.firstpostid <> p.postid
+    SQL
+    ).first[0].to_i
+
+    success_count = 0
+    fail_count = 0
+
+    attachment_regex = /\[attach[^\]]*\](\d+)\[\/attach\]/i
+
+    Post.find_each do |post|
+      current_count += 1
+      print_status current_count, total_count
+
+      new_raw = post.raw.dup
+      new_raw.gsub!(attachment_regex) do |s|
+        matches = attachment_regex.match(s)
+        attachment_id = matches[1]
+
+        upload, filename = find_upload(post, attachment_id)
+        unless upload
+          fail_count += 1
+          next
+          # should we strip invalid attach tags?
+        end
+
+        html_for_upload(upload, filename)
+      end
+
+      if new_raw != post.raw
+        PostRevisor.new(post).revise!(post.user, { raw: new_raw }, bypass_bump: true, edit_reason: 'Import attachments from vBulletin')
+      end
+
+      success_count += 1
+    end
+
+    puts "", "imported #{success_count} attachments... failed: #{fail_count}."
+    RateLimiter.enable
+  end
+
+  def import_avatars
+    if AVATAR_DIR && File.exists?(AVATAR_DIR)
+      puts "", "importing user avatars"
+
+      RateLimiter.disable
+      start = Time.now
+      count = 0
+
+      Dir.foreach(AVATAR_DIR) do |item|
+        print "\r%7d - %6d/sec".freeze % [count, count.to_f / (Time.now - start)]
+
+        next if item == ('.') || item == ('..') || item == ('.DS_Store')
+        next unless item =~ /avatar(\d+)_(\d).gif/
+        scan = item.scan(/avatar(\d+)_(\d).gif/)
+        next unless scan[0][0].present?
+        u = UserCustomField.find_by(name: "import_id", value: scan[0][0]).try(:user)
+        next unless u.present?
+        # raise "User not found for id #{user_id}" if user.blank?
+
+        photo_real_filename = File.join(AVATAR_DIR, item)
+        puts "#{photo_real_filename} not found" unless File.exists?(photo_real_filename)
+
+        upload = create_upload(u.id, photo_real_filename, File.basename(photo_real_filename))
+        count += 1
+        if upload.persisted?
+          u.import_mode = false
+          u.create_user_avatar
+          u.import_mode = true
+          u.user_avatar.update(custom_upload_id: upload.id)
+          u.update(uploaded_avatar_id: upload.id)
+        else
+          puts "Error: Upload did not persist for #{u.username} #{photo_real_filename}!"
+        end
+      end
+
+      puts "", "imported #{count} avatars..."
+      RateLimiter.enable
+    end
+  end
+
+  def import_signatures
+    puts "Importing user signatures..."
+
+    total_count = mysql_query(<<-SQL
+      SELECT COUNT(userid) count
+        FROM #{TABLE_PREFIX}sigparsed
+    SQL
+    ).first[0].to_i
+    current_count = 0
+
+    user_signatures = mysql_stream <<-SQL
+        SELECT userid, signatureparsed
+          FROM #{TABLE_PREFIX}sigparsed
+      ORDER BY userid
+    SQL
+
+    user_signatures.each do |sig|
+      current_count += 1
+      print_status current_count, total_count
+      user_id = sig[0]
+      user_sig = sig[1]
+      next unless user_id.present? && user_sig.present?
+
+      u = UserCustomField.find_by(name: "import_id", value: user_id).try(:user)
+      next unless u.present?
+
+      # can not hold dupes
+      UserCustomField.where(user_id: u.id, name: ["see_signatures", "signature_raw", "signature_cooked"]).destroy_all
+
+      user_sig.gsub!(/\[\/?sigpic\]/i, "")
+
+      UserCustomField.create!(user_id: u.id, name: "see_signatures", value: true)
+      UserCustomField.create!(user_id: u.id, name: "signature_raw", value: user_sig)
+      UserCustomField.create!(user_id: u.id, name: "signature_cooked", value: PrettyText.cook(user_sig, omit_nofollow: false))
+    end
+  end
+
   def extract_pm_title(title)
     normalize_text(title).scrub.gsub(/^Re\s*:\s*/i, "")
   end
@@ -470,6 +683,17 @@ class BulkImport::VBulletin < BulkImport::Base
     date_of_birth = Date.strptime(birthday.gsub(/[^\d-]+/, ""), "%m-%d-%Y") rescue nil
     return if date_of_birth.nil?
     date_of_birth.year < 1904 ? Date.new(1904, date_of_birth.month, date_of_birth.day) : date_of_birth
+  end
+
+  def print_status(current, max, start_time = nil)
+    if start_time.present?
+      elapsed_seconds = Time.now - start_time
+      elements_per_minute = '[%.0f items/min]  ' % [current / elapsed_seconds.to_f * 60]
+    else
+      elements_per_minute = ''
+    end
+
+    print "\r%9d / %d (%5.1f%%)  %s" % [current, max, current / max.to_f * 100, elements_per_minute]
   end
 
   def mysql_stream(sql)

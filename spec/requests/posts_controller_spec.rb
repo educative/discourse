@@ -121,10 +121,20 @@ describe PostsController do
       let(:url) { "/posts/#{post.id}/reply-history.json" }
     end
 
-    it 'asks post for reply history' do
-      post = Fabricate(:post)
-      get "/posts/#{post.id}/reply-history.json"
+    it "returns the replies with whitelisted user custom fields" do
+      parent = Fabricate(:post)
+      child = Fabricate(:post, topic: parent.topic, reply_to_post_number: parent.post_number)
+
+      parent.user.upsert_custom_fields(hello: 'world', hidden: 'dontshow')
+      SiteSetting.public_user_custom_fields = 'hello'
+
+      get "/posts/#{child.id}/reply-history.json"
       expect(response.status).to eq(200)
+
+      json = JSON.parse(response.body)
+      expect(json[0]['id']).to eq(parent.id)
+      expect(json[0]['user_custom_fields']['hello']).to eq('world')
+      expect(json[0]['user_custom_fields']['hidden']).to be_blank
     end
   end
 
@@ -134,9 +144,20 @@ describe PostsController do
     end
 
     it 'asks post for replies' do
-      p1 = Fabricate(:post)
-      get "/posts/#{p1.id}/replies.json"
+      parent = Fabricate(:post)
+      child = Fabricate(:post, topic: parent.topic, reply_to_post_number: parent.post_number)
+      PostReply.create!(post: parent, reply: child)
+
+      child.user.upsert_custom_fields(hello: 'world', hidden: 'dontshow')
+      SiteSetting.public_user_custom_fields = 'hello'
+
+      get "/posts/#{parent.id}/replies.json"
       expect(response.status).to eq(200)
+
+      json = JSON.parse(response.body)
+      expect(json[0]['id']).to eq(child.id)
+      expect(json[0]['user_custom_fields']['hello']).to eq('world')
+      expect(json[0]['user_custom_fields']['hidden']).to be_blank
     end
   end
 
@@ -222,6 +243,32 @@ describe PostsController do
           delete "/posts/destroy_many.json", params: { post_ids: [post1.id], reply_post_ids: [post1.id] }
         end
       end
+
+      context "deleting flagged posts" do
+        let(:moderator) { Fabricate(:moderator) }
+
+        before do
+          sign_in(moderator)
+          PostActionCreator.off_topic(moderator, post1)
+          PostActionCreator.off_topic(moderator, post2)
+          Jobs::SendSystemMessage.clear
+        end
+
+        it "defers the child posts by default" do
+          expect(ReviewableFlaggedPost.pending.count).to eq(2)
+          delete "/posts/destroy_many.json", params: { post_ids: [post1.id, post2.id] }
+          expect(Jobs::SendSystemMessage.jobs.size).to eq(1)
+          expect(ReviewableFlaggedPost.pending.count).to eq(0)
+        end
+
+        it "can defer all posts based on `agree_with_first_reply_flag` param" do
+          expect(ReviewableFlaggedPost.pending.count).to eq(2)
+          delete "/posts/destroy_many.json", params: { post_ids: [post1.id, post2.id], agree_with_first_reply_flag: false }
+          PostActionCreator.off_topic(moderator, post1)
+          PostActionCreator.off_topic(moderator, post2)
+          Jobs::SendSystemMessage.clear
+        end
+      end
     end
   end
 
@@ -295,6 +342,13 @@ describe PostsController do
         expect(post.raw).to eq("edited body")
       end
 
+      it 'checks for an edit conflict' do
+        update_params[:post][:raw_old] = 'old body'
+        put "/posts/#{post.id}.json", params: update_params
+
+        expect(response.status).to eq(409)
+      end
+
       it "raises an error when the post parameter is missing" do
         update_params.delete(:post)
         put "/posts/#{post.id}.json", params: update_params
@@ -346,6 +400,15 @@ describe PostsController do
 
         post.reload
         expect(post.raw).to eq('edited body')
+      end
+
+      it "won't update bump date if post is a whisper" do
+        post = Fabricate(:post, post_type: Post.types[:whisper], user: user)
+
+        put "/posts/#{post.id}.json", params: update_params
+        expect(response.status).to eq(200)
+
+        expect(post.topic.reload.bumped_at).to be < post.created_at
       end
     end
 
@@ -406,7 +469,7 @@ describe PostsController do
       end
 
       context "removing a bookmark" do
-        let(:post_action) { PostAction.act(user, post, PostActionType.types[:bookmark]) }
+        let(:post_action) { PostActionCreator.create(user, post, :bookmark).post_action }
         let(:admin) { Fabricate(:admin) }
 
         it "returns the right response when post is not bookmarked" do
@@ -615,6 +678,15 @@ describe PostsController do
         put "/posts/#{post.id}/rebake.json"
         expect(response.status).to eq(200)
       end
+
+      it "will invalidate broken images cache" do
+        sign_in(Fabricate(:moderator))
+        post.custom_fields[Post::BROKEN_IMAGES] = ["https://example.com/image.jpg"].to_json
+        post.save_custom_fields
+        put "/posts/#{post.id}/rebake.json"
+        post.reload
+        expect(post.custom_fields[Post::BROKEN_IMAGES]).to be_nil
+      end
     end
   end
 
@@ -659,7 +731,7 @@ describe PostsController do
       end
 
       it 'allows to create posts in import_mode' do
-        SiteSetting.queue_jobs = false
+        Jobs.run_immediately!
         NotificationEmailer.enable
         post_1 = Fabricate(:post)
         user = Fabricate(:user)
@@ -728,10 +800,15 @@ describe PostsController do
           user.reload
           expect(user).to be_silenced
 
-          qp = QueuedPost.first
+          rp = ReviewableQueuedPost.find_by(created_by: user)
+          expect(rp.reviewable_scores.first.reason).to eq('fast_typer')
+
+          expect(parsed['pending_post']).to be_present
+          expect(parsed['pending_post']['id']).to eq(rp.id)
+          expect(parsed['pending_post']['raw']).to eq("this is the test content")
 
           mod = Fabricate(:moderator)
-          qp.approve!(mod)
+          rp.perform(mod, :approve)
 
           user.reload
           expect(user).not_to be_silenced
@@ -777,6 +854,9 @@ describe PostsController do
         parsed = ::JSON.parse(response.body)
 
         expect(parsed["action"]).to eq("enqueued")
+        reviewable = ReviewableQueuedPost.find_by(created_by: user)
+        score = reviewable.reviewable_scores.first
+        expect(score.reason).to eq('auto_silence_regex')
 
         user.reload
         expect(user).to be_silenced
@@ -832,11 +912,17 @@ describe PostsController do
         raw = "this is a test post 123 #{SecureRandom.hash}"
         title = "this is a title #{SecureRandom.hash}"
 
-        post "/posts.json", params: { raw: raw, title: title, wpid: 1 }
+        expect do
+          post "/posts.json", params: { raw: raw, title: title, wpid: 1 }
+        end.to change { Post.count }
+
         expect(response.status).to eq(200)
 
-        post "/posts.json", params: { raw: raw, title: title, wpid: 2 }
-        expect(response).not_to be_successful
+        expect do
+          post "/posts.json", params: { raw: raw, title: title, wpid: 2 }
+        end.to_not change { Post.count }
+
+        expect(response.status).to eq(422)
       end
 
       it 'can not create a post in a disallowed category' do
@@ -937,6 +1023,34 @@ describe PostsController do
           }
 
           expect(JSON.parse(response.body)["errors"]).to include(I18n.t(:spamming_host))
+        end
+
+        context "allow_uncategorized_topics is false" do
+          before do
+            SiteSetting.allow_uncategorized_topics = false
+          end
+
+          it "cant create an uncategorized post" do
+            post "/posts.json", params: {
+              raw: "a new post with no category",
+              title: "a new post with no category"
+            }
+            expect(response).not_to be_successful
+          end
+
+          context "as staff" do
+            before do
+              sign_in(Fabricate(:admin))
+            end
+
+            it "cant create an uncategorized post" do
+              post "/posts.json", params: {
+                raw: "a new post with no category",
+                title: "a new post with no category"
+              }
+              expect(response).not_to be_successful
+            end
+          end
         end
       end
     end
@@ -1099,10 +1213,18 @@ describe PostsController do
         include_examples "it works"
       end
 
+      context "TL4 users" do
+        before do
+          sign_in(Fabricate(:trust_level_4))
+        end
+
+        include_examples "it works"
+      end
+
       context "users" do
         let(:topic) { Fabricate(:topic) }
 
-        [:user, :trust_level_4].each do |user|
+        [:user].each do |user|
           it "will raise an error for #{user}" do
             sign_in(Fabricate(user))
             post "/posts.json", params: {
@@ -1162,6 +1284,25 @@ describe PostsController do
       it "ensures trust level 4 can see the revisions" do
         sign_in(Fabricate(:user, trust_level: 4))
         get "/posts/#{post_revision.post_id}/revisions/#{post_revision.number}.json"
+        expect(response.status).to eq(200)
+      end
+    end
+
+    context "when post is hidden" do
+      before {
+        post.hidden = true
+        post.save
+      }
+
+      it "throws an exception for users" do
+        sign_in(Fabricate(:user))
+        get "/posts/#{post.id}/revisions/#{post_revision.number}.json"
+        expect(response.status).to eq(404)
+      end
+
+      it "works for admins" do
+        sign_in(Fabricate(:admin))
+        get "/posts/#{post.id}/revisions/#{post_revision.number}.json"
         expect(response.status).to eq(200)
       end
     end
@@ -1317,14 +1458,14 @@ describe PostsController do
         post_disagreed = create_post(user: user)
 
         moderator = Fabricate(:moderator)
-        PostAction.act(moderator, post_agreed, PostActionType.types[:spam])
-        PostAction.act(moderator, post_deferred, PostActionType.types[:off_topic])
-        PostAction.act(moderator, post_disagreed, PostActionType.types[:inappropriate])
+        r0 = PostActionCreator.spam(moderator, post_agreed).reviewable
+        r1 = PostActionCreator.off_topic(moderator, post_deferred).reviewable
+        r2 = PostActionCreator.inappropriate(moderator, post_disagreed).reviewable
 
         admin = Fabricate(:admin)
-        PostAction.agree_flags!(post_agreed, admin)
-        PostAction.defer_flags!(post_deferred, admin)
-        PostAction.clear_flags!(post_disagreed, admin)
+        r0.perform(admin, :agree_and_keep)
+        r1.perform(admin, :ignore)
+        r2.perform(admin, :disagree)
 
         sign_in(Fabricate(:moderator))
         get "/posts/#{user.username}/flagged.json"

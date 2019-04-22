@@ -1,5 +1,4 @@
 require 'rails_helper'
-require_dependency 'post_destroyer'
 
 describe Post do
   before { Oneboxer.stubs :onebox }
@@ -134,6 +133,23 @@ describe Post do
       end
     end
 
+    context 'a post with notices' do
+      let(:post) {
+        post = Fabricate(:post, post_args)
+        post.custom_fields["notice_type"] = Post.notices[:returning_user]
+        post.custom_fields["notice_args"] = 1.day.ago
+        post.save_custom_fields
+        post
+      }
+
+      describe 'recovery' do
+        it 'deletes notices' do
+          expect { post.trash! }
+            .to change { post.custom_fields.length }.from(2).to(0)
+        end
+      end
+    end
+
   end
 
   describe 'flagging helpers' do
@@ -142,44 +158,39 @@ describe Post do
     let(:admin) { Fabricate(:admin) }
 
     it 'is_flagged? is accurate' do
-      PostAction.act(user, post, PostActionType.types[:off_topic])
-      post.reload
-      expect(post.is_flagged?).to eq(true)
+      PostActionCreator.off_topic(user, post)
+      expect(post.reload.is_flagged?).to eq(true)
 
-      PostAction.remove_act(user, post, PostActionType.types[:off_topic])
-      post.reload
-      expect(post.is_flagged?).to eq(false)
+      PostActionDestroyer.destroy(user, post, :off_topic)
+      expect(post.reload.is_flagged?).to eq(false)
     end
 
     it 'is_flagged? is true if flag was deferred' do
-      PostAction.act(user, post, PostActionType.types[:off_topic])
-      PostAction.defer_flags!(post.reload, admin)
-      post.reload
-      expect(post.is_flagged?).to eq(true)
+      result = PostActionCreator.off_topic(user, post)
+      result.reviewable.perform(admin, :ignore)
+      expect(post.reload.is_flagged?).to eq(true)
     end
 
     it 'is_flagged? is true if flag was cleared' do
-      PostAction.act(user, post, PostActionType.types[:off_topic])
-      PostAction.clear_flags!(post.reload, admin)
-      post.reload
-      expect(post.is_flagged?).to eq(true)
+      result = PostActionCreator.off_topic(user, post)
+      result.reviewable.perform(admin, :disagree)
+      expect(post.reload.is_flagged?).to eq(true)
     end
 
-    it 'has_active_flag? is false for deferred flags' do
-      PostAction.act(user, post, PostActionType.types[:spam])
-      post.reload
-      expect(post.has_active_flag?).to eq(true)
+    it 'reviewable_flag is nil when ignored' do
+      result = PostActionCreator.spam(user, post)
+      expect(post.reviewable_flag).to eq(result.reviewable)
 
-      PostAction.defer_flags!(post, admin)
-      post.reload
-      expect(post.has_active_flag?).to eq(false)
+      result.reviewable.perform(admin, :ignore)
+      expect(post.reviewable_flag).to be_nil
     end
 
-    it 'has_active_flag? is false for cleared flags' do
-      PostAction.act(user, post, PostActionType.types[:spam])
-      PostAction.clear_flags!(post.reload, admin)
-      post.reload
-      expect(post.has_active_flag?).to eq(false)
+    it 'reviewable_flag is nil when disagreed' do
+      result = PostActionCreator.spam(user, post)
+      expect(post.reviewable_flag).to eq(result.reviewable)
+
+      result.reviewable.perform(admin, :disagree)
+      expect(post.reload.reviewable_flag).to be_nil
     end
   end
 
@@ -969,6 +980,46 @@ describe Post do
       post.save
       expect(post.cooked).to match(/nofollow noopener/)
     end
+
+    describe 'mentions' do
+      let(:group) do
+        Fabricate(:group,
+          mentionable_level: Group::ALIAS_LEVELS[:members_mods_and_admins]
+        )
+      end
+
+      before do
+        Jobs.run_immediately!
+      end
+
+      describe 'when user can not mention a group' do
+        it "should not create the mention" do
+          post = Fabricate(:post, raw: "hello @#{group.name}")
+          post.trigger_post_process
+          post.reload
+
+          expect(post.cooked).to eq(
+            %Q|<p>hello <span class="mention">@#{group.name}</span></p>|
+          )
+        end
+      end
+
+      describe 'when user can mention a group' do
+        before do
+          group.add(post.user)
+        end
+
+        it 'should create the mention' do
+          post.update!(raw: "hello @#{group.name}")
+          post.trigger_post_process
+          post.reload
+
+          expect(post.cooked).to eq(
+            %Q|<p>hello <a class="mention-group" href="/groups/#{group.name}">@#{group.name}</a></p>|
+          )
+        end
+      end
+    end
   end
 
   describe "calculate_avg_time" do
@@ -1113,6 +1164,27 @@ describe Post do
       post.reload
       expect(post.baked_at).to eq(baked)
     end
+
+    it "will rate limit globally" do
+
+      post1 = create_post
+      post2 = create_post
+      post3 = create_post
+
+      Post.where(id: [post1.id, post2.id, post3.id]).update_all(baked_version: -1)
+
+      global_setting :max_old_rebakes_per_15_minutes, 2
+
+      RateLimiter.clear_all_global!
+      RateLimiter.enable
+
+      Post.rebake_old(100)
+
+      expect(post3.reload.baked_version).not_to eq(-1)
+      expect(post2.reload.baked_version).not_to eq(-1)
+      expect(post1.reload.baked_version).to eq(-1)
+
+    end
   end
 
   describe ".unhide!" do
@@ -1230,6 +1302,56 @@ describe Post do
       expect(post.reload.post_uploads.pluck(:id)).to_not contain_exactly(
         post_uploads_ids
       )
+    end
+  end
+
+  context 'topic updated_at' do
+    let :topic do
+      create_post.topic
+    end
+
+    def updates_topic_updated_at
+
+      freeze_time 1.day.from_now
+      time = Time.now
+
+      result = yield
+
+      topic.reload
+      expect(topic.updated_at).to eq_time(time)
+
+      result
+    end
+
+    it "will update topic updated_at for all topic related events" do
+      SiteSetting.enable_whispers = true
+
+      post = updates_topic_updated_at do
+        create_post(topic_id: topic.id, post_type: Post.types[:whisper])
+      end
+
+      updates_topic_updated_at do
+        PostDestroyer.new(Discourse.system_user, post).destroy
+      end
+
+      updates_topic_updated_at do
+        PostDestroyer.new(Discourse.system_user, post).recover
+      end
+
+    end
+  end
+
+  context "have_uploads" do
+    it "should find all posts with the upload" do
+      ids = []
+      ids << Fabricate(:post, cooked: "A post with upload <img src='/uploads/default/1/defghijklmno.png'>").id
+      ids << Fabricate(:post, cooked: "A post with optimized image <img src='/uploads/default/_optimized/601/961/defghijklmno.png'>").id
+      Fabricate(:post)
+      ids << Fabricate(:post, cooked: "A post with upload <img src='/uploads/default/original/1X/abc/defghijklmno.png'>").id
+      ids << Fabricate(:post, cooked: "A post with upload link <a href='https://cdn.example.com/original/1X/abc/defghijklmno.png'>").id
+      ids << Fabricate(:post, cooked: "A post with optimized image <img src='https://cdn.example.com/bucket/optimized/1X/abc/defghijklmno.png'>").id
+      Fabricate(:post, cooked: "A post with external link <a href='https://example.com/wp-content/uploads/abcdef.gif'>")
+      expect(Post.have_uploads.order(:id).pluck(:id)).to eq(ids)
     end
   end
 

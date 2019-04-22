@@ -2,6 +2,7 @@ import { iconHTML } from "discourse-common/lib/icon-library";
 import { ajax } from "discourse/lib/ajax";
 import { isValidLink } from "discourse/lib/click-track";
 import { number } from "discourse/lib/formatter";
+import highlightText from "discourse/lib/highlight-text";
 
 const _decorators = [];
 
@@ -11,11 +12,15 @@ export function addDecorator(cb) {
 }
 
 export default class PostCooked {
-  constructor(attrs, decoratorHelper) {
+  constructor(attrs, decoratorHelper, currentUser) {
     this.attrs = attrs;
     this.expanding = false;
     this._highlighted = false;
     this.decoratorHelper = decoratorHelper;
+    this.currentUser = currentUser;
+    this.ignoredUsers = this.currentUser
+      ? this.currentUser.ignored_users
+      : null;
   }
 
   update(prev) {
@@ -28,7 +33,7 @@ export default class PostCooked {
   }
 
   init() {
-    const $html = $(`<div class='cooked'>${this.attrs.cooked}</div>`);
+    const $html = this._computeCooked();
     this._insertQuoteControls($html);
     this._showLinkCounts($html);
     this._fixImageSizes($html);
@@ -45,7 +50,8 @@ export default class PostCooked {
       if (this._highlighted) {
         $html.unhighlight();
       }
-      $html.highlight(highlight.split(/\s+/));
+
+      highlightText($html, highlight, { defaultClassName: true });
       this._highlighted = true;
     } else if (this._highlighted) {
       $html.unhighlight();
@@ -104,6 +110,11 @@ export default class PostCooked {
           valid = href.indexOf(lc.url) >= 0;
         }
 
+        // Match server-side behaviour for internal links with query params
+        if (lc.internal && /\?/.test(href)) {
+          valid = href.split("?")[0] === lc.url;
+        }
+
         // don't display badge counts on category badge & oneboxes (unless when explicitely stated)
         if (valid && isValidLink($link)) {
           const title = I18n.t("topic_map.clicks", { count: lc.clicks });
@@ -131,10 +142,14 @@ export default class PostCooked {
     if ($aside.data("expanded")) {
       this._updateQuoteElements($aside, "chevron-up");
       // Show expanded quote
-      const $blockQuote = $("blockquote", $aside);
+      const $blockQuote = $("> blockquote", $aside);
       $aside.data("original-contents", $blockQuote.html());
 
-      const originalText = $blockQuote.text().trim();
+      const originalText =
+        $blockQuote.text().trim() ||
+        $("> blockquote", this.attrs.cooked)
+          .text()
+          .trim();
       $blockQuote.html(I18n.t("loading"));
       let topicId = this.attrs.topicId;
       if ($aside.data("topic")) {
@@ -158,9 +173,10 @@ export default class PostCooked {
           $blockQuote.showHtml(div, "fast", finished);
         })
         .catch(e => {
-          if (e.jqXHR.status === 404) {
+          if ([403, 404].includes(e.jqXHR.status)) {
+            const icon = e.jqXHR.status === 403 ? "lock" : "far-trash-alt";
             $blockQuote.showHtml(
-              $(`<div class='expanded-quote'>${iconHTML("trash-o")}</div>`),
+              $(`<div class='expanded-quote'>${iconHTML(icon)}</div>`),
               "fast",
               finished
             );
@@ -204,6 +220,16 @@ export default class PostCooked {
       expandContract = iconHTML(desc, { title: "post.expand_collapse" });
       $(".title", $aside).css("cursor", "pointer");
     }
+    if (this.ignoredUsers && this.ignoredUsers.length > 0) {
+      const username = $aside
+        .find(".title")
+        .text()
+        .trim()
+        .slice(0, -1);
+      if (username.length > 0 && this.ignoredUsers.includes(username)) {
+        $aside.find("p").remove();
+      }
+    }
     $(".quote-controls", $aside).html(expandContract + navLink);
   }
 
@@ -232,6 +258,20 @@ export default class PostCooked {
         }
       }
     });
+  }
+
+  _computeCooked() {
+    if (
+      this.ignoredUsers &&
+      this.ignoredUsers.length > 0 &&
+      this.ignoredUsers.includes(this.attrs.username)
+    ) {
+      return $(
+        `<div class='cooked post-ignored'>${I18n.t("post.ignored")}</div>`
+      );
+    }
+
+    return $(`<div class='cooked'>${this.attrs.cooked}</div>`);
   }
 }
 

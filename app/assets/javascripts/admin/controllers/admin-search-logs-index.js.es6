@@ -1,6 +1,8 @@
+export const DEFAULT_PERIOD = "yearly";
+
 export default Ember.Controller.extend({
   loading: false,
-  period: "all",
+  period: DEFAULT_PERIOD,
   searchType: "all",
 
   searchTypeOptions: [

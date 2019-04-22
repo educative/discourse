@@ -12,7 +12,7 @@
           {{d-icon "check" class="default-indicator" title="admin.customize.theme.default_theme_tooltip"}}
         {{/if}}
         {{#if theme.isPendingUpdates}}
-          {{d-icon "refresh" title="admin.customize.theme.updates_available_tooltip" class="light-grey-icon"}}
+          {{d-icon "sync" title="admin.customize.theme.updates_available_tooltip" class="light-grey-icon"}}
         {{/if}}
         {{#if theme.isBroken}}
           {{d-icon "exclamation-circle" class="broken-indicator" title="admin.customize.theme.broken_theme_tooltip"}}
@@ -25,11 +25,8 @@
 
   {{#if displayComponents}}
     <div class="components-list">
-      {{#each children as |child|}}
-        <span class="component">
-          {{child}}
-        </span>
-      {{/each}}
+      <span class="components">{{childrenString}}</span>
+
       {{#if displayHasMore}}
         <span {{action "toggleChildrenExpanded"}} class="others-count">
           {{#if childrenExpanded}}

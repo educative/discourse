@@ -35,6 +35,7 @@ class Auth::OpenIdAuthenticator < Auth::Authenticator
   end
 
   def after_authenticate(auth_token, existing_account: nil)
+    Discourse.deprecate("OpenID Authentication has been deprecated, please migrate to OAuth2 or OpenID Connect", since: "2.3.0beta4", drop_from: "2.4")
     result = Auth::Result.new
 
     data = auth_token[:info]
@@ -82,12 +83,25 @@ class Auth::OpenIdAuthenticator < Auth::Authenticator
 
   def register_middleware(omniauth)
     omniauth.provider :open_id,
-           setup: lambda { |env|
-             strategy = env["omniauth.strategy"]
-              strategy.options[:store] = OpenID::Store::Redis.new($redis)
-           },
-           name: name,
-           identifier: identifier,
-           require: "omniauth-openid"
+         setup: lambda { |env|
+           strategy = env["omniauth.strategy"]
+           strategy.options[:store] = OpenID::Store::Redis.new($redis)
+
+           # Add CSRF protection in addition to OpenID Specification
+           def strategy.query_string
+             session["omniauth.state"] = state = SecureRandom.hex(24)
+             "?state=#{state}"
+           end
+
+           def strategy.callback_phase
+             stored_state = session.delete("omniauth.state")
+             provided_state = request.params["state"]
+             return fail!(:invalid_credentials) unless provided_state == stored_state
+             super
+           end
+         },
+         name: name,
+         identifier: identifier,
+         require: "omniauth-openid"
   end
 end

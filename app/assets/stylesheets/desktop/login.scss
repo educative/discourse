@@ -5,31 +5,49 @@
 .create-account {
   #login-buttons:not(.hidden) {
     display: flex;
+    flex: 0;
     flex-direction: column;
-    flex-basis: 40%;
-    align-items: center;
-    min-height: 175px;
-    border-left: 1px solid $primary-low;
-    padding: 0 15px;
+    align-items: stretch;
+    min-height: 75px;
+    padding: s(0 6);
     order: 2;
 
     button {
+      display: flex;
+      text-align: left;
       margin: 0.35em;
-      width: 160px;
+      white-space: nowrap;
       &:lang(zh_CN) {
         min-width: 200px;
       }
+      &:first-of-type:last-of-type {
+        &.oauth2_basic {
+          // Handles a strange fringe case where OAuth2 and account approval are enabled
+          margin-left: auto;
+          margin-right: auto;
+          justify-content: center;
+        }
+      }
     }
+  }
+
+  form {
+    min-width: 300px;
+  }
+
+  #modal-alert {
+    max-width: 500px;
+    padding: s(2 4);
   }
 
   .login-modal {
     #login-buttons:not(.hidden) {
       button {
         &:first-of-type {
-          margin-top: 3.2em;
+          margin-top: 2.8em;
         }
         &:last-of-type {
-          margin-bottom: 3.2em;
+          margin-bottom: 3em;
         }
       }
     }
@@ -38,13 +56,20 @@
   .create-account {
     #login-buttons:not(.hidden) {
       justify-content: flex-start;
-      padding-top: 1.5em;
+      padding-top: 2.7em;
+      + .login-form {
+        border-right: 1px solid $primary-low; // Only show border when login-form is present
+      }
     }
   }
 
   #login-form {
+    box-sizing: border-box;
     flex: 1 0 auto;
-    padding: 0 15px;
+    padding: s(0 6);
+    + #login-buttons {
+      border-left: 1px solid $primary-low; // Only show border when login-form is present
+    }
   }
 
   tr:not(.instructions) {
@@ -53,9 +78,23 @@
       padding: 5px 0 0 0;
     }
   }
-
-  tr.input label {
+  .tip,
+  td label {
+    display: block;
+    overflow: hidden;
+    word-wrap: break-word;
     margin-bottom: 0;
+    max-width: 280px;
+    @media screen and (min-width: 500px) {
+      max-width: 400px;
+    }
+  }
+}
+
+.has-alt-auth {
+  .tip,
+  td label {
+    max-width: 250px;
   }
 }
 
@@ -94,13 +133,51 @@
   }
 
   .login-form {
+    position: relative;
     display: flex;
-    flex: 1 1 50%;
-    align-items: center;
-    padding: 0 15px;
+    overflow: hidden;
+
+    &:after,
+    &:before {
+      content: "";
+      display: block;
+      height: 25px;
+      position: absolute;
+      width: 100%;
+      pointer-events: none;
+    }
+    &:after {
+      bottom: 0;
+      background-image: linear-gradient(
+        to bottom,
+        rgba($secondary, 0) 0%,
+        rgba($secondary, 1) 100%
+      );
+    }
+    &:before {
+      top: 0;
+      background-image: linear-gradient(
+        to top,
+        rgba($secondary, 0) 0%,
+        rgba($secondary, 1) 100%
+      );
+    }
+    form {
+      box-sizing: border-box;
+      padding: s(4 6);
+      margin-bottom: 5px;
+      max-height: 475px;
+      @media screen and (max-height: 768px) {
+        max-height: 60vh;
+      }
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
     form,
     table {
       width: 100%;
+      display: block; //IE11
     }
 
     tr {
@@ -181,7 +258,9 @@
     &:not(:empty),
     &:empty + td {
       min-height: 1.75em;
-      width: 240px;
+      &.bad .svg-icon {
+        vertical-align: middle;
+      }
     }
   }
 }

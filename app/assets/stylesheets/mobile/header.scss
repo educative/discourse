@@ -2,36 +2,69 @@
 // Discourse header
 // --------------------------------------------------
 
-#site-text-logo {
-  font-size: $font-up-3;
-}
-@include breakpoint(mobile-small) {
-  #site-text-logo {
-    font-size: $font-up-2;
-  }
-}
-
 .d-header {
-  #site-logo {
-    max-width: 9.2857em;
-  }
+  height: 3.66em;
 
   // some protection for text-only site titles
   .title {
-    max-width: 50%;
-    height: 39px;
+    max-width: 75%;
+    white-space: nowrap;
     overflow: hidden;
-    padding: 0;
-    text-overflow: clip;
-    display: table;
+    text-overflow: ellipsis;
+    -webkit-animation: fadein 0.5s;
+    animation: fadein 0.5s;
+    // This acts as a placeholder if for some reason the small logo takes a while
+    // to load - prevents topic title from shifting after the small logo loads.
+    // It's hardcoded to 36px because that's the width we use inline for the small
+    // logo in the home-logo widget.
+    min-width: 36px;
     a {
-      display: table-cell;
-      vertical-align: middle;
+      display: block;
+      width: 100%;
     }
   }
 
+  #site-logo {
+    max-height: 2.4em;
+    max-width: 100%;
+  }
+  #site-text-logo {
+    margin: 0;
+    font-size: $font-up-1;
+  }
+  .extra-info-wrapper {
+    .extra-info {
+      // header title should not be centered if there's no tags / categories
+      &:not(.two-rows) {
+        min-height: 2.25em;
+      }
+      h1 {
+        font-size: $font-0;
+      }
+      .private-message-glyph-wrapper {
+        float: left;
+      }
+    }
+  }
   button.sign-up-button {
     display: none;
+  }
+
+  // Hide header avatar + icons while topic title is visible in mobile header
+  .extra-info-wrapper + .panel {
+    .header-buttons,
+    .d-header-icons {
+      display: none;
+    }
+  }
+  // Fade in header avatar + icons if topic title is not visible in mobile header
+  .panel {
+    animation: fadein 0.5s;
+  }
+  // A rendering bug in safari causes header SVGs to jitter after animations.
+  // translateZ() forces gpu rendering which fixes the issue.
+  .d-header-icons {
+    -webkit-transform: translateZ(0);
   }
 }
 
@@ -52,8 +85,4 @@
 
 .search-link .badge-category {
   display: none;
-}
-
-.search-link .topic-statuses .topic-status i {
-  font-size: $font-0;
 }

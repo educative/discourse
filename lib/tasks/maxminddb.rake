@@ -1,24 +1,10 @@
-require 'rubygems/package'
-require 'zlib'
+require_dependency 'discourse_ip_info'
 
 desc "downloads MaxMind's GeoLite2-City database"
 task "maxminddb:get" do
-  puts "Downloading maxmind db"
-  uri = URI("http://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz")
-  tar_gz_archive = Net::HTTP.get(uri)
+  puts "Downloading MaxMindDb's GeoLite2-City..."
+  DiscourseIpInfo.mmdb_download('GeoLite2-City')
 
-  extractor = Gem::Package::TarReader.new(Zlib::GzipReader.new(StringIO.new(tar_gz_archive)))
-  extractor.rewind
-
-  extractor.each do |entry|
-    next unless entry.full_name.ends_with?(".mmdb")
-
-    filename = File.join(Rails.root, 'vendor', 'data', 'GeoLite2-City.mmdb')
-    puts "Writing #{filename}"
-    File.open(filename, "wb") do |f|
-      f.write(entry.read)
-    end
-  end
-
-  extractor.close
+  puts "Downloading MaxMindDb's GeoLite2-ASN..."
+  DiscourseIpInfo.mmdb_download('GeoLite2-ASN')
 end

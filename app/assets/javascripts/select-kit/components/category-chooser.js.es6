@@ -1,5 +1,4 @@
 import ComboBoxComponent from "select-kit/components/combo-box";
-import { on } from "ember-addons/ember-computed-decorators";
 import computed from "ember-addons/ember-computed-decorators";
 import PermissionType from "discourse/models/permission-type";
 import Category from "discourse/models/category";
@@ -18,7 +17,7 @@ export default ComboBoxComponent.extend({
   permissionType: PermissionType.FULL,
 
   init() {
-    this._super();
+    this._super(...arguments);
 
     this.get("rowComponentOptions").setProperties({
       allowUncategorized: this.get("allowUncategorized")
@@ -28,6 +27,12 @@ export default ComboBoxComponent.extend({
   filterComputedContent(computedContent, computedValue, filter) {
     if (isEmpty(filter)) {
       return computedContent;
+    }
+
+    if (this.get("scopedCategoryId")) {
+      computedContent = this.categoriesByScope().map(c =>
+        this.computeContentItem(c)
+      );
     }
 
     const _matchFunction = (f, text) => {
@@ -65,7 +70,7 @@ export default ComboBoxComponent.extend({
   },
 
   computeHeaderContent() {
-    let content = this._super();
+    let content = this._super(...arguments);
 
     if (this.get("hasSelection")) {
       const category = Category.findById(content.value);
@@ -94,28 +99,27 @@ export default ComboBoxComponent.extend({
     return content;
   },
 
-  @on("didRender")
-  _bindComposerResizing() {
-    this.appEvents.on("composer:resized", this, this.applyDirection);
-  },
-
-  @on("willDestroyElement")
-  _unbindComposerResizing() {
-    this.appEvents.off("composer:resized");
-  },
-
   didSelect(computedContentItem) {
     if (this.attrs.onChooseCategory) {
       this.attrs.onChooseCategory(computedContentItem.originalContent);
     }
   },
 
+  didClearSelection() {
+    if (this.attrs.onChooseCategory) {
+      this.attrs.onChooseCategory(null);
+    }
+  },
+
   computeContent() {
+    return this.categoriesByScope(this.get("scopedCategoryId"));
+  },
+
+  categoriesByScope(scopedCategoryId = null) {
     const categories = Discourse.SiteSettings.fixed_category_positions_on_create
       ? Category.list()
       : Category.listByActivity();
 
-    let scopedCategoryId = this.get("scopedCategoryId");
     if (scopedCategoryId) {
       const scopedCat = Category.findById(scopedCategoryId);
       scopedCategoryId =

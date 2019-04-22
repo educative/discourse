@@ -2,7 +2,7 @@ require 'rails_helper'
 
 describe QuotedPost do
   it 'correctly extracts quotes' do
-    SiteSetting.queue_jobs = false
+    Jobs.run_immediately!
 
     topic = Fabricate(:topic)
     post1 = create_post(topic: topic, post_number: 1, raw: "foo bar")
@@ -34,7 +34,7 @@ describe QuotedPost do
   end
 
   it "doesn't count quotes from the same post" do
-    SiteSetting.queue_jobs = false
+    Jobs.run_immediately!
 
     topic = Fabricate(:topic)
     post = create_post(topic: topic, post_number: 1, raw: "foo bar")
@@ -70,10 +70,18 @@ describe QuotedPost do
     HTML
 
     QuotedPost.create!(post_id: post2.id, quoted_post_id: 999)
+    quote = QuotedPost.create!(post_id: post2.id, quoted_post_id: post1.id)
+    original_date = quote.created_at
+
+    freeze_time 1.hour.from_now
 
     QuotedPost.extract_from(post2)
     expect(QuotedPost.where(post_id: post2.id).count).to eq(1)
     expect(QuotedPost.find_by(post_id: post2.id, quoted_post_id: post1.id)).not_to eq(nil)
+
+    quote.reload
+
+    expect(original_date).to eq_time(quote.created_at)
 
     expect(post2.reply_quoted).to eq(false)
   end

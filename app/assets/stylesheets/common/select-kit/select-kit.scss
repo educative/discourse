@@ -53,7 +53,7 @@
   }
 
   .d-icon {
-    opacity: 0.7;
+    color: $primary-high;
   }
 
   .select-kit-header {
@@ -64,13 +64,12 @@
     outline: none;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     flex-direction: row;
     min-height: 30px;
 
     .selected-name {
       text-align: left;
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       padding: 1px 0;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -89,7 +88,8 @@
     }
 
     .caret-icon {
-      margin-left: 5px;
+      margin-left: auto;
+      padding-left: 5px;
       pointer-events: none;
     }
 
@@ -123,15 +123,11 @@
     align-items: center;
     justify-content: flex-start;
 
-    &.no-content {
-      white-space: nowrap;
-    }
-
     .name {
       margin: 0;
       overflow: hidden;
       text-overflow: ellipsis;
-      flex: 10;
+      flex: 1 1 0%;
     }
 
     .d-icon {
@@ -212,7 +208,7 @@
       background: none;
       margin: 0;
       padding: 0;
-      flex: 1;
+      flex: 1 0 0px;
       outline: none;
       border: 0;
       border-radius: 0;

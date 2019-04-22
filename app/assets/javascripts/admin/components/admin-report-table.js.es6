@@ -79,8 +79,8 @@ export default Ember.Component.extend({
     if (sortLabel) {
       const compare = (label, direction) => {
         return (a, b) => {
-          let aValue = label.compute(a).value;
-          let bValue = label.compute(b).value;
+          const aValue = label.compute(a, { useSortProperty: true }).value;
+          const bValue = label.compute(b, { useSortProperty: true }).value;
           const result = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
           return result * direction;
         };
@@ -106,7 +106,12 @@ export default Ember.Component.extend({
   pages(data, perPage, page) {
     if (!data || data.length <= perPage) return [];
 
-    let pages = [...Array(Math.ceil(data.length / perPage)).keys()].map(v => {
+    const pagesIndexes = [];
+    for (let i = 0; i < Math.ceil(data.length / perPage); i++) {
+      pagesIndexes.push(i);
+    }
+
+    let pages = pagesIndexes.map(v => {
       return {
         page: v + 1,
         index: v,

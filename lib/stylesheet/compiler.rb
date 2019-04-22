@@ -6,21 +6,11 @@ module Stylesheet
 
   class Compiler
 
-    def self.error_as_css(error, label)
-      error = error.message
-      error.gsub!("\n", '\A ')
-      error.gsub!("'", '\27 ')
-
-      "#main { display: none; }
-      body { white-space: pre; }
-      body:before { font-family: monospace; content: '#{error}' }"
-    end
-
     def self.compile_asset(asset, options = {})
 
       if Importer.special_imports[asset.to_s]
-        filename = "theme.scss"
-        file = "@import \"theme_variables\"; @import \"#{asset}\";"
+        filename = "theme_#{options[:theme_id]}.scss"
+        file = "@import \"common/foundation/variables\"; @import \"theme_variables\"; @import \"#{asset}\";"
       else
         filename = "#{asset}.scss"
         path = "#{ASSET_ROOT}/#{filename}"
@@ -32,7 +22,7 @@ module Stylesheet
     end
 
     def self.compile(stylesheet, filename, options = {})
-      source_map_file = options[:source_map_file] || "#{filename.sub(".scss", "")}.css.map";
+      source_map_file = options[:source_map_file] || "#{filename.sub(".scss", "")}.css.map"
 
       engine = SassC::Engine.new(stylesheet,
                                  importer: Importer,

@@ -201,7 +201,8 @@ module DiscourseNarrativeBot
         reply_to(@post, raw)
       when 1
         reply_to(@post, I18n.t(self.class.i18n_key('do_not_understand.second_response'),
-          reset_trigger: self.class.reset_trigger
+                               base_path: Discourse.base_path,
+                               reset_trigger: self.class.reset_trigger
         ))
       else
         # Stay out of the user's way
@@ -237,7 +238,7 @@ module DiscourseNarrativeBot
 
     def like_user_post
       if @post.raw.match(/thank/i)
-        PostAction.act(self.discobot_user, @post, PostActionType.types[:like])
+        PostActionCreator.like(self.discobot_user, @post)
       end
     end
 

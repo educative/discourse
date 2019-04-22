@@ -13,6 +13,12 @@ class Notification < ActiveRecord::Base
   scope :visible , lambda { joins('LEFT JOIN topics ON notifications.topic_id = topics.id')
     .where('topics.id IS NULL OR topics.deleted_at IS NULL') }
 
+  scope :filter_by_display_username_and_type, ->(username, notification_type) {
+    where("data::json ->> 'display_username' = ?", username)
+      .where(notification_type: notification_type)
+      .order(created_at: :desc)
+  }
+
   attr_accessor :skip_send_email
 
   after_commit :send_email, on: :create
@@ -53,7 +59,9 @@ class Notification < ActiveRecord::Base
                         group_mentioned: 15,
                         group_message_summary: 16,
                         watching_first_post: 17,
-                        topic_reminder: 18
+                        topic_reminder: 18,
+                        liked_consolidated: 19,
+                        post_approved: 20
                        )
   end
 
@@ -117,10 +125,10 @@ class Notification < ActiveRecord::Base
   # Be wary of calling this frequently. O(n) JSON parsing can suck.
   def data_hash
     @data_hash ||= begin
-      return nil if data.blank?
+      return {} if data.blank?
 
       parsed = JSON.parse(data)
-      return nil if parsed.blank?
+      return {} if parsed.blank?
 
       parsed.with_indifferent_access
     end
@@ -145,7 +153,14 @@ class Notification < ActiveRecord::Base
       .includes(:topic)
 
     if user.user_option.like_notification_frequency == UserOption.like_notification_frequency_type[:never]
-      notifications = notifications.where('notification_type <> ?', Notification.types[:liked])
+      [
+        Notification.types[:liked],
+        Notification.types[:liked_consolidated]
+      ].each do |notification_type|
+        notifications = notifications.where(
+          'notification_type <> ?', notification_type
+        )
+      end
     end
 
     notifications = notifications.to_a

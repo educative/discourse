@@ -83,22 +83,15 @@ export default MountWidget.extend(Docking, {
   },
 
   didInsertElement() {
-    this._super();
+    this._super(...arguments);
 
     if (this.get("fullscreen") && !this.get("addShowClass")) {
-      Em.run.next(() => {
+      Ember.run.next(() => {
         this.set("addShowClass", true);
         this.queueRerender();
       });
     }
 
     this.dispatch("topic:current-post-scrolled", "timeline-scrollarea");
-  },
-
-  showModerationHistory() {
-    this.get("adminTools").showModerationHistory({
-      filter: "topic",
-      topic_id: this.get("topic.id")
-    });
   }
 });

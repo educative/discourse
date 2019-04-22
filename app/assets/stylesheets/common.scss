@@ -1,12 +1,10 @@
 @import "vendor/normalize";
-@import "vendor/font_awesome/font-awesome";
 @import "vendor/pikaday";
 @import "common/foundation/helpers";
 @import "common/foundation/base";
 @import "common/foundation/mixins";
 @import "common/foundation/variables";
-@import "common/select-kit/admin-agree-flag-dropdown";
-@import "common/select-kit/admin-delete-flag-dropdown";
+@import "common/foundation/spacing";
 @import "common/select-kit/categories-admin-dropdown";
 @import "common/select-kit/category-chooser";
 @import "common/select-kit/category-drop";
@@ -24,8 +22,11 @@
 @import "common/select-kit/pinned-button";
 @import "common/select-kit/select-kit";
 @import "common/select-kit/tag-chooser";
+@import "common/select-kit/tag-drop";
 @import "common/select-kit/toolbar-popup-menu-options";
 @import "common/select-kit/topic-notifications-button";
+@import "common/select-kit/user-notifications-dropdown";
+@import "common/select-kit/color-palettes";
 @import "common/components/*";
 @import "common/input_tip";
 @import "common/topic-entrance";

@@ -58,6 +58,32 @@ describe Admin::EmailController do
       expect(log["id"]).to eq(email_log.id)
       expect(log["reply_key"]).to eq(post_reply_key.reply_key)
     end
+
+    it 'should be able to filter by reply key' do
+      email_log_2 = Fabricate(:email_log, post: post)
+
+      post_reply_key_2 = Fabricate(:post_reply_key,
+        post: post,
+        user: email_log_2.user,
+        reply_key: "2d447423-c625-4fb9-8717-ff04ac60eee8"
+      )
+
+      [
+        "17ff04",
+        "2d447423c6254fb98717ff04ac60eee8"
+      ].each do |reply_key|
+        get "/admin/email/sent.json", params: {
+          reply_key: reply_key
+        }
+
+        expect(response.status).to eq(200)
+
+        logs = JSON.parse(response.body)
+
+        expect(logs.size).to eq(1)
+        expect(logs.first["reply_key"]).to eq(post_reply_key_2.reply_key)
+      end
+    end
   end
 
   describe '#skipped' do
@@ -111,31 +137,39 @@ describe Admin::EmailController do
       let(:eviltrout) { Fabricate(:evil_trout) }
       let(:admin) { Fabricate(:admin) }
 
-      it 'does not sends mail to anyone when setting is "yes"' do
+      it 'bypasses disable when setting is "yes"' do
         SiteSetting.disable_emails = 'yes'
-
         post "/admin/email/test.json", params: { email_address: admin.email }
 
-        incoming = JSON.parse(response.body)
-        expect(incoming['sent_test_email_message']).to eq(I18n.t("admin.email.sent_test_disabled"))
-      end
+        expect(ActionMailer::Base.deliveries.first.to).to contain_exactly(
+          admin.email
+        )
 
-      it 'sends mail to staff only when setting is "non-staff"' do
-        SiteSetting.disable_emails = 'non-staff'
-
-        post "/admin/email/test.json", params: { email_address: admin.email }
         incoming = JSON.parse(response.body)
         expect(incoming['sent_test_email_message']).to eq(I18n.t("admin.email.sent_test"))
-
-        post "/admin/email/test.json", params: { email_address: eviltrout.email }
-        incoming = JSON.parse(response.body)
-        expect(incoming['sent_test_email_message']).to eq(I18n.t("admin.email.sent_test_disabled_for_non_staff"))
       end
 
-      it 'sends mail to everyone when setting is "no"' do
+      it 'bypasses disable when setting is "non-staff"' do
+        SiteSetting.disable_emails = 'non-staff'
+
+        post "/admin/email/test.json", params: { email_address: eviltrout.email }
+
+        expect(ActionMailer::Base.deliveries.first.to).to contain_exactly(
+          eviltrout.email
+        )
+
+        incoming = JSON.parse(response.body)
+        expect(incoming['sent_test_email_message']).to eq(I18n.t("admin.email.sent_test"))
+      end
+
+      it 'works when setting is "no"' do
         SiteSetting.disable_emails = 'no'
 
         post "/admin/email/test.json", params: { email_address: eviltrout.email }
+
+        expect(ActionMailer::Base.deliveries.first.to).to contain_exactly(
+          eviltrout.email
+        )
 
         incoming = JSON.parse(response.body)
         expect(incoming['sent_test_email_message']).to eq(I18n.t("admin.email.sent_test"))
@@ -146,6 +180,14 @@ describe Admin::EmailController do
   describe '#preview_digest' do
     it 'raises an error without the last_seen_at parameter' do
       get "/admin/email/preview-digest.json"
+      expect(response.status).to eq(400)
+    end
+
+    it "returns the right response when username is invalid" do
+      get "/admin/email/preview-digest.json", params: {
+        last_seen_at: 1.week.ago, username: "somerandomeusername"
+      }
+
       expect(response.status).to eq(400)
     end
 
@@ -182,6 +224,101 @@ describe Admin::EmailController do
       expect(response.status).to eq(200)
       incoming = JSON.parse(response.body)
       expect(incoming['error']).to eq(I18n.t("emails.incoming.unrecognized_error"))
+    end
+  end
+
+  describe '#incoming_from_bounced' do
+    it 'raises an error when the email log entry does not exist' do
+      get "/admin/email/incoming_from_bounced/12345.json"
+      expect(response.status).to eq(404)
+
+      json = JSON.parse(response.body)
+      expect(json["errors"]).to include("Discourse::InvalidParameters")
+    end
+
+    it 'raises an error when the email log entry is not marked as bounced' do
+      get "/admin/email/incoming_from_bounced/#{email_log.id}.json"
+      expect(response.status).to eq(404)
+
+      json = JSON.parse(response.body)
+      expect(json["errors"]).to include("Discourse::InvalidParameters")
+    end
+
+    context 'bounced email log entry exists' do
+      let(:email_log) { Fabricate(:email_log, bounced: true, bounce_key: SecureRandom.hex) }
+      let(:error_message) { "Email::Receiver::BouncedEmailError" }
+
+      it 'returns an incoming email sent to the reply_by_email_address' do
+        SiteSetting.reply_by_email_address = "replies+%{reply_key}@example.com"
+
+        Fabricate(:incoming_email,
+                  is_bounce: true,
+                  error: error_message,
+                  to_addresses: Email::Sender.bounce_address(email_log.bounce_key)
+        )
+
+        get "/admin/email/incoming_from_bounced/#{email_log.id}.json"
+        expect(response.status).to eq(200)
+
+        json = JSON.parse(response.body)
+        expect(json["error"]).to eq(error_message)
+      end
+
+      it 'returns an incoming email sent to the notification_email address' do
+        Fabricate(:incoming_email,
+                  is_bounce: true,
+                  error: error_message,
+                  to_addresses: SiteSetting.notification_email.sub("@", "+verp-#{email_log.bounce_key}@")
+        )
+
+        get "/admin/email/incoming_from_bounced/#{email_log.id}.json"
+        expect(response.status).to eq(200)
+
+        json = JSON.parse(response.body)
+        expect(json["error"]).to eq(error_message)
+      end
+
+      it 'raises an error if the bounce_key is blank' do
+        email_log.update(bounce_key: nil)
+
+        get "/admin/email/incoming_from_bounced/#{email_log.id}.json"
+        expect(response.status).to eq(404)
+
+        json = JSON.parse(response.body)
+        expect(json["errors"]).to include("Discourse::InvalidParameters")
+      end
+
+      it 'raises an error if there is no incoming email' do
+        get "/admin/email/incoming_from_bounced/#{email_log.id}.json"
+        expect(response.status).to eq(404)
+
+        json = JSON.parse(response.body)
+        expect(json["errors"]).to include("Discourse::NotFound")
+      end
+    end
+  end
+
+  describe '#advanced_test' do
+    it 'should ...' do
+      email = <<~EMAIL
+        From: "somebody" <somebody@example.com>
+        To: someone@example.com
+        Date: Mon, 3 Dec 2018 00:00:00 -0000
+        Subject: This is some subject
+        Content-Type: text/plain; charset="UTF-8"
+
+        Hello, this is a test!
+
+        ---
+
+        This part should be elided.
+      EMAIL
+      post "/admin/email/advanced-test.json", params: { email: email }
+      expect(response.status).to eq(200)
+      incoming = JSON.parse(response.body)
+      expect(incoming['format']).to eq(1)
+      expect(incoming['text']).to eq("Hello, this is a test!")
+      expect(incoming['elided']).to eq("---\n\nThis part should be elided.")
     end
   end
 end

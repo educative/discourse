@@ -88,7 +88,7 @@ export default Ember.Component.extend({
   },
 
   didInsertElement() {
-    this._super();
+    this._super(...arguments);
 
     this.appEvents
       .on("composer:will-open", this, this._dock)
@@ -112,7 +112,7 @@ export default Ember.Component.extend({
   },
 
   willDestroyElement() {
-    this._super();
+    this._super(...arguments);
     this.appEvents
       .off("composer:will-open", this, this._dock)
       .off("composer:resized", this, this._dock)
@@ -154,7 +154,8 @@ export default Ember.Component.extend({
     const $wrapper = this.$();
     if (!$wrapper || $wrapper.length === 0) return;
 
-    const offset = window.pageYOffset || $("html").scrollTop();
+    const $html = $("html");
+    const offset = window.pageYOffset || $html.scrollTop();
     const progressHeight = this.site.mobileView
       ? 0
       : $("#topic-progress").height();
@@ -163,6 +164,7 @@ export default Ember.Component.extend({
     const composerHeight = $("#reply-control").height() || 0;
     const isDocked = offset >= maximumOffset - windowHeight + composerHeight;
     const bottom = $("body").height() - maximumOffset;
+    const wrapperDir = $html.hasClass("rtl") ? "left" : "right";
 
     if (composerHeight > 0) {
       $wrapper.css("bottom", isDocked ? bottom : composerHeight);
@@ -174,9 +176,9 @@ export default Ember.Component.extend({
 
     const $replyArea = $("#reply-control .reply-area");
     if ($replyArea && $replyArea.length > 0) {
-      $wrapper.css("right", `${$replyArea.offset().left}px`);
+      $wrapper.css(wrapperDir, `${$replyArea.offset().left}px`);
     } else {
-      $wrapper.css("right", "1em");
+      $wrapper.css(wrapperDir, "1em");
     }
   },
 

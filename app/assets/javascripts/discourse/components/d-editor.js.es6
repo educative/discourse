@@ -7,19 +7,20 @@ import {
 import { categoryHashtagTriggerRule } from "discourse/lib/category-hashtags";
 import { search as searchCategoryTag } from "discourse/lib/category-tag-search";
 import { cookAsync } from "discourse/lib/text";
-import { translations } from "pretty-text/emoji/data";
-import { emojiSearch, isSkinTonableEmoji } from "pretty-text/emoji";
-import { emojiUrlFor } from "discourse/lib/text";
 import { getRegister } from "discourse-common/lib/get-owner";
 import { findRawTemplate } from "discourse/lib/raw-templates";
 import { siteDir } from "discourse/lib/text-direction";
 import {
   determinePostReplaceSelection,
-  clipboardData
+  clipboardData,
+  safariHacksDisabled
 } from "discourse/lib/utilities";
 import toMarkdown from "discourse/lib/to-markdown";
 import deprecated from "discourse-common/lib/deprecated";
 import { wantsNewWindow } from "discourse/lib/intercept-click";
+import { translations } from "pretty-text/emoji/data";
+import { emojiSearch, isSkinTonableEmoji } from "pretty-text/emoji";
+import { emojiUrlFor } from "discourse/lib/text";
 
 // Our head can be a static string or a function that returns a string
 // based on input (like for numbered lists).
@@ -55,6 +56,7 @@ class Toolbar {
   constructor(opts) {
     const { site, siteSettings } = opts;
     this.shortcuts = {};
+    this.context = null;
 
     this.groups = [
       { group: "fontStyles", buttons: [] },
@@ -79,7 +81,7 @@ class Toolbar {
       icon: "italic",
       label: getButtonLabel("composer.italic_label", "I"),
       shortcut: "I",
-      perform: e => e.applySurround("_", "_", "italic_text")
+      perform: e => e.applySurround("*", "*", "italic_text")
     });
 
     if (opts.showLink) {
@@ -87,7 +89,7 @@ class Toolbar {
         id: "link",
         group: "insertions",
         shortcut: "K",
-        action: "showLinkModal"
+        action: (...args) => this.context.send("showLinkModal", args)
       });
     }
 
@@ -107,7 +109,7 @@ class Toolbar {
       id: "code",
       group: "insertions",
       shortcut: "Shift+C",
-      action: "formatCode"
+      action: (...args) => this.context.send("formatCode", args)
     });
 
     this.addButton({
@@ -133,7 +135,7 @@ class Toolbar {
       this.addButton({
         id: "toggle-direction",
         group: "extras",
-        icon: "exchange",
+        icon: "exchange-alt",
         shortcut: "Shift+6",
         title: "composer.toggle_direction",
         perform: e => e.toggleDirection()
@@ -158,7 +160,7 @@ class Toolbar {
       className: button.className || button.id,
       label: button.label,
       icon: button.label ? null : button.icon || button.id,
-      action: button.action || "toolbarButton",
+      action: button.action || (a => this.context.send("toolbarButton", a)),
       perform: button.perform || function() {},
       trimLeading: button.trimLeading,
       popupMenu: button.popupMenu || false
@@ -220,8 +222,8 @@ export default Ember.Component.extend({
   linkText: "",
   lastSel: null,
   _mouseTrap: null,
-  emojiPickerIsActive: false,
   showLink: true,
+  emojiPickerIsActive: false,
 
   @computed("placeholder")
   placeholderTranslated(placeholder) {
@@ -238,15 +240,15 @@ export default Ember.Component.extend({
   },
 
   init() {
-    this._super();
+    this._super(...arguments);
+
     this.register = getRegister(this);
   },
 
   didInsertElement() {
-    this._super();
+    this._super(...arguments);
 
     const $editorInput = this.$(".d-editor-input");
-
     this._applyEmojiAutocomplete($editorInput);
     this._applyCategoryHashtagAutocomplete($editorInput);
 
@@ -255,19 +257,10 @@ export default Ember.Component.extend({
     const mouseTrap = Mousetrap(this.$(".d-editor-input")[0]);
     const shortcuts = this.get("toolbar.shortcuts");
 
-    // for some reason I am having trouble bubbling this so hack it in
-    mouseTrap.bind(["ctrl+alt+f"], event => {
-      this.appEvents.trigger("header:keyboard-trigger", {
-        type: "search",
-        event
-      });
-      return true;
-    });
-
     Object.keys(shortcuts).forEach(sc => {
       const button = shortcuts[sc];
       mouseTrap.bind(sc, () => {
-        this.send(button.action, button);
+        button.action(button);
         return false;
       });
     });
@@ -297,32 +290,33 @@ export default Ember.Component.extend({
     });
 
     if (this.get("composerEvents")) {
-      this.appEvents.on("composer:insert-block", text =>
-        this._addBlock(this._getSelected(), text)
-      );
-      this.appEvents.on("composer:insert-text", (text, options) =>
-        this._addText(this._getSelected(), text, options)
-      );
-      this.appEvents.on("composer:replace-text", (oldVal, newVal) =>
-        this._replaceText(oldVal, newVal)
-      );
+      this.appEvents.on("composer:insert-block", this, "_insertBlock");
+      this.appEvents.on("composer:insert-text", this, "_insertText");
+      this.appEvents.on("composer:replace-text", this, "_replaceText");
     }
     this._mouseTrap = mouseTrap;
+  },
+
+  _insertBlock(text) {
+    this._addBlock(this._getSelected(), text);
+  },
+
+  _insertText(text, options) {
+    this._addText(this._getSelected(), text, options);
   },
 
   @on("willDestroyElement")
   _shutDown() {
     if (this.get("composerEvents")) {
-      this.appEvents.off("composer:insert-block");
-      this.appEvents.off("composer:insert-text");
-      this.appEvents.off("composer:replace-text");
+      this.appEvents.off("composer:insert-block", this, "_insertBlock");
+      this.appEvents.off("composer:insert-text", this, "_insertText");
+      this.appEvents.off("composer:replace-text", this, "_replaceText");
     }
 
     const mouseTrap = this._mouseTrap;
     Object.keys(this.get("toolbar.shortcuts")).forEach(sc =>
       mouseTrap.unbind(sc)
     );
-    mouseTrap.unbind("ctrl+/", "command+/");
     this.$(".d-editor-preview").off("click.preview");
   },
 
@@ -331,8 +325,13 @@ export default Ember.Component.extend({
     const toolbar = new Toolbar(
       this.getProperties("site", "siteSettings", "showLink")
     );
+    toolbar.context = this;
+
     _createCallbacks.forEach(cb => cb(toolbar));
-    this.sendAction("extraButtons", toolbar);
+
+    if (this.extraButtons) {
+      this.extraButtons(toolbar);
+    }
     return toolbar;
   },
 
@@ -355,7 +354,10 @@ export default Ember.Component.extend({
         }
         const $preview = this.$(".d-editor-preview");
         if ($preview.length === 0) return;
-        this.sendAction("previewUpdated", $preview);
+
+        if (this.previewUpdated) {
+          this.previewUpdated($preview);
+        }
       });
     });
   },
@@ -380,16 +382,17 @@ export default Ember.Component.extend({
     this.$(".d-editor-input").autocomplete({
       template: findRawTemplate("category-tag-autocomplete"),
       key: "#",
-      transformComplete(obj) {
+      afterComplete: () => this._focusTextArea(),
+      transformComplete: obj => {
         return obj.text;
       },
-      dataSource(term) {
+      dataSource: term => {
         if (term.match(/\s/)) {
           return null;
         }
         return searchCategoryTag(term, siteSettings);
       },
-      triggerRule(textarea, opts) {
+      triggerRule: (textarea, opts) => {
         return categoryHashtagTriggerRule(textarea, opts);
       }
     });
@@ -400,16 +403,15 @@ export default Ember.Component.extend({
       return;
     }
 
-    const self = this;
-
     $editorInput.autocomplete({
       template: findRawTemplate("emoji-selector-autocomplete"),
       key: ":",
-      afterComplete(text) {
-        self.set("value", text);
+      afterComplete: text => {
+        this.set("value", text);
+        this._focusTextArea();
       },
 
-      onKeyUp(text, cp) {
+      onKeyUp: (text, cp) => {
         const matches = /(?:^|[^a-z])(:(?!:).?[\w-]*:?(?!:)(?:t\d?)?:?) ?$/gi.exec(
           text.substring(0, cp)
         );
@@ -419,22 +421,26 @@ export default Ember.Component.extend({
         }
       },
 
-      transformComplete(v) {
+      transformComplete: v => {
         if (v.code) {
           return `${v.code}:`;
         } else {
           $editorInput.autocomplete({ cancel: true });
-          self.set("emojiPickerIsActive", true);
+          this.set(
+            "isEditorFocused",
+            $("textarea.d-editor-input").is(":focus")
+          );
+          this.set("emojiPickerIsActive", true);
           return "";
         }
       },
 
-      dataSource(term) {
+      dataSource: term => {
         return new Ember.RSVP.Promise(resolve => {
           const full = `:${term}`;
           term = term.toLowerCase();
 
-          if (term.length < self.siteSettings.emoji_autocomplete_min_chars) {
+          if (term.length < this.siteSettings.emoji_autocomplete_min_chars) {
             return resolve([]);
           }
 
@@ -448,8 +454,8 @@ export default Ember.Component.extend({
 
           const match = term.match(/^:?(.*?):t([2-6])?$/);
           if (match) {
-            let name = match[1];
-            let scale = match[2];
+            const name = match[1];
+            const scale = match[2];
 
             if (isSkinTonableEmoji(name)) {
               if (scale) {
@@ -520,7 +526,7 @@ export default Ember.Component.extend({
       const $textarea = this.$("textarea.d-editor-input");
       const textarea = $textarea[0];
       const oldScrollPos = $textarea.scrollTop();
-      if (!this.capabilities.isIOS) {
+      if (!this.capabilities.isIOS || safariHacksDisabled()) {
         $textarea.focus();
       }
       textarea.selectionStart = from;
@@ -655,7 +661,7 @@ export default Ember.Component.extend({
     }
   },
 
-  _replaceText(oldVal, newVal) {
+  _replaceText(oldVal, newVal, opts) {
     const val = this.get("value");
     const needleStart = val.indexOf(oldVal);
 
@@ -673,11 +679,25 @@ export default Ember.Component.extend({
       replacement: { start: needleStart, end: needleStart + newVal.length }
     });
 
-    // Replace value (side effect: cursor at the end).
-    this.set("value", val.replace(oldVal, newVal));
+    if (opts && opts.index && opts.regex) {
+      let i = -1;
+      const newValue = val.replace(opts.regex, match => {
+        i++;
+        return i === opts.index ? newVal : match;
+      });
+      this.set("value", newValue);
+    } else {
+      // Replace value (side effect: cursor at the end).
+      this.set("value", val.replace(oldVal, newVal));
+    }
 
-    // Restore cursor.
-    this._selectText(newSelection.start, newSelection.end - newSelection.start);
+    if ($("textarea.d-editor-input").is(":focus")) {
+      // Restore cursor.
+      this._selectText(
+        newSelection.start,
+        newSelection.end - newSelection.start
+      );
+    }
   },
 
   _addBlock(sel, text) {
@@ -708,7 +728,7 @@ export default Ember.Component.extend({
     $textarea.prop("selectionStart", (pre + text).length + 2);
     $textarea.prop("selectionEnd", (pre + text).length + 2);
 
-    Ember.run.scheduleOnce("afterRender", () => $textarea.focus());
+    this._focusTextArea();
   },
 
   _addText(sel, text, options) {
@@ -733,7 +753,8 @@ export default Ember.Component.extend({
     $textarea.val(value);
     $textarea.prop("selectionStart", insert.length);
     $textarea.prop("selectionEnd", insert.length);
-    Ember.run.scheduleOnce("afterRender", () => $textarea.focus());
+
+    this._focusTextArea();
   },
 
   _extractTable(text) {
@@ -824,7 +845,22 @@ export default Ember.Component.extend({
     }
   },
 
+  // ensures textarea scroll position is correct
+  _focusTextArea() {
+    const $textarea = this.$("textarea.d-editor-input");
+    Ember.run.scheduleOnce("afterRender", () => $textarea.blur().focus());
+  },
+
   actions: {
+    emoji() {
+      if (this.get("disabled")) {
+        return;
+      }
+
+      this.set("isEditorFocused", $("textarea.d-editor-input").is(":focus"));
+      this.set("emojiPickerIsActive", !this.get("emojiPickerIsActive"));
+    },
+
     emojiSelected(code) {
       let selected = this._getSelected();
       const captures = selected.pre.match(/\B:(\w*)$/);
@@ -863,7 +899,7 @@ export default Ember.Component.extend({
       };
 
       if (button.sendAction) {
-        return this.sendAction(button.sendAction, toolbarEvent);
+        return button.sendAction(toolbarEvent);
       } else {
         button.perform(toolbarEvent);
       }
@@ -950,13 +986,6 @@ export default Ember.Component.extend({
           this._selectText(sel.start + 1, origLink.length);
         }
       }
-    },
-
-    emoji() {
-      if (this.get("disabled")) {
-        return;
-      }
-      this.set("emojiPickerIsActive", !this.get("emojiPickerIsActive"));
     }
   }
 });
