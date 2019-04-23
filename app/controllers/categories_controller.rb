@@ -271,6 +271,7 @@ class CategoriesController < ApplicationController
       params.permit(*required_param_keys,
                       :position,
                       :email_in,
+                      :description,
                       :email_in_allow_strangers,
                       :mailinglist_mirror,
                       :suppress_from_latest,
