@@ -1,4 +1,4 @@
-require_dependency 'ip_addr'
+# frozen_string_literal: true
 
 class Admin::ScreenedIpAddressesController < Admin::AdminController
 
@@ -32,7 +32,7 @@ class Admin::ScreenedIpAddressesController < Admin::AdminController
   end
 
   def update
-    if @screened_ip_address.update_attributes(allowed_params)
+    if @screened_ip_address.update(allowed_params)
       render_serialized(@screened_ip_address, ScreenedIpAddressSerializer)
     else
       render_json_error(@screened_ip_address)

@@ -1,4 +1,4 @@
-require_dependency "spam_handler"
+# frozen_string_literal: true
 
 class AllowedIpAddressValidator < ActiveModel::EachValidator
 

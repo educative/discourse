@@ -1,9 +1,13 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import Controller from "@ember/controller";
 
-export default Ember.Controller.extend({
-  queryParams: ["start_date", "end_date", "category_id", "group_id"],
+export default Controller.extend({
+  queryParams: ["start_date", "end_date", "filters"],
+  start_date: null,
+  end_date: null,
+  filters: null,
 
-  @computed("model.type")
+  @discourseComputed("model.type")
   reportOptions(type) {
     let options = { table: { perPage: 50, limit: 50, formatNumbers: false } };
 
@@ -12,26 +16,5 @@ export default Ember.Controller.extend({
     }
 
     return options;
-  },
-
-  @computed("category_id", "group_id", "start_date", "end_date")
-  filters(categoryId, groupId, startDate, endDate) {
-    return {
-      categoryId,
-      groupId,
-      startDate,
-      endDate
-    };
-  },
-
-  actions: {
-    onParamsChange(params) {
-      this.setProperties({
-        start_date: params.startDate,
-        category_id: params.categoryId,
-        group_id: params.groupId,
-        end_date: params.endDate
-      });
-    }
   }
 });

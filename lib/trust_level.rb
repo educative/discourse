@@ -1,4 +1,4 @@
-require_dependency 'enum'
+# frozen_string_literal: true
 
 class InvalidTrustLevel < StandardError; end
 

@@ -1,4 +1,6 @@
 # coding: utf-8
+# frozen_string_literal: true
+
 require "mysql2"
 require File.expand_path(File.dirname(__FILE__) + "/base.rb")
 require 'htmlentities'
@@ -79,7 +81,7 @@ class ImportScripts::IpboardSQL < ImportScripts::Base
   # if site is made available, don't let it get indexed
   SiteSetting.allow_index_in_robots_txt = false
   # don't notify users when images in their posts get downloaded
-  SiteSetting.disable_edit_notifications = true
+  SiteSetting.disable_system_edit_notifications = true
   #  SiteSetting.force_hostname='forum.dev1dev.com'
   SiteSetting.title = "IPB Import"
 
@@ -246,9 +248,8 @@ EOM
 
     user_option = user.user_option
     user_option.email_digests = false
-    user_option.email_private_messages = false
-    user_option.email_direct = false
-    user_option.email_always = false
+    user_option.email_level = UserOption.email_level_types[:never]
+    user_option.email_messages_level = UserOption.email_level_types[:never]
     user_option.save!
 
     if user.save
@@ -971,7 +972,7 @@ EOM
     User.find_each do |u|
       ucf = u.custom_fields
       if ucf && ucf["import_id"] && ucf["import_username"]
-        username = URI.escape(ucf["import_username"])
+        username = UrlHelper.encode_component(ucf["import_username"])
         Permalink.create(url: "#{USERDIR}/#{ucf['import_id']}-#{username}", external_url: "/users/#{u.username}") rescue nil
         print '.'
       end

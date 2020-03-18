@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 TopicStatusUpdater = Struct.new(:topic, :user) do
   def update!(status, enabled, opts = {})
     status = Status.new(status, enabled)
@@ -32,12 +34,16 @@ TopicStatusUpdater = Struct.new(:topic, :user) do
       rc = Topic.where(:id => topic.id, status.name => !status.enabled)
         .update_all(status.name => status.enabled?)
 
-      topic.send("#{status.name}=", status.enabled?)
+      topic.public_send("#{status.name}=", status.enabled?)
       result = false if rc == 0
     end
 
     if status.manually_closing_topic?
       DiscourseEvent.trigger(:topic_closed, topic)
+    end
+
+    if status.visible? && status.disabled?
+      UserProfile.remove_featured_topic_from_all_profiles(topic)
     end
 
     if @topic_status_update
@@ -74,7 +80,7 @@ TopicStatusUpdater = Struct.new(:topic, :user) do
 
   def message_for(status)
     if status.autoclosed?
-      locale_key = status.locale_key
+      locale_key = status.locale_key.dup
       locale_key << "_lastpost" if @topic_status_update&.based_on_last_post
       message_for_autoclosed(locale_key)
     end

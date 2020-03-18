@@ -1,6 +1,4 @@
-require_dependency 'theme_store/git_importer'
-require_dependency 'theme_store/tgz_importer'
-require_dependency 'upload_creator'
+# frozen_string_literal: true
 
 class RemoteTheme < ActiveRecord::Base
   METADATA_PROPERTIES = %i{
@@ -19,7 +17,7 @@ class RemoteTheme < ActiveRecord::Base
   GITHUB_REGEXP = /^https?:\/\/github\.com\//
   GITHUB_SSH_REGEXP = /^git@github\.com:/
 
-  has_one :theme
+  has_one :theme, autosave: false
   scope :joined_remotes, -> {
     joins("JOIN themes ON themes.remote_theme_id = remote_themes.id").where.not(remote_url: "")
   }
@@ -32,8 +30,8 @@ class RemoteTheme < ActiveRecord::Base
     raise ImportError.new I18n.t("themes.import_error.about_json")
   end
 
-  def self.update_tgz_theme(filename, match_theme: false, user: Discourse.system_user, theme_id: nil)
-    importer = ThemeStore::TgzImporter.new(filename)
+  def self.update_zipped_theme(filename, original_filename, match_theme: false, user: Discourse.system_user, theme_id: nil)
+    importer = ThemeStore::ZipImporter.new(filename, original_filename)
     importer.import!
 
     theme_info = RemoteTheme.extract_theme_info(importer)
@@ -104,6 +102,8 @@ class RemoteTheme < ActiveRecord::Base
       self.updated_at = Time.zone.now
       self.remote_version, self.commits_behind = importer.commits_since(local_version)
       self.last_error_text = nil
+    ensure
+      self.save!
     end
   end
 
@@ -117,6 +117,7 @@ class RemoteTheme < ActiveRecord::Base
         importer.import!
       rescue RemoteTheme::ImportError => err
         self.last_error_text = err.message
+        self.save!
         return self
       else
         self.last_error_text = nil
@@ -124,13 +125,14 @@ class RemoteTheme < ActiveRecord::Base
     end
 
     theme_info = RemoteTheme.extract_theme_info(importer)
+    updated_fields = []
 
     theme_info["assets"]&.each do |name, relative_path|
       if path = importer.real_path(relative_path)
         new_path = "#{File.dirname(path)}/#{SecureRandom.hex}#{File.extname(path)}"
         File.rename(path, new_path) # OptimizedImage has strict file name restrictions, so rename temporarily
         upload = UploadCreator.new(File.open(new_path), File.basename(relative_path), for_theme: true).create_for(theme.user_id)
-        theme.set_field(target: :common, name: name, type: :theme_upload_var, upload_id: upload.id)
+        updated_fields << theme.set_field(target: :common, name: name, type: :theme_upload_var, upload_id: upload.id)
       end
     end
 
@@ -144,8 +146,12 @@ class RemoteTheme < ActiveRecord::Base
     importer.all_files.each do |filename|
       next unless opts = ThemeField.opts_from_file_path(filename)
       value = importer[filename]
-      theme.set_field(opts.merge(value: value))
+      updated_fields << theme.set_field(**opts.merge(value: value))
     end
+
+    # Destroy fields that no longer exist in the remote theme
+    field_ids_to_destroy = theme.theme_fields.pluck(:id) - updated_fields.map { |tf| tf&.id }
+    ThemeField.where(id: field_ids_to_destroy).destroy_all
 
     if !skip_update
       self.remote_updated_at = Time.zone.now
@@ -156,12 +162,28 @@ class RemoteTheme < ActiveRecord::Base
 
     update_theme_color_schemes(theme, theme_info["color_schemes"]) unless theme.component
 
+    self.save!
     self
   ensure
     begin
       importer.cleanup! if cleanup
     rescue => e
       Rails.logger.warn("Failed cleanup remote git #{e}")
+    end
+  end
+
+  def diff_local_changes
+    return unless is_git?
+    importer = ThemeStore::GitImporter.new(remote_url, private_key: private_key, branch: branch)
+    begin
+      importer.import!
+    rescue RemoteTheme::ImportError => err
+      { error: err.message }
+    else
+      changes = importer.diff_local_changes(self.id)
+      return nil if changes.blank?
+
+      { diff: changes }
     end
   end
 
@@ -181,24 +203,32 @@ class RemoteTheme < ActiveRecord::Base
 
     schemes&.each do |name, colors|
       missing_scheme_names.delete(name)
-      existing = theme.color_schemes.find_by(name: name)
-      if existing
-        existing.colors.each do |c|
-          override = normalize_override(colors[c.name])
-          if override && c.hex != override
-            c.hex = override
-            theme.notify_color_change(c)
-          end
-        end
-        ordered_schemes << existing
-      else
-        scheme = theme.color_schemes.build(name: name)
-        ColorScheme.base.colors_hashes.each do |color|
-          override = normalize_override(colors[color[:name]])
-          scheme.color_scheme_colors << ColorSchemeColor.new(name: color[:name], hex: override || color[:hex])
-        end
-        ordered_schemes << scheme
+      scheme = theme.color_schemes.find_by(name: name) || theme.color_schemes.build(name: name)
+
+      # Update main colors
+      ColorScheme.base.colors_hashes.each do |color|
+        override = normalize_override(colors[color[:name]])
+        color_scheme_color = scheme.color_scheme_colors.to_a.find { |c| c.name == color[:name] } ||
+                  scheme.color_scheme_colors.build(name: color[:name])
+        color_scheme_color.hex = override || color[:hex]
+        theme.notify_color_change(color_scheme_color) if color_scheme_color.hex_changed?
       end
+
+      # Update advanced colors
+      ColorScheme.color_transformation_variables.each do |variable_name|
+        override = normalize_override(colors[variable_name])
+        color_scheme_color = scheme.color_scheme_colors.to_a.find { |c| c.name == variable_name }
+        if override
+          color_scheme_color ||= scheme.color_scheme_colors.build(name: variable_name)
+          color_scheme_color.hex = override
+          theme.notify_color_change(color_scheme_color) if color_scheme_color.hex_changed?
+        elsif color_scheme_color # No longer specified in about.json, delete record
+          scheme.color_scheme_colors.delete(color_scheme_color)
+          theme.notify_color_change(nil, scheme: scheme)
+        end
+      end
+
+      ordered_schemes << scheme
     end
 
     if missing_scheme_names.length > 0

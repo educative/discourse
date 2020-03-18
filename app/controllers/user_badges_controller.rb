@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class UserBadgesController < ApplicationController
   before_action :ensure_badges_enabled
 
@@ -11,7 +13,7 @@ class UserBadgesController < ApplicationController
     grant_count = nil
 
     if params[:username]
-      user_id = User.where(username_lower: params[:username].downcase).pluck(:id).first
+      user_id = User.where(username_lower: params[:username].downcase).pluck_first(:id)
       user_badges = user_badges.where(user_id: user_id) if user_id
       grant_count = badge.user_badges.where(user_id: user_id).count
     end

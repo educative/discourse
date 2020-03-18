@@ -1,14 +1,16 @@
+import { alias } from "@ember/object/computed";
+import Component from "@ember/component";
 import BufferedContent from "discourse/mixins/buffered-content";
 import SettingComponent from "admin/mixins/setting-component";
 
-export default Ember.Component.extend(BufferedContent, SettingComponent, {
+export default Component.extend(BufferedContent, SettingComponent, {
   layoutName: "admin/templates/components/site-setting",
-  setting: Ember.computed.alias("translation"),
+  setting: alias("translation"),
   type: "string",
-  settingName: Ember.computed.alias("translation.key"),
+  settingName: alias("translation.key"),
 
   _save() {
-    return this.get("model").saveTranslation(
+    return this.model.saveTranslation(
       this.get("translation.key"),
       this.get("buffered.value")
     );

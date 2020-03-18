@@ -1,6 +1,7 @@
 import PostCooked from "discourse/widgets/post-cooked";
 import DecoratorHelper from "discourse/widgets/decorator-helper";
 import { createWidget, applyDecorators } from "discourse/widgets/widget";
+import RawHtml from "discourse/widgets/raw-html";
 import { iconNode } from "discourse-common/lib/icon-library";
 import { transformBasicPost } from "discourse/lib/transform-post";
 import { postTransformCallbacks } from "discourse/widgets/post-stream";
@@ -13,6 +14,9 @@ import {
   formatUsername
 } from "discourse/lib/utilities";
 import hbs from "discourse/widgets/hbs-compiler";
+import { relativeAgeMediumSpan } from "discourse/lib/formatter";
+import { prioritizeNameInUx } from "discourse/lib/settings";
+import { Promise } from "rsvp";
 
 function transformWithCallbacks(post) {
   let transformed = transformBasicPost(post);
@@ -56,6 +60,11 @@ export function avatarFor(wanted, attrs) {
     },
     avatarImg(wanted, attrs)
   );
+}
+
+// TODO: Improve how helpers are registered for vdom compliation
+if (typeof Discourse !== "undefined") {
+  Discourse.__widget_helpers.avatar = avatarFor;
 }
 
 createWidget("select-post", {
@@ -354,7 +363,9 @@ createWidget("post-contents", {
   },
 
   html(attrs, state) {
-    let result = [new PostCooked(attrs, new DecoratorHelper(this))];
+    let result = [
+      new PostCooked(attrs, new DecoratorHelper(this), this.currentUser)
+    ];
     result = result.concat(applyDecorators(this, "after-cooked", attrs, state));
 
     if (attrs.cooked_hidden) {
@@ -391,6 +402,13 @@ createWidget("post-contents", {
     return result;
   },
 
+  _date(attrs) {
+    const lastWikiEdit =
+      attrs.wiki && attrs.lastWikiEdit && new Date(attrs.lastWikiEdit);
+    const createdAt = new Date(attrs.created_at);
+    return lastWikiEdit ? lastWikiEdit : createdAt;
+  },
+
   toggleRepliesBelow(goToPost = "false") {
     if (this.state.repliesBelow.length) {
       this.state.repliesBelow = [];
@@ -417,6 +435,50 @@ createWidget("post-contents", {
   expandFirstPost() {
     const post = this.findAncestorModel();
     return post.expand().then(() => (this.state.expandedFirstPost = true));
+  }
+});
+
+createWidget("post-notice", {
+  tagName: "div.post-notice",
+
+  buildClasses(attrs) {
+    const classes = [attrs.noticeType.replace(/_/g, "-")];
+
+    if (
+      new Date() - new Date(attrs.created_at) >
+      this.siteSettings.old_post_notice_days * 86400000
+    ) {
+      classes.push("old");
+    }
+
+    return classes;
+  },
+
+  html(attrs) {
+    const user =
+      this.siteSettings.display_name_on_posts && prioritizeNameInUx(attrs.name)
+        ? attrs.name
+        : attrs.username;
+    let text, icon;
+    if (attrs.noticeType === "custom") {
+      icon = "user-shield";
+      text = new RawHtml({ html: `<div>${attrs.noticeMessage}</div>` });
+    } else if (attrs.noticeType === "new_user") {
+      icon = "hands-helping";
+      text = h("p", I18n.t("post.notice.new_user", { user }));
+    } else if (attrs.noticeType === "returning_user") {
+      icon = "far-smile";
+      const distance = (new Date() - new Date(attrs.noticeTime)) / 1000;
+      text = h(
+        "p",
+        I18n.t("post.notice.returning_user", {
+          user,
+          time: relativeAgeMediumSpan(distance, true)
+        })
+      );
+    }
+
+    return [iconNode(icon), text];
   }
 });
 
@@ -472,7 +534,9 @@ createWidget("post-article", {
   },
 
   html(attrs, state) {
-    const rows = [h("a.tabLoc", { attributes: { href: "" } })];
+    const rows = [
+      h("a.tabLoc", { attributes: { href: "", "aria-hidden": true } })
+    ];
     if (state.repliesAbove.length) {
       const replies = state.repliesAbove.map(p => {
         return this.attach("embedded-post", p, {
@@ -498,6 +562,10 @@ createWidget("post-article", {
       );
     }
 
+    if (attrs.noticeType) {
+      rows.push(h("div.row", [this.attach("post-notice", attrs)]));
+    }
+
     rows.push(
       h("div.row", [
         this.attach("post-avatar", attrs),
@@ -521,7 +589,7 @@ createWidget("post-article", {
       if (topicUrl) {
         DiscourseURL.routeTo(`${topicUrl}/${replyPostNumber}`);
       }
-      return Ember.RSVP.Promise.resolve();
+      return Promise.resolve();
     }
 
     if (this.state.repliesAbove.length) {
@@ -531,7 +599,7 @@ createWidget("post-article", {
           `${this.attrs.topicUrl}/${this.attrs.post_number}`
         );
       }
-      return Ember.RSVP.Promise.resolve();
+      return Promise.resolve();
     } else {
       const topicUrl = this._getTopicUrl();
       return this.store
@@ -625,9 +693,10 @@ export default createWidget("post", {
     const likeAction = post.get("likeAction");
 
     if (likeAction && likeAction.get("canToggle")) {
-      return likeAction
-        .togglePromise(post)
-        .then(result => this._warnIfClose(result));
+      return likeAction.togglePromise(post).then(result => {
+        this.appEvents.trigger("page:like-toggled", post, likeAction);
+        return this._warnIfClose(result);
+      });
     }
   },
 
@@ -641,7 +710,7 @@ export default createWidget("post", {
 
     // only warn once per day
     const yesterday = new Date().getTime() - 1000 * 60 * 60 * 24;
-    if (lastWarnedLikes && parseInt(lastWarnedLikes) > yesterday) {
+    if (lastWarnedLikes && parseInt(lastWarnedLikes, 10) > yesterday) {
       return;
     }
 
@@ -651,21 +720,5 @@ export default createWidget("post", {
       bootbox.alert(I18n.t("post.few_likes_left"));
       kvs.set({ key: "lastWarnedLikes", value: new Date().getTime() });
     }
-  },
-
-  undoPostAction(typeId) {
-    const post = this.model;
-    return post
-      .get("actions_summary")
-      .findBy("id", typeId)
-      .undo(post);
-  },
-
-  deferPostActionFlags(typeId) {
-    const post = this.model;
-    return post
-      .get("actions_summary")
-      .findBy("id", typeId)
-      .deferFlags(post);
   }
 });

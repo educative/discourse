@@ -77,5 +77,5 @@ QUnit.test("remove words", async assert => {
 
   await click("#" + $(word).attr("id"));
 
-  assert.equal(find(".watched-words-list .watched-word").length, 1);
+  assert.equal(find(".watched-words-list .watched-word").length, 2);
 });

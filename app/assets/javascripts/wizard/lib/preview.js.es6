@@ -1,5 +1,8 @@
+import { scheduleOnce } from "@ember/runloop";
+import Component from "@ember/component";
 /*eslint no-bitwise:0 */
 import getUrl from "discourse-common/lib/get-url";
+import { Promise } from "rsvp";
 
 export const LOREM = `
 Lorem ipsum dolor sit amet,
@@ -17,28 +20,36 @@ function canvasFor(image, w, h) {
   w = Math.ceil(w);
   h = Math.ceil(h);
 
+  const scale = window.devicePixelRatio;
+
   const can = document.createElement("canvas");
-  can.width = w;
-  can.height = h;
+  can.width = w * scale;
+  can.height = h * scale;
 
   const ctx = can.getContext("2d");
+  ctx.scale(scale, scale);
   ctx.drawImage(image, 0, 0, w, h);
   return can;
 }
 
 export function createPreviewComponent(width, height, obj) {
-  return Ember.Component.extend(
+  const scale = window.devicePixelRatio;
+  return Component.extend(
     {
       layoutName: "components/theme-preview",
       width,
       height,
+      elementWidth: width * scale,
+      elementHeight: height * scale,
+      canvasStyle: `width:${width}px;height:${height}px`,
       ctx: null,
       loaded: false,
 
       didInsertElement() {
         this._super(...arguments);
-        const c = this.$("canvas")[0];
+        const c = this.element.querySelector("canvas");
         this.ctx = c.getContext("2d");
+        this.ctx.scale(scale, scale);
         this.reload();
       },
 
@@ -47,13 +58,13 @@ export function createPreviewComponent(width, height, obj) {
       loadImages() {
         const images = this.images();
         if (images) {
-          return Ember.RSVP.Promise.all(
+          return Promise.all(
             Object.keys(images).map(id => {
               return loadImage(images[id]).then(img => (this[id] = img));
             })
           );
         }
-        return Ember.RSVP.Promise.resolve();
+        return Promise.resolve();
       },
 
       reload() {
@@ -64,7 +75,7 @@ export function createPreviewComponent(width, height, obj) {
       },
 
       triggerRepaint() {
-        Ember.run.scheduleOnce("afterRender", this, "repaint");
+        scheduleOnce("afterRender", this, "repaint");
       },
 
       repaint() {
@@ -72,9 +83,7 @@ export function createPreviewComponent(width, height, obj) {
           return false;
         }
 
-        const colors = this.get("wizard").getCurrentColors(
-          this.get("colorsId")
-        );
+        const colors = this.wizard.getCurrentColors(this.colorsId);
         if (!colors) {
           return;
         }
@@ -263,12 +272,12 @@ export function createPreviewComponent(width, height, obj) {
 
 function loadImage(src) {
   if (!src) {
-    return Ember.RSVP.Promise.resolve();
+    return Promise.resolve();
   }
 
   const img = new Image();
   img.src = getUrl(src);
-  return new Ember.RSVP.Promise(resolve => (img.onload = () => resolve(img)));
+  return new Promise(resolve => (img.onload = () => resolve(img)));
 }
 
 export function parseColor(color) {

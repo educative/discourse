@@ -1,25 +1,29 @@
+import EmberObjectProxy from "@ember/object/proxy";
+import Mixin from "@ember/object/mixin";
+import { computed } from "@ember/object";
+
 /* global BufferedProxy: true */
 export function bufferedProperty(property) {
   const mixin = {
-    buffered: function() {
-      return Ember.ObjectProxy.extend(BufferedProxy).create({
+    buffered: computed(property, function() {
+      return EmberObjectProxy.extend(BufferedProxy).create({
         content: this.get(property)
       });
-    }.property(property),
+    }),
 
     rollbackBuffer: function() {
-      this.get("buffered").discardBufferedChanges();
+      this.buffered.discardBufferedChanges();
     },
 
     commitBuffer: function() {
-      this.get("buffered").applyBufferedChanges();
+      this.buffered.applyBufferedChanges();
     }
   };
 
   // It's a good idea to null out fields when declaring objects
   mixin.property = null;
 
-  return Ember.Mixin.create(mixin);
+  return Mixin.create(mixin);
 }
 
 export default bufferedProperty("content");

@@ -1,7 +1,7 @@
 # encoding: utf-8
+# frozen_string_literal: true
 
 require 'rails_helper'
-require_dependency 'post_creator'
 
 describe TagUser do
   before do
@@ -40,6 +40,28 @@ describe TagUser do
       TagUser.change(user.id, tag.id, regular)
       expect(TopicUser.get(topic, user).notification_level).to eq tracking
     end
+
+    it "watches or tracks on change using a synonym" do
+      user = Fabricate(:user)
+      tag = Fabricate(:tag)
+      synonym = Fabricate(:tag, target_tag: tag)
+      post = create_post(tags: [tag.name])
+      topic = post.topic
+
+      TopicUser.change(user.id, topic.id, total_msecs_viewed: 1)
+
+      TagUser.change(user.id, synonym.id, tracking)
+      expect(TopicUser.get(topic, user).notification_level).to eq tracking
+
+      TagUser.change(user.id, synonym.id, watching)
+      expect(TopicUser.get(topic, user).notification_level).to eq watching
+
+      TagUser.change(user.id, synonym.id, regular)
+      expect(TopicUser.get(topic, user).notification_level).to eq tracking
+
+      expect(TagUser.where(user_id: user.id, tag_id: synonym.id).first).to be_nil
+      expect(TagUser.where(user_id: user.id, tag_id: tag.id).first).to be_present
+    end
   end
 
   context "batch_set" do
@@ -65,27 +87,46 @@ describe TagUser do
 
       expect(TopicUser.get(topic, user).notification_level).to eq tracking
     end
+
+    it "watches and unwatches tags correctly using tag synonym" do
+
+      user = Fabricate(:user)
+      tag = Fabricate(:tag)
+      synonym = Fabricate(:tag, target_tag: tag)
+      post = create_post(tags: [tag.name])
+      topic = post.topic
+
+      # we need topic user record to ensure watch picks up other wise it is implicit
+      TopicUser.change(user.id, topic.id, total_msecs_viewed: 1)
+
+      TagUser.batch_set(user, :tracking, [synonym.name])
+
+      expect(TopicUser.get(topic, user).notification_level).to eq tracking
+
+      TagUser.batch_set(user, :watching, [synonym.name])
+
+      expect(TopicUser.get(topic, user).notification_level).to eq watching
+
+      TagUser.batch_set(user, :watching, [])
+
+      expect(TopicUser.get(topic, user).notification_level).to eq tracking
+    end
   end
 
   context "integration" do
-    let(:user) { Fabricate(:user) }
-    let(:watched_tag) { Fabricate(:tag) }
+    fab!(:user) { Fabricate(:user) }
+    fab!(:watched_tag) { Fabricate(:tag) }
     let(:muted_tag)   { Fabricate(:tag) }
-    let(:tracked_tag) { Fabricate(:tag) }
+    fab!(:tracked_tag) { Fabricate(:tag) }
 
     context "with some tag notification settings" do
       before do
-        SiteSetting.queue_jobs = false
+        Jobs.run_immediately!
       end
 
       let :watched_post do
         TagUser.create!(user: user, tag: watched_tag, notification_level: TagUser.notification_levels[:watching])
         create_post(tags: [watched_tag.name])
-      end
-
-      let :muted_post do
-        TagUser.create!(user: user, tag: muted_tag,   notification_level: TagUser.notification_levels[:muted])
-        create_post(tags: [muted_tag.name])
       end
 
       let :tracked_post do
@@ -168,7 +209,7 @@ describe TagUser do
         result = DiscourseTagging.tag_topic_by_names(topic, Guardian.new(staff), ["foo"])
         expect(result).to eq(true)
 
-        topic.errors[:base].clear
+        topic.errors.clear
 
         result = DiscourseTagging.tag_topic_by_names(topic, Guardian.new(user), [])
         expect(result).to eq(false)

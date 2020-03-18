@@ -1,19 +1,20 @@
+import Component from "@ember/component";
 import showModal from "discourse/lib/show-modal";
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNames: ["bulk-select-container"],
 
   actions: {
     showBulkActions() {
       const controller = showModal("topic-bulk-actions", {
         model: {
-          topics: this.get("selected"),
-          category: this.get("category")
+          topics: this.selected,
+          category: this.category
         },
         title: "topics.bulk.actions"
       });
 
-      const action = this.get("action");
+      const action = this.action;
       if (action) {
         controller.set("refreshClosure", () => action());
       }

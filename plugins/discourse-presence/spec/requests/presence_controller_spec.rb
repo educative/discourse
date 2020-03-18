@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe ::Presence::PresencesController do
@@ -15,10 +17,10 @@ describe ::Presence::PresencesController do
   let(:manager) { ::Presence::PresenceManager }
 
   after do
-    $redis.del("presence:topic:#{post1.topic.id}")
-    $redis.del("presence:topic:#{post2.topic.id}")
-    $redis.del("presence:post:#{post1.id}")
-    $redis.del("presence:post:#{post2.id}")
+    Discourse.redis.del("presence:topic:#{post1.topic.id}")
+    Discourse.redis.del("presence:topic:#{post2.topic.id}")
+    Discourse.redis.del("presence:post:#{post1.id}")
+    Discourse.redis.del("presence:post:#{post2.id}")
   end
 
   context 'when not logged in' do

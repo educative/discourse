@@ -1,18 +1,29 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import { empty, and } from "@ember/object/computed";
 import { setting } from "discourse/lib/computed";
 import { buildCategoryPanel } from "discourse/components/edit-category-panel";
-import computed from "ember-addons/ember-computed-decorators";
+import { searchPriorities } from "discourse/components/concerns/category-search-priorities";
+import Group from "discourse/models/group";
+
+const categorySortCriteria = [];
+export function addCategorySortCriteria(criteria) {
+  categorySortCriteria.push(criteria);
+}
 
 export default buildCategoryPanel("settings", {
   emailInEnabled: setting("email_in"),
   showPositionInput: setting("fixed_category_positions"),
-  isParentCategory: Ember.computed.empty("category.parent_category_id"),
-  showSubcategoryListStyle: Ember.computed.and(
+  @discourseComputed("category.isParent", "category.parent_category_id")
+  isParentCategory(isParent, parentCategoryId) {
+    return isParent || !parentCategoryId;
+  },
+  showSubcategoryListStyle: and(
     "category.show_subcategory_list",
     "isParentCategory"
   ),
-  isDefaultSortOrder: Ember.computed.empty("category.sort_order"),
+  isDefaultSortOrder: empty("category.sort_order"),
 
-  @computed
+  @discourseComputed
   availableSubcategoryListStyles() {
     return [
       { name: I18n.t("category.subcategory_list_styles.rows"), value: "rows" },
@@ -35,7 +46,11 @@ export default buildCategoryPanel("settings", {
     ];
   },
 
-  @computed
+  groupFinder(term) {
+    return Group.findAll({ term, ignore_automatic: true });
+  },
+
+  @discourseComputed
   availableViews() {
     return [
       { name: I18n.t("filters.latest.title"), value: "latest" },
@@ -43,7 +58,7 @@ export default buildCategoryPanel("settings", {
     ];
   },
 
-  @computed
+  @discourseComputed
   availableTopPeriods() {
     return ["all", "yearly", "quarterly", "monthly", "weekly", "daily"].map(
       p => {
@@ -52,7 +67,23 @@ export default buildCategoryPanel("settings", {
     );
   },
 
-  @computed
+  @discourseComputed
+  searchPrioritiesOptions() {
+    const options = [];
+
+    Object.entries(searchPriorities).forEach(entry => {
+      const [name, value] = entry;
+
+      options.push({
+        name: I18n.t(`category.search_priority.options.${name}`),
+        value
+      });
+    });
+
+    return options;
+  },
+
+  @discourseComputed
   availableSorts() {
     return [
       "likes",
@@ -64,13 +95,12 @@ export default buildCategoryPanel("settings", {
       "category",
       "created"
     ]
+      .concat(categorySortCriteria)
       .map(s => ({ name: I18n.t("category.sort_options." + s), value: s }))
-      .sort((a, b) => {
-        return a.name > b.name;
-      });
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 
-  @computed
+  @discourseComputed
   sortAscendingOptions() {
     return [
       { name: I18n.t("category.sort_ascending"), value: "true" },

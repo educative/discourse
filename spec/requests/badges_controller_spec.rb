@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe BadgesController do
-  let!(:badge) { Fabricate(:badge) }
-  let(:user) { Fabricate(:user) }
+  fab!(:badge) { Fabricate(:badge) }
+  fab!(:user) { Fabricate(:user) }
 
   before do
     SiteSetting.enable_badges = true
@@ -14,7 +16,7 @@ describe BadgesController do
 
       expect(response.status).to eq(200)
       parsed = JSON.parse(response.body)
-      expect(parsed["badges"].length).to eq(Badge.count)
+      expect(parsed["badges"].length).to eq(Badge.enabled.count)
     end
   end
 
@@ -37,7 +39,7 @@ describe BadgesController do
     it 'renders rss feed of a badge' do
       get "/badges/#{badge.id}.rss"
       expect(response.status).to eq(200)
-      expect(response.content_type).to eq('application/rss+xml')
+      expect(response.media_type).to eq('application/rss+xml')
     end
   end
 end

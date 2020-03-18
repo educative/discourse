@@ -1,7 +1,8 @@
-export default Ember.Route.extend({
+import Route from "@ember/routing/route";
+export default Route.extend({
   model(params) {
     const all = this.modelFor("adminCustomizeThemes");
-    const model = all.findBy("id", parseInt(params.theme_id));
+    const model = all.findBy("id", parseInt(params.theme_id, 10));
     return model
       ? {
           model,
@@ -21,7 +22,7 @@ export default Ember.Route.extend({
   },
 
   setupController(controller, wrapper) {
-    const fields = controller.fieldsForTarget(wrapper.target);
+    const fields = wrapper.model.get("fields")[wrapper.target].map(f => f.name);
     if (!fields.includes(wrapper.field_name)) {
       this.transitionTo(
         "adminCustomizeThemes.edit",
@@ -42,7 +43,7 @@ export default Ember.Route.extend({
     willTransition(transition) {
       if (
         this.get("controller.model.changed") &&
-        this.get("shouldAlertUnsavedChanges") &&
+        this.shouldAlertUnsavedChanges &&
         transition.intent.name !== this.routeName
       ) {
         transition.abort();

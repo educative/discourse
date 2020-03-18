@@ -1,13 +1,18 @@
-export default Ember.Controller.extend({
+import discourseComputed from "discourse-common/utils/decorators";
+import Controller from "@ember/controller";
+
+export default Controller.extend({
+  @discourseComputed
   adminRoutes: function() {
-    return this.get("model")
+    return this.model
       .map(p => {
         if (p.get("enabled")) {
           return p.admin_route;
         }
       })
       .compact();
-  }.property(),
+  },
+
   actions: {
     clearFilter() {
       this.setProperties({ filter: "", onlyOverridden: false });

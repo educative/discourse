@@ -1,5 +1,8 @@
-require_relative '../base.rb'
+# frozen_string_literal: true
+
+require_relative '../base'
 require_relative './redis'
+require_relative './mongo'
 
 class ImportScripts::NodeBB < ImportScripts::Base
   # CHANGE THESE BEFORE RUNNING THE IMPORTER
@@ -10,12 +13,14 @@ class ImportScripts::NodeBB < ImportScripts::Base
   def initialize
     super
 
-    adapter = NodeBB::Redis
+    # adapter = NodeBB::Mongo
+    # @client = adapter.new('mongodb://127.0.0.1:27017/nodebb')
 
+    adapter = NodeBB::Redis
     @client = adapter.new(
       host: "localhost",
       port: "6379",
-      db: 0
+      db: 14
     )
 
     load_merged_posts
@@ -73,7 +78,7 @@ class ImportScripts::NodeBB < ImportScripts::Base
     category_ids = category_map.keys
     categories = category_map.values
 
-    top_level_categories = categories.select { |c| c["parentCid"] == "0" }
+    top_level_categories = categories.select { |c| c["parentCid"] == "0" && c["disabled"] != "1" }
 
     create_categories(top_level_categories) do |category|
       {
@@ -86,7 +91,7 @@ class ImportScripts::NodeBB < ImportScripts::Base
 
     puts "", "importing child categories..."
 
-    children_categories = categories.select { |c| c["parentCid"] != "0" }
+    children_categories = categories.select { |c| c["parentCid"] != "0" && c["disabled"] != "1" }
     top_level_category_ids = Set.new(top_level_categories.map { |c| c["cid"] })
 
     # cut down the tree to only 2 levels of categories
@@ -105,6 +110,12 @@ class ImportScripts::NodeBB < ImportScripts::Base
         parent_category_id: category_id_from_imported_category_id(category["parentCid"])
       }
     end
+
+    categories.each do |source_category|
+      cid = category_id_from_imported_category_id(source_category['cid'])
+      Permalink.create(url: "/category/#{source_category['slug']}", category_id: cid) rescue nil
+    end
+
   end
 
   def import_users
@@ -144,6 +155,8 @@ class ImportScripts::NodeBB < ImportScripts::Base
         suspended_till: suspended_till,
         primary_group_id: group_id_from_imported_group_id(user["groupTitle"]),
         created_at: user["joindate"],
+        bio_raw: user["aboutme"],
+        active: true,
         custom_fields: {
           import_pass: user["password"]
         },
@@ -197,13 +210,14 @@ class ImportScripts::NodeBB < ImportScripts::Base
 
       upload = UploadCreator.new(file, filename).create_for(imported_user.id)
     else
-      # remove "/assets/uploads/" from attachment
+      # remove "/assets/uploads/" and "/uploads" from attachment
       picture = picture.gsub("/assets/uploads", "")
+      picture = picture.gsub("/uploads", "")
       filepath = File.join(ATTACHMENT_DIR, picture)
       filename = File.basename(picture)
 
       unless File.exists?(filepath)
-        puts "Avatar file doesn't exist: #{filename}"
+        puts "Avatar file doesn't exist: #{filepath}"
         return nil
       end
 
@@ -256,13 +270,14 @@ class ImportScripts::NodeBB < ImportScripts::Base
 
       upload = UploadCreator.new(file, filename).create_for(imported_user.id)
     else
-      # remove "/assets/uploads/" from attachment
+      # remove "/assets/uploads/" and "/uploads" from attachment
       picture = picture.gsub("/assets/uploads", "")
+      picture = picture.gsub("/uploads", "")
       filepath = File.join(ATTACHMENT_DIR, picture)
       filename = File.basename(picture)
 
       unless File.exists?(filepath)
-        puts "Background file doesn't exist: #{filename}"
+        puts "Background file doesn't exist: #{filepath}"
         return nil
       end
 
@@ -271,7 +286,7 @@ class ImportScripts::NodeBB < ImportScripts::Base
 
     return if !upload.persisted?
 
-    imported_user.user_profile.update(profile_background: upload.url)
+    imported_user.user_profile.upload_profile_background(upload)
   ensure
     string_io.close rescue nil
     file.close rescue nil
@@ -354,6 +369,11 @@ class ImportScripts::NodeBB < ImportScripts::Base
 
         data
       end
+
+      topics.each do |import_topic|
+        topic = topic_lookup_from_imported_post_id("t#{import_topic["tid"]}")
+        Permalink.create(url: "/topic/#{import_topic['slug']}", topic_id: topic[:topic_id]) rescue nil
+      end
     end
   end
 
@@ -395,11 +415,7 @@ class ImportScripts::NodeBB < ImportScripts::Base
             post["upvoted_by"].each do |upvoter_id|
               user = User.new
               user.id = user_id_from_imported_user_id(upvoter_id) || Discourse::SYSTEM_USER_ID
-
-              begin
-                PostAction.act(user, p, PostActionType.types[:like])
-              rescue PostAction::AlreadyActed
-              end
+              PostActionCreator.like(user, p)
             end
           end
         }
@@ -507,13 +523,6 @@ class ImportScripts::NodeBB < ImportScripts::Base
       else
         "/404"
       end
-    end
-
-    # @username with dash to underscore
-    raw = raw.gsub(/@([a-zA-Z0-9-]+)/) do
-      username = $1
-
-      username.gsub('-', '_')
     end
 
     raw

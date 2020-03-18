@@ -1,3 +1,5 @@
+import { get } from "@ember/object";
+import { schedule } from "@ember/runloop";
 import { createWidget } from "discourse/widgets/widget";
 import { iconNode } from "discourse-common/lib/icon-library";
 import { avatarImg } from "discourse/widgets/post";
@@ -6,7 +8,7 @@ import { wantsNewWindow } from "discourse/lib/intercept-click";
 import { applySearchAutocomplete } from "discourse/lib/search";
 import { ajax } from "discourse/lib/ajax";
 import { addExtraUserClasses } from "discourse/helpers/user-avatar";
-
+import { scrollTop } from "discourse/mixins/scroll-top";
 import { h } from "virtual-dom";
 
 const dropdown = {
@@ -67,7 +69,10 @@ createWidget("header-notifications", {
 
     const unreadPMs = user.get("unread_private_messages");
     if (!!unreadPMs) {
-      if (!user.get("read_first_notification")) {
+      if (
+        !user.get("read_first_notification") &&
+        !user.get("enforcedSecondFactor")
+      ) {
         contents.push(h("span.ring"));
         if (!attrs.active && attrs.ringBackdrop) {
           contents.push(h("span.ring-backdrop-spotlight"));
@@ -181,18 +186,18 @@ createWidget("header-icons", {
       action: "toggleHamburger",
       href: "",
       contents() {
-        if (!attrs.flagCount) {
-          return;
+        let { currentUser } = this;
+        if (currentUser && currentUser.reviewable_count) {
+          return h(
+            "div.badge-notification.reviewables",
+            {
+              attributes: {
+                title: I18n.t("notifications.reviewable_items")
+              }
+            },
+            this.currentUser.reviewable_count
+          );
         }
-        return h(
-          "div.badge-notification.flagged-posts",
-          {
-            attributes: {
-              title: I18n.t("notifications.total_flagged")
-            }
-          },
-          attrs.flagCount
-        );
       }
     });
 
@@ -262,7 +267,7 @@ createWidget("header-cloak", {
   scheduleRerender() {}
 });
 
-const forceContextEnabled = ["category", "user", "private_messages"];
+const forceContextEnabled = ["category", "user", "private_messages", "tag"];
 
 let additionalPanels = [];
 export function attachAdditionalPanel(name, toggle, transformAttrs) {
@@ -324,9 +329,6 @@ export default createWidget("header", {
       } else if (state.userVisible) {
         panels.push(this.attach("user-menu"));
       }
-      if (this.site.mobileView) {
-        panels.push(this.attach("header-cloak"));
-      }
 
       additionalPanels.map(panel => {
         if (this.state[panel.toggle]) {
@@ -338,6 +340,10 @@ export default createWidget("header", {
           );
         }
       });
+
+      if (this.site.mobileView) {
+        panels.push(this.attach("header-cloak"));
+      }
 
       return panels;
     };
@@ -395,19 +401,27 @@ export default createWidget("header", {
       var params = "";
 
       if (context) {
-        params = `?context=${context.type}&context_id=${
-          context.id
-        }&skip_context=${this.state.skipSearchContext}`;
+        params = `?context=${context.type}&context_id=${context.id}&skip_context=${this.state.skipSearchContext}`;
       }
 
-      return DiscourseURL.routeTo("/search" + params);
+      const currentPath = this.register
+        .lookup("service:router")
+        .get("_router.currentPath");
+
+      if (currentPath === "full-page-search") {
+        scrollTop();
+        $(".full-page-search").focus();
+        return false;
+      } else {
+        return DiscourseURL.routeTo("/search" + params);
+      }
     }
 
     this.state.searchVisible = !this.state.searchVisible;
     this.updateHighlight();
 
     if (this.state.searchVisible) {
-      Ember.run.schedule("afterRender", () => {
+      schedule("afterRender", () => {
         const $searchInput = $("#search-term");
         $searchInput.focus().select();
 
@@ -467,8 +481,8 @@ export default createWidget("header", {
     state.contextEnabled = false;
 
     const currentPath = this.register
-      .lookup("controller:application")
-      .get("currentPath");
+      .lookup("service:router")
+      .get("_router.currentPath");
     const blacklist = [/^discovery\.categories/];
     const whitelist = [/^topic\./];
     const check = function(regex) {
@@ -545,7 +559,7 @@ export default createWidget("header", {
     if (service) {
       const ctx = service.get("searchContext");
       if (ctx) {
-        return Ember.get(ctx, "type");
+        return get(ctx, "type");
       }
     }
   }

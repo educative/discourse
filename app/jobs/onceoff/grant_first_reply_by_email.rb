@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class GrantFirstReplyByEmail < Jobs::Onceoff
+  class GrantFirstReplyByEmail < ::Jobs::Onceoff
 
     def execute_onceoff(args)
       return unless SiteSetting.enable_badges

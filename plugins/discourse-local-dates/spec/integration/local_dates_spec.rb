@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe "Local Dates" do
@@ -76,5 +78,12 @@ RSpec.describe "Local Dates" do
     cooked = Fabricate(:post, raw: raw).cooked
 
     expect(cooked).not_to include("data-timezone=")
+  end
+
+  it 'supports countdowns' do
+    raw = "[date=2018-11-01 time=12:00 countdown=true]"
+    cooked = Fabricate(:post, raw: raw).cooked
+
+    expect(cooked).to include("data-countdown=")
   end
 end

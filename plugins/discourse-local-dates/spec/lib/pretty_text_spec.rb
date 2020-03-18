@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 def generate_html(text, opts = {})
@@ -67,6 +69,24 @@ describe PrettyText do
 
         expect(PrettyText.format_for_email(cooked)).to match_html(cooked_mail)
       end
+    end
+  end
+
+  context 'excerpt simplified rendering' do
+    let(:post) { Fabricate(:post, raw: '[date=2019-10-16 time=14:00:00 format="LLLL" timezone="America/New_York"]') }
+
+    it 'adds UTC' do
+      excerpt = PrettyText.excerpt(post.cooked, 200)
+      expect(excerpt).to eq("Wednesday, October 16, 2019 6:00 PM (UTC)")
+    end
+  end
+
+  context 'german quotes' do
+    let(:post) { Fabricate(:post, raw: '[date=2019-10-16 time=14:00:00 format="LLLL" timezone=„America/New_York“]') }
+
+    it 'converts german quotes to regular quotes' do
+      excerpt = PrettyText.excerpt(post.cooked, 200)
+      expect(excerpt).to eq('Wednesday, October 16, 2019 6:00 PM (UTC)')
     end
   end
 end

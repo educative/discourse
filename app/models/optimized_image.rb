@@ -1,16 +1,15 @@
-require_dependency "file_helper"
-require_dependency "url_helper"
-require_dependency "db_helper"
-require_dependency "file_store/local_store"
+# frozen_string_literal: true
 
 class OptimizedImage < ActiveRecord::Base
+  include HasUrl
   belongs_to :upload
 
   # BUMP UP if optimized image algorithm changes
   VERSION = 2
+  URL_REGEX ||= /(\/optimized\/\dX[\/\.\w]*\/([a-zA-Z0-9]+)[\.\w]*)/
 
   def self.lock(upload_id, width, height)
-    @hostname ||= `hostname`.strip rescue "unknown"
+    @hostname ||= Discourse.os_hostname
     # note, the extra lock here ensures we only optimize one image per machine on webs
     # this can very easily lead to runaway CPU so slowing it down is beneficial and it is hijacked
     #
@@ -29,7 +28,6 @@ class OptimizedImage < ActiveRecord::Base
   end
 
   def self.create_for(upload, width, height, opts = {})
-
     return unless width > 0 && height > 0
     return if upload.try(:sha1).blank?
 
@@ -108,10 +106,12 @@ class OptimizedImage < ActiveRecord::Base
 
           # store the optimized image and update its url
           File.open(temp_path) do |file|
-            url = Discourse.store.store_optimized_image(file, thumbnail)
+            url = Discourse.store.store_optimized_image(file, thumbnail, nil, secure: upload.secure?)
             if url.present?
               thumbnail.url = url
               thumbnail.save
+            else
+              Rails.logger.error("Failed to store optimized image of size #{width}x#{height} from url: #{upload.url}\nTemp image path: #{temp_path}")
             end
           end
         end
@@ -131,7 +131,7 @@ class OptimizedImage < ActiveRecord::Base
 
   def destroy
     OptimizedImage.transaction do
-      Discourse.store.remove_optimized_image(self)
+      Discourse.store.remove_optimized_image(self) if self.upload
       super
     end
   end
@@ -180,7 +180,7 @@ class OptimizedImage < ActiveRecord::Base
     end
   end
 
-  IM_DECODERS ||= /\A(jpe?g|png|tiff?|bmp|ico|gif)\z/i
+  IM_DECODERS ||= /\A(jpe?g|png|ico|gif)\z/i
 
   def self.prepend_decoder!(path, ext_path = nil, opts = nil)
     opts ||= {}
@@ -320,10 +320,12 @@ class OptimizedImage < ActiveRecord::Base
 
   def self.optimize(operation, from, to, dimensions, opts = {})
     method_name = "#{operation}_instructions"
+
     if !!opts[:allow_animation] && (from =~ /\.GIF$/i)
       method_name += "_animated"
     end
-    instructions = self.send(method_name.to_sym, from, to, dimensions, opts)
+
+    instructions = self.public_send(method_name.to_sym, from, to, dimensions, opts)
     convert_with(instructions, to, opts)
   end
 
@@ -351,72 +353,6 @@ class OptimizedImage < ActiveRecord::Base
       false
     end
   end
-
-  def self.migrate_to_new_scheme(limit = nil)
-    problems = []
-
-    if SiteSetting.migrate_to_new_scheme
-      max_file_size_kb = SiteSetting.max_image_size_kb.kilobytes
-      local_store = FileStore::LocalStore.new
-
-      scope = OptimizedImage.includes(:upload)
-        .where("url NOT LIKE '%/optimized/_X/%'")
-        .order(id: :desc)
-
-      scope.limit(limit) if limit
-
-      scope.each do |optimized_image|
-        begin
-          # keep track of the url
-          previous_url = optimized_image.url.dup
-          # where is the file currently stored?
-          external = previous_url =~ /^\/\//
-          # download if external
-          if external
-            url = SiteSetting.scheme + ":" + previous_url
-            file = FileHelper.download(
-              url,
-              max_file_size: max_file_size_kb,
-              tmp_file_name: "discourse",
-              follow_redirect: true
-            ) rescue nil
-            path = file.path
-          else
-            path = local_store.path_for(optimized_image)
-            file = File.open(path)
-          end
-          # compute SHA if missing
-          if optimized_image.sha1.blank?
-            optimized_image.sha1 = Upload.generate_digest(path)
-          end
-          # optimize if image
-          FileHelper.optimize_image!(path)
-          # store to new location & update the filesize
-          File.open(path) do |f|
-            optimized_image.url = Discourse.store.store_optimized_image(f, optimized_image)
-            optimized_image.save
-          end
-          # remap the URLs
-          DbHelper.remap(UrlHelper.absolute(previous_url), optimized_image.url) unless external
-          DbHelper.remap(previous_url, optimized_image.url)
-          # remove the old file (when local)
-          unless external
-            FileUtils.rm(path, force: true)
-          end
-        rescue => e
-          problems << { optimized_image: optimized_image, ex: e }
-          # just ditch the optimized image if there was any errors
-          optimized_image.destroy
-        ensure
-          file&.unlink
-          file&.close
-        end
-      end
-    end
-
-    problems
-  end
-
 end
 
 # == Schema Information

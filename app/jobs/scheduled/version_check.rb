@@ -1,8 +1,7 @@
-require_dependency 'discourse_hub'
-require_dependency 'discourse_updates'
+# frozen_string_literal: true
 
 module Jobs
-  class VersionCheck < Jobs::Scheduled
+  class VersionCheck < ::Jobs::Scheduled
     every 1.day
 
     def execute(args)
@@ -18,8 +17,7 @@ module Jobs
           DiscourseUpdates.updated_at = Time.zone.now
           DiscourseUpdates.missing_versions = json['versions']
 
-          if  GlobalSetting.new_version_emails &&
-              SiteSetting.new_version_emails &&
+          if SiteSetting.new_version_emails &&
               json['missingVersionsCount'] > (0) &&
               prev_missing_versions_count < (json['missingVersionsCount'].to_i)
 

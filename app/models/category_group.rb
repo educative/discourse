@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class CategoryGroup < ActiveRecord::Base
   belongs_to :category
   belongs_to :group
@@ -20,4 +22,8 @@ end
 #  created_at      :datetime         not null
 #  updated_at      :datetime         not null
 #  permission_type :integer          default(1)
+#
+# Indexes
+#
+#  index_category_groups_on_group_id  (group_id)
 #

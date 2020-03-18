@@ -1,20 +1,23 @@
-import debounce from "discourse/lib/debounce";
+import Controller from "@ember/controller";
+import discourseDebounce from "discourse/lib/debounce";
 import Permalink from "admin/models/permalink";
+import { observes } from "discourse-common/utils/decorators";
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   loading: false,
   filter: null,
 
-  show: debounce(function() {
-    Permalink.findAll(this.get("filter")).then(result => {
+  @observes("filter")
+  show: discourseDebounce(function() {
+    Permalink.findAll(this.filter).then(result => {
       this.set("model", result);
       this.set("loading", false);
     });
-  }, 250).observes("filter"),
+  }, 250),
 
   actions: {
     recordAdded(arg) {
-      this.get("model").unshiftObject(arg);
+      this.model.unshiftObject(arg);
     },
 
     destroy: function(record) {
@@ -27,7 +30,7 @@ export default Ember.Controller.extend({
             record.destroy().then(
               deleted => {
                 if (deleted) {
-                  this.get("model").removeObject(record);
+                  this.model.removeObject(record);
                 } else {
                   bootbox.alert(I18n.t("generic_error"));
                 }

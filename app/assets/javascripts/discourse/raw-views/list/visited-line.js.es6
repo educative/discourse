@@ -1,5 +1,9 @@
-export default Ember.Object.extend({
+import discourseComputed from "discourse-common/utils/decorators";
+import EmberObject from "@ember/object";
+
+export default EmberObject.extend({
+  @discourseComputed
   isLastVisited: function() {
-    return this.get("lastVisitedTopic") === this.get("topic");
-  }.property()
+    return this.lastVisitedTopic === this.topic;
+  }
 });

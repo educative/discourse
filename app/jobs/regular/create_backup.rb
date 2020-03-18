@@ -1,7 +1,9 @@
-require "backup_restore/backup_restore"
+# frozen_string_literal: true
+
+require "backup_restore"
 
 module Jobs
-  class CreateBackup < Jobs::Base
+  class CreateBackup < ::Jobs::Base
     sidekiq_options retry: false
 
     def execute(args)

@@ -1,8 +1,8 @@
 /*jshint maxlen:10000000 */
 Discourse.SiteSettingsOriginal = {
-  title: "Discourse Meta",
+  title: "QUnit Discourse Tests",
   site_logo_url: "/assets/logo.png",
-  site_home_logo_url: "/assets/logo.png",
+  site_logo_url: "/assets/logo.png",
   site_logo_small_url: "/assets/logo-single.png",
   site_mobile_logo_url: "",
   site_favicon_url:
@@ -12,8 +12,8 @@ Discourse.SiteSettingsOriginal = {
   ga_universal_tracking_code: "",
   ga_universal_domain_name: "auto",
   top_menu: "latest|new|unread|categories|top",
-  post_menu: "like-count|like|share|flag|edit|bookmark|delete|admin|reply",
-  post_menu_hidden_items: "flag|edit|delete|admin",
+  post_menu: "like|share|flag|edit|bookmark|bookmarkWithReminder|delete|admin|reply",
+  post_menu_hidden_items: "flag|bookmark|bookmarkWithReminder|edit|delete|admin",
   share_links: "twitter|facebook|email",
   category_colors:
     "BF1E2E|F1592A|F7941D|9EB83B|3AB54A|12A89D|25AAE2|0E76BD|652D90|92278F|ED207B|8C6238|231F20|27AA5B|B3B5B4|E45735",
@@ -28,7 +28,7 @@ Discourse.SiteSettingsOriginal = {
   allow_new_registrations: true,
   enable_google_logins: true,
   enable_google_oauth2_logins: false,
-  enable_yahoo_logins: true,
+  enable_bookmarks_with_reminders: false,
   enable_twitter_logins: true,
   enable_facebook_logins: true,
   enable_github_logins: true,
@@ -92,10 +92,14 @@ Discourse.SiteSettingsOriginal = {
   highlighted_languages:
     "apache|bash|cs|cpp|css|coffeescript|diff|xml|http|ini|json|java|javascript|makefile|markdown|nginx|objectivec|ruby|perl|php|python|sql|handlebars",
   enable_emoji: true,
+  enable_emoji_shortcuts: true,
   emoji_set: "emoji_one",
+  enable_emoji_shortcuts: true,
+  enable_inline_emoji_translation: false,
   desktop_category_page_style: "categories_and_latest_topics",
   enable_mentions: true,
-  enable_personal_messages: true
+  enable_personal_messages: true,
+  unicode_usernames: false
 };
 Discourse.SiteSettings = jQuery.extend(
   true,

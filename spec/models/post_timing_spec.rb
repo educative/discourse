@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe PostTiming do
@@ -6,9 +8,9 @@ describe PostTiming do
   it { is_expected.to validate_presence_of :msecs }
 
   describe 'pretend_read' do
-    let!(:p1) { Fabricate(:post) }
-    let!(:p2) { Fabricate(:post, topic: p1.topic, user: p1.user) }
-    let!(:p3) { Fabricate(:post, topic: p1.topic, user: p1.user) }
+    fab!(:p1) { Fabricate(:post) }
+    fab!(:p2) { Fabricate(:post, topic: p1.topic, user: p1.user) }
+    fab!(:p3) { Fabricate(:post, topic: p1.topic, user: p1.user) }
 
     let :topic_id do
       p1.topic_id
@@ -89,7 +91,7 @@ describe PostTiming do
       end
       user2 = Fabricate(:coding_horror, created_at: 1.day.ago)
 
-      PostAction.act(user2, post, PostActionType.types[:like])
+      PostActionCreator.like(user2, post)
 
       expect(post.user.unread_notifications).to eq(1)
 
@@ -160,69 +162,26 @@ describe PostTiming do
 
     end
 
-    describe 'avg times' do
-
-      describe 'posts' do
-        it 'has no avg_time by default' do
-          expect(@post.avg_time).to be_blank
-        end
-
-        it "doesn't change when we calculate the avg time for the post because there's no timings" do
-          Post.calculate_avg_time
-          @post.reload
-          expect(@post.avg_time).to be_blank
-        end
-      end
-
-      describe 'topics' do
-        it 'has no avg_time by default' do
-          expect(@topic.avg_time).to be_blank
-        end
-
-        it "doesn't change when we calculate the avg time for the post because there's no timings" do
-          Topic.calculate_avg_time
-          @topic.reload
-          expect(@topic.avg_time).to be_blank
-        end
-      end
-
-      describe "it doesn't create an avg time for the same user" do
-        it 'something' do
-          PostTiming.record_timing(@timing_attrs.merge(user_id: @post.user_id))
-          Post.calculate_avg_time
-          @post.reload
-          expect(@post.avg_time).to be_blank
-        end
-
-      end
-
-      describe 'with a timing for another user' do
-        before do
-          PostTiming.record_timing(@timing_attrs)
-          Post.calculate_avg_time
-          @post.reload
-        end
-
-        it 'has a post avg_time from the timing' do
-          expect(@post.avg_time).to be_present
-        end
-
-        describe 'forum topics' do
-          before do
-            Topic.calculate_avg_time
-            @topic.reload
-          end
-
-          it 'has an avg_time from the timing' do
-            expect(@topic.avg_time).to be_present
-          end
-
-        end
-
-      end
-
-    end
-
   end
 
+  describe 'decrementing posts read count when destroying post timings' do
+    let(:initial_read_count) { 0 }
+    let(:post) { Fabricate(:post, reads: initial_read_count) }
+
+    before do
+      PostTiming.process_timings(post.user, post.topic_id, 1, [[post.post_number, 100]])
+    end
+
+    it '#destroy_last_for decrements the reads count for a post' do
+      PostTiming.destroy_last_for(post.user, post.topic_id)
+
+      expect(post.reload.reads).to eq initial_read_count
+    end
+
+    it '#destroy_for decrements the reads count for a post' do
+      PostTiming.destroy_for(post.user, [post.topic_id])
+
+      expect(post.reload.reads).to eq initial_read_count
+    end
+  end
 end

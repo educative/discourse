@@ -1,4 +1,4 @@
-require_dependency 'email/styles'
+# frozen_string_literal: true
 
 module Email
   class Renderer
@@ -15,15 +15,19 @@ module Email
     end
 
     def html
-      if @message.html_part
-        style = Email::Styles.new(@message.html_part.body.to_s, @opts)
-        style.format_basic
-        style.format_html
+      style = if @message.html_part
+        Email::Styles.new(@message.html_part.body.to_s, @opts)
       else
-        style = Email::Styles.new(PrettyText.cook(text), @opts)
-        style.format_basic
+        unstyled = UserNotificationRenderer.render(
+          template: 'layouts/email_template',
+          format: :html,
+          locals: { html_body: PrettyText.cook(text).html_safe }
+        )
+        Email::Styles.new(unstyled, @opts)
       end
 
+      style.format_basic
+      style.format_html
       style.to_html
     end
 

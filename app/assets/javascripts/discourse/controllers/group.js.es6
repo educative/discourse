@@ -1,22 +1,41 @@
-import { default as computed } from "ember-addons/ember-computed-decorators";
+import EmberObject from "@ember/object";
+import { inject } from "@ember/controller";
+import Controller from "@ember/controller";
+import discourseComputed from "discourse-common/utils/decorators";
+import { inject as service } from "@ember/service";
+import { readOnly } from "@ember/object/computed";
 
-const Tab = Ember.Object.extend({
+const Tab = EmberObject.extend({
   init() {
     this._super(...arguments);
-    let name = this.get("name");
-    this.set("route", this.get("route") || `group.` + name);
-    this.set("message", I18n.t(`groups.${this.get("i18nKey") || name}`));
+    let name = this.name;
+    this.set("route", this.route || `group.` + name);
+    this.set("message", I18n.t(`groups.${this.i18nKey || name}`));
   }
 });
 
-export default Ember.Controller.extend({
-  application: Ember.inject.controller(),
+export default Controller.extend({
+  application: inject(),
   counts: null,
   showing: "members",
   destroying: null,
+  router: service(),
+  currentPath: readOnly("router._router.currentPath"),
 
-  @computed("showMessages", "model.user_count", "canManageGroup")
-  tabs(showMessages, userCount, canManageGroup) {
+  @discourseComputed(
+    "showMessages",
+    "model.user_count",
+    "model.request_count",
+    "canManageGroup",
+    "model.allow_membership_requests"
+  )
+  tabs(
+    showMessages,
+    userCount,
+    requestCount,
+    canManageGroup,
+    allowMembershipRequests
+  ) {
     const membersTab = Tab.create({
       name: "members",
       route: "group.index",
@@ -27,6 +46,17 @@ export default Ember.Controller.extend({
     membersTab.set("count", userCount);
 
     const defaultTabs = [membersTab, Tab.create({ name: "activity" })];
+
+    if (canManageGroup && allowMembershipRequests) {
+      defaultTabs.push(
+        Tab.create({
+          name: "requests",
+          i18nKey: "requests.title",
+          icon: "user-plus",
+          count: requestCount
+        })
+      );
+    }
 
     if (showMessages) {
       defaultTabs.push(
@@ -50,7 +80,7 @@ export default Ember.Controller.extend({
     return defaultTabs;
   },
 
-  @computed("model.is_group_user")
+  @discourseComputed("model.is_group_user")
   showMessages(isGroupUser) {
     if (!this.siteSettings.enable_personal_messages) {
       return false;
@@ -59,17 +89,17 @@ export default Ember.Controller.extend({
     return isGroupUser || (this.currentUser && this.currentUser.admin);
   },
 
-  @computed("model.is_group_owner", "model.automatic")
+  @discourseComputed("model.is_group_owner", "model.automatic")
   canEditGroup(isGroupOwner, automatic) {
     return !automatic && isGroupOwner;
   },
 
-  @computed("model.displayName", "model.full_name")
+  @discourseComputed("model.displayName", "model.full_name")
   groupName(displayName, fullName) {
     return (fullName || displayName).capitalize();
   },
 
-  @computed(
+  @discourseComputed(
     "model.name",
     "model.flair_url",
     "model.flair_bg_color",
@@ -84,12 +114,12 @@ export default Ember.Controller.extend({
     };
   },
 
-  @computed("model.messageable")
+  @discourseComputed("model.messageable")
   displayGroupMessageButton(messageable) {
     return this.currentUser && messageable;
   },
 
-  @computed("model", "model.automatic")
+  @discourseComputed("model", "model.automatic")
   canManageGroup(model, automatic) {
     return (
       this.currentUser &&
@@ -104,7 +134,7 @@ export default Ember.Controller.extend({
     },
 
     destroy() {
-      const group = this.get("model");
+      const group = this.model;
       this.set("destroying", true);
 
       bootbox.confirm(

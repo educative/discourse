@@ -1,13 +1,18 @@
-export default Ember.Component.extend({
+import discourseComputed from "discourse-common/utils/decorators";
+import Component from "@ember/component";
+
+export default Component.extend({
   tagName: "a",
   classNameBindings: [":discourse-tag", "style", "tagClass"],
   attributeBindings: ["href"],
 
-  tagClass: function() {
-    return "tag-" + this.get("tagRecord.id");
-  }.property("tagRecord.id"),
+  @discourseComputed("tagRecord.id")
+  tagClass(tagRecordId) {
+    return "tag-" + tagRecordId;
+  },
 
-  href: function() {
-    return Discourse.getURL("/tags/" + this.get("tagRecord.id"));
-  }.property("tagRecord.id")
+  @discourseComputed("tagRecord.id")
+  href(tagRecordId) {
+    return Discourse.getURL("/tag/" + tagRecordId);
+  }
 });

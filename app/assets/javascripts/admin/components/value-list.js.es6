@@ -1,39 +1,40 @@
-import { on } from "ember-addons/ember-computed-decorators";
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { makeArray } from "discourse-common/lib/helpers";
+import { empty, reads } from "@ember/object/computed";
+import Component from "@ember/component";
+import { on } from "discourse-common/utils/decorators";
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNameBindings: [":value-list"],
-
-  inputInvalid: Ember.computed.empty("newValue"),
-
+  inputInvalid: empty("newValue"),
   inputDelimiter: null,
   inputType: null,
   newValue: "",
   collection: null,
   values: null,
-  noneKey: Ember.computed.alias("addKey"),
+  noneKey: reads("addKey"),
 
   @on("didReceiveAttrs")
   _setupCollection() {
-    const values = this.get("values");
-    if (this.get("inputType") === "array") {
+    const values = this.values;
+    if (this.inputType === "array") {
       this.set("collection", values || []);
       return;
     }
 
     this.set(
       "collection",
-      this._splitValues(values, this.get("inputDelimiter") || "\n")
+      this._splitValues(values, this.inputDelimiter || "\n")
     );
   },
 
-  @computed("choices.[]", "collection.[]")
+  @discourseComputed("choices.[]", "collection.[]")
   filteredChoices(choices, collection) {
-    return Ember.makeArray(choices).filter(i => collection.indexOf(i) < 0);
+    return makeArray(choices).filter(i => collection.indexOf(i) < 0);
   },
 
   keyDown(event) {
-    if (event.keyCode === 13) this.send("addValue", this.get("newValue"));
+    if (event.keyCode === 13) this.send("addValue", this.newValue);
   },
 
   actions: {
@@ -42,9 +43,9 @@ export default Ember.Component.extend({
     },
 
     addValue(newValue) {
-      if (this.get("inputInvalid")) return;
+      if (this.inputInvalid) return;
 
-      this.set("newValue", "");
+      this.set("newValue", null);
       this._addValue(newValue);
     },
 
@@ -58,31 +59,41 @@ export default Ember.Component.extend({
   },
 
   _addValue(value) {
-    this.get("collection").addObject(value);
+    this.collection.addObject(value);
+
+    if (this.choices) {
+      this.set("choices", this.choices.rejectBy("id", value));
+    } else {
+      this.set("choices", []);
+    }
+
     this._saveValues();
   },
 
   _removeValue(value) {
-    const collection = this.get("collection");
-    collection.removeObject(value);
+    this.collection.removeObject(value);
+
+    if (this.choices) {
+      this.set("choices", this.choices.concat([value]).uniq());
+    } else {
+      this.set("choices", makeArray(value));
+    }
+
     this._saveValues();
   },
 
   _replaceValue(index, newValue) {
-    this.get("collection").replace(index, 1, [newValue]);
+    this.collection.replace(index, 1, [newValue]);
     this._saveValues();
   },
 
   _saveValues() {
-    if (this.get("inputType") === "array") {
-      this.set("values", this.get("collection"));
+    if (this.inputType === "array") {
+      this.set("values", this.collection);
       return;
     }
 
-    this.set(
-      "values",
-      this.get("collection").join(this.get("inputDelimiter") || "\n")
-    );
+    this.set("values", this.collection.join(this.inputDelimiter || "\n"));
   },
 
   _splitValues(values, delimiter) {

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe UserApiKeysController do
@@ -48,7 +50,7 @@ describe UserApiKeysController do
     it "supports a head request cleanly" do
       head "/user-api-key/new"
       expect(response.status).to eq(200)
-      expect(response.headers["Auth-Api-Version"]).to eq("3")
+      expect(response.headers["Auth-Api-Version"]).to eq("4")
     end
   end
 
@@ -131,6 +133,19 @@ describe UserApiKeysController do
       expect(key.revoked_at).not_to eq(nil)
     end
 
+    it "will not allow revoking another users key" do
+      key = Fabricate(:readonly_user_api_key)
+      acting_user = Fabricate(:user)
+      sign_in(acting_user)
+
+      post "/user-api-key/revoke.json",
+        params: { id: key.id }
+
+      expect(response.status).to eq(403)
+      key.reload
+      expect(key.revoked_at).to eq(nil)
+    end
+
     it "will not return p access if not yet configured" do
       SiteSetting.min_trust_level_for_user_api_key = 0
       SiteSetting.allowed_user_api_auth_redirects = args[:auth_redirect]
@@ -156,7 +171,7 @@ describe UserApiKeysController do
 
       expect(parsed["nonce"]).to eq(args[:nonce])
       expect(parsed["push"]).to eq(false)
-      expect(parsed["api"]).to eq(3)
+      expect(parsed["api"]).to eq(4)
 
       key = user.user_api_keys.first
       expect(key.scopes).to include("push")
@@ -168,7 +183,7 @@ describe UserApiKeysController do
       SiteSetting.allowed_user_api_auth_redirects = args[:auth_redirect]
       SiteSetting.allowed_user_api_push_urls = "https://push.it/here"
 
-      args[:scopes] = "push,notifications,message_bus,session_info"
+      args[:scopes] = "push,notifications,message_bus,session_info,one_time_password"
       args[:push_url] = "https://push.it/here"
 
       user = Fabricate(:user, trust_level: 0)
@@ -193,7 +208,7 @@ describe UserApiKeysController do
       api_key = UserApiKey.find_by(key: parsed["key"])
 
       expect(api_key.user_id).to eq(user.id)
-      expect(api_key.scopes.sort).to eq(["push", "message_bus", "notifications", "session_info"].sort)
+      expect(api_key.scopes.sort).to eq(["push", "message_bus", "notifications", "session_info", "one_time_password"].sort)
       expect(api_key.push_url).to eq("https://push.it/here")
 
       uri.query = ""
@@ -204,6 +219,14 @@ describe UserApiKeysController do
       post "/user-api-key.json", params: args
 
       expect(response.status).to eq(302)
+
+      one_time_password = query.split("oneTimePassword=")[1]
+      encrypted_otp = Base64.decode64(CGI.unescape(one_time_password))
+
+      parsed_otp = key.private_decrypt(encrypted_otp)
+      redis_key = "otp_#{parsed_otp}"
+
+      expect(Discourse.redis.get(redis_key)).to eq(user.username)
     end
 
     it "will just show the payload if no redirect" do
@@ -239,6 +262,107 @@ describe UserApiKeysController do
       api_key = UserApiKey.find_by(key: parsed["key"])
       expect(api_key.user_id).to eq(user.id)
 
+    end
+
+    it "will allow redirect to wildcard urls" do
+      SiteSetting.allowed_user_api_auth_redirects = args[:auth_redirect] + '/*'
+      args[:auth_redirect] = args[:auth_redirect] + '/bluebirds/fly'
+
+      sign_in(Fabricate(:user))
+
+      post "/user-api-key.json", params: args
+      expect(response.status).to eq(302)
+    end
+
+    it 'will keep query_params added in auth_redirect' do
+      SiteSetting.min_trust_level_for_user_api_key = 0
+      SiteSetting.allowed_user_api_auth_redirects = args[:auth_redirect] + "/*"
+
+      user = Fabricate(:user, trust_level: 0)
+      sign_in(user)
+
+      query_str = "/?param1=val1"
+      args[:auth_redirect] = args[:auth_redirect] + query_str
+
+      post "/user-api-key.json", params: args
+      expect(response.status).to eq(302)
+
+      uri = URI.parse(response.redirect_url)
+      expect(uri.to_s).to include(query_str)
+    end
+  end
+
+  context '#create-one-time-password' do
+    let :otp_args do
+      {
+        auth_redirect: 'http://somewhere.over.the/rainbow',
+        application_name: 'foo',
+        public_key: public_key
+      }
+    end
+
+    it "does not allow anon" do
+      post "/user-api-key/otp", params: otp_args
+      expect(response.status).to eq(403)
+    end
+
+    it "refuses to redirect to disallowed place" do
+      sign_in(Fabricate(:user))
+      post "/user-api-key/otp", params: otp_args
+      expect(response.status).to eq(403)
+    end
+
+    it "will allow one-time-password for staff without TL" do
+      SiteSetting.min_trust_level_for_user_api_key = 2
+      SiteSetting.allowed_user_api_auth_redirects = otp_args[:auth_redirect]
+
+      user = Fabricate(:user, trust_level: 1, moderator: true)
+
+      sign_in(user)
+
+      post "/user-api-key/otp", params: otp_args
+      expect(response.status).to eq(302)
+    end
+
+    it "will not allow one-time-password unless TL is met" do
+      SiteSetting.min_trust_level_for_user_api_key = 2
+      SiteSetting.allowed_user_api_auth_redirects = otp_args[:auth_redirect]
+
+      user = Fabricate(:user, trust_level: 1)
+      sign_in(user)
+
+      post "/user-api-key/otp", params: otp_args
+      expect(response.status).to eq(403)
+    end
+
+    it "will not allow one-time-password if one_time_password scope is disallowed" do
+      SiteSetting.allow_user_api_key_scopes = "read|write"
+      SiteSetting.allowed_user_api_auth_redirects = otp_args[:auth_redirect]
+      user = Fabricate(:user)
+      sign_in(user)
+
+      post "/user-api-key/otp", params: otp_args
+      expect(response.status).to eq(403)
+    end
+
+    it "will return one-time-password when args are valid" do
+      SiteSetting.allowed_user_api_auth_redirects = otp_args[:auth_redirect]
+      user = Fabricate(:user)
+      sign_in(user)
+
+      post "/user-api-key/otp", params: otp_args
+      expect(response.status).to eq(302)
+
+      uri = URI.parse(response.redirect_url)
+
+      query = uri.query
+      payload = query.split("oneTimePassword=")[1]
+      encrypted = Base64.decode64(CGI.unescape(payload))
+      key = OpenSSL::PKey::RSA.new(private_key)
+
+      parsed = key.private_decrypt(encrypted)
+
+      expect(Discourse.redis.get("otp_#{parsed}")).to eq(user.username)
     end
   end
 end

@@ -1,4 +1,4 @@
-require_dependency 'configurable_urls'
+# frozen_string_literal: true
 
 class PostActionTypeSerializer < ApplicationSerializer
 

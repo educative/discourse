@@ -1,9 +1,10 @@
-import { default as PrettyText, buildOptions } from "pretty-text/pretty-text";
+import PrettyText, { buildOptions } from "pretty-text/pretty-text";
 import { performEmojiUnescape, buildEmojiUrl } from "pretty-text/emoji";
 import WhiteLister from "pretty-text/white-lister";
 import { sanitize as textSanitize } from "pretty-text/sanitizer";
 import loadScript from "discourse/lib/load-script";
 import { formatUsername } from "discourse/lib/utilities";
+import { Promise } from "rsvp";
 
 function getOpts(opts) {
   const siteSettings = Discourse.__container__.lookup("site-settings:main"),
@@ -13,7 +14,7 @@ function getOpts(opts) {
     {
       getURL: Discourse.getURLWithCDN,
       currentUser: Discourse.__container__.lookup("current-user:main"),
-      censoredWords: site.censored_words,
+      censoredRegexp: site.censored_regexp,
       siteSettings,
       formatUsername
     },
@@ -51,7 +52,7 @@ function loadMarkdownIt() {
       console.error(e);
     });
   } else {
-    return Ember.RSVP.Promise.resolve();
+    return Promise.resolve();
   }
 }
 
@@ -60,17 +61,25 @@ function createPrettyText(options) {
 }
 
 function emojiOptions() {
-  const siteSettings = Discourse.__container__.lookup("site-settings:main");
-  if (!siteSettings.enable_emoji) {
+  if (!Discourse.SiteSettings.enable_emoji) {
     return;
   }
 
-  return { getURL: Discourse.getURLWithCDN, emojiSet: siteSettings.emoji_set };
+  return {
+    getURL: Discourse.getURLWithCDN,
+    emojiSet: Discourse.SiteSettings.emoji_set,
+    enableEmojiShortcuts: Discourse.SiteSettings.enable_emoji_shortcuts,
+    inlineEmoji: Discourse.SiteSettings.enable_inline_emoji_translation
+  };
 }
 
 export function emojiUnescape(string, options) {
-  const opts = _.extend(emojiOptions(), options || {});
-  return opts ? performEmojiUnescape(string, opts) : string;
+  const opts = emojiOptions();
+  if (opts) {
+    return performEmojiUnescape(string, Object.assign(opts, options || {}));
+  } else {
+    return string;
+  }
 }
 
 export function emojiUrlFor(code) {

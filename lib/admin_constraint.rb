@@ -1,4 +1,4 @@
-require_dependency 'current_user'
+# frozen_string_literal: true
 
 class AdminConstraint
 

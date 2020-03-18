@@ -1,5 +1,6 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
-require_dependency 'user'
 
 describe UserSerializer do
 
@@ -39,13 +40,12 @@ describe UserSerializer do
   end
 
   context "with a user" do
-    let(:user) { Fabricate.build(:user, user_profile: Fabricate.build(:user_profile)) }
-    let(:serializer) { UserSerializer.new(user, scope: Guardian.new, root: false) }
+    let(:scope) { Guardian.new }
+    fab!(:user) { Fabricate(:user) }
+    let(:serializer) { UserSerializer.new(user, scope: scope, root: false) }
     let(:json) { serializer.as_json }
-
-    it "produces json" do
-      expect(json).to be_present
-    end
+    fab!(:upload) { Fabricate(:upload) }
+    fab!(:upload2) { Fabricate(:upload) }
 
     context "with `enable_names` true" do
       before do
@@ -67,23 +67,15 @@ describe UserSerializer do
       end
     end
 
-    context "with filled out card background" do
+    context "with filled out backgrounds" do
       before do
-        user.user_profile.card_background = 'http://card.com'
+        user.user_profile.upload_card_background(upload)
+        user.user_profile.upload_profile_background(upload2)
       end
 
       it "has a profile background" do
-        expect(json[:card_background]).to eq 'http://card.com'
-      end
-    end
-
-    context "with filled out profile background" do
-      before do
-        user.user_profile.profile_background = 'http://background.com'
-      end
-
-      it "has a profile background" do
-        expect(json[:profile_background]).to eq 'http://background.com'
+        expect(json[:card_background_upload_url]).to eq(upload.url)
+        expect(json[:profile_background_upload_url]).to eq(upload2.url)
       end
     end
 
@@ -173,10 +165,72 @@ describe UserSerializer do
         expect(json[:bio_cooked]).to eq 'my cooked bio'
       end
     end
+
+    describe "second_factor_enabled" do
+      let(:scope) { Guardian.new(user) }
+      it "is false by default" do
+        expect(json[:second_factor_enabled]).to eq(false)
+      end
+
+      context "when totp enabled" do
+        before do
+          User.any_instance.stubs(:totp_enabled?).returns(true)
+        end
+
+        it "is true" do
+          expect(json[:second_factor_enabled]).to eq(true)
+        end
+      end
+
+      context "when security_keys enabled" do
+        before do
+          User.any_instance.stubs(:security_keys_enabled?).returns(true)
+        end
+
+        it "is true" do
+          expect(json[:second_factor_enabled]).to eq(true)
+        end
+      end
+    end
+
+    describe "ignored and muted" do
+      fab!(:viewing_user) { Fabricate(:user) }
+      let(:scope) { Guardian.new(viewing_user) }
+
+      it 'returns false values for muted and ignored' do
+        expect(json[:ignored]).to eq(false)
+        expect(json[:muted]).to eq(false)
+      end
+
+      context 'when ignored' do
+        before do
+          Fabricate(:ignored_user, user: viewing_user, ignored_user: user)
+          viewing_user.reload
+        end
+
+        it 'returns true for ignored' do
+          expect(json[:ignored]).to eq(true)
+          expect(json[:muted]).to eq(false)
+        end
+      end
+
+      context 'when muted' do
+        before do
+          Fabricate(:muted_user, user: viewing_user, muted_user: user)
+          viewing_user.reload
+        end
+
+        it 'returns true for muted' do
+          expect(json[:muted]).to eq(true)
+          expect(json[:ignored]).to eq(false)
+        end
+      end
+
+    end
   end
 
   context "with custom_fields" do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
     let(:json) { UserSerializer.new(user, scope: Guardian.new, root: false).as_json }
 
     before do
@@ -214,7 +268,7 @@ describe UserSerializer do
   end
 
   context "with user fields" do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
 
     let! :fields do
       [
@@ -239,7 +293,7 @@ describe UserSerializer do
   end
 
   context "with user_api_keys" do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
 
     it "sorts keys by last used time" do
       freeze_time

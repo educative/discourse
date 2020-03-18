@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class BasicGroupSerializer < ApplicationSerializer
   attributes :id,
              :automatic,
@@ -19,6 +21,7 @@ class BasicGroupSerializer < ApplicationSerializer
              :flair_color,
              :bio_raw,
              :bio_cooked,
+             :bio_excerpt,
              :public_admission,
              :public_exit,
              :allow_membership_requests,
@@ -26,7 +29,10 @@ class BasicGroupSerializer < ApplicationSerializer
              :default_notification_level,
              :membership_request_template,
              :is_group_user,
-             :is_group_owner
+             :is_group_owner,
+             :members_visibility_level,
+             :can_see_members,
+             :publish_read_state
 
   def include_display_name?
     object.automatic
@@ -36,6 +42,10 @@ class BasicGroupSerializer < ApplicationSerializer
     if auto_group_name = Group::AUTO_GROUP_IDS[object.id]
       I18n.t("groups.default_names.#{auto_group_name}")
     end
+  end
+
+  def bio_excerpt
+    PrettyText.excerpt(object.bio_cooked, 110, keep_emoji_images: true) if object.bio_cooked.present?
   end
 
   def include_incoming_email?
@@ -72,6 +82,10 @@ class BasicGroupSerializer < ApplicationSerializer
 
   def is_group_owner
     owner_group_ids.include?(object.id)
+  end
+
+  def can_see_members
+    scope.can_see_group_members?(object)
   end
 
   private

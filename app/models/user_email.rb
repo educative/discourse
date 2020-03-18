@@ -1,4 +1,4 @@
-require_dependency 'email_validator'
+# frozen_string_literal: true
 
 class UserEmail < ActiveRecord::Base
   belongs_to :user

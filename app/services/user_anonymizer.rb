@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class UserAnonymizer
 
   attr_reader :user_history
@@ -40,27 +42,29 @@ class UserAnonymizer
       @user.primary_email.update_attribute(:email, "#{@user.username}@anonymized.invalid")
 
       options = @user.user_option
-      options.email_always = false
       options.mailing_list_mode = false
       options.email_digests = false
-      options.email_private_messages = false
-      options.email_direct = false
+      options.email_level = UserOption.email_level_types[:never]
+      options.email_messages_level = UserOption.email_level_types[:never]
       options.save!
 
       if profile = @user.user_profile
-        profile.update(location: nil, website: nil, bio_raw: nil, bio_cooked: nil,
-                       profile_background: nil, card_background: nil)
+        profile.update!(
+          location: nil,
+          website: nil,
+          bio_raw: nil,
+          bio_cooked: nil,
+          profile_background_upload: nil,
+          card_background_upload: nil
+        )
       end
 
       @user.user_avatar.try(:destroy)
-      @user.google_user_info.try(:destroy)
       @user.github_user_info.try(:destroy)
       @user.single_sign_on_record.try(:destroy)
       @user.oauth2_user_infos.try(:destroy_all)
       @user.user_associated_accounts.try(:destroy_all)
-      @user.instagram_user_info.try(:destroy)
-      @user.user_open_ids.find_each { |x| x.destroy }
-      @user.api_key.try(:destroy)
+      @user.api_keys.find_each { |x| x.try(:destroy) }
       @user.user_emails.secondary.destroy_all
 
       @user_history = log_action

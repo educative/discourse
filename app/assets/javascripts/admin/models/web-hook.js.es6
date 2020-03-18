@@ -1,10 +1,9 @@
+import { isEmpty } from "@ember/utils";
 import RestModel from "discourse/models/rest";
 import Category from "discourse/models/category";
 import Group from "discourse/models/group";
-import {
-  default as computed,
-  observes
-} from "ember-addons/ember-computed-decorators";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
+import Site from "discourse/models/site";
 
 export default RestModel.extend({
   content_type: 1, // json
@@ -15,7 +14,7 @@ export default RestModel.extend({
   web_hook_event_types: null,
   groupsFilterInName: null,
 
-  @computed("wildcard_web_hook")
+  @discourseComputed("wildcard_web_hook")
   webHookType: {
     get(wildcard) {
       return wildcard ? "wildcard" : "individual";
@@ -25,17 +24,17 @@ export default RestModel.extend({
     }
   },
 
-  @computed("category_ids")
+  @discourseComputed("category_ids")
   categories(categoryIds) {
     return Category.findByIds(categoryIds);
   },
 
   @observes("group_ids")
   updateGroupsFilter() {
-    const groupIds = this.get("group_ids");
+    const groupIds = this.group_ids;
     this.set(
       "groupsFilterInName",
-      Discourse.Site.currentProp("groups").reduce((groupNames, g) => {
+      Site.currentProp("groups").reduce((groupNames, g) => {
         if (groupIds.includes(g.id)) {
           groupNames.push(g.name);
         }
@@ -48,7 +47,7 @@ export default RestModel.extend({
     return Group.findAll({ term: term, ignore_automatic: false });
   },
 
-  @computed("wildcard_web_hook", "web_hook_event_types.[]")
+  @discourseComputed("wildcard_web_hook", "web_hook_event_types.[]")
   description(isWildcardWebHook, types) {
     let desc = "";
 
@@ -61,32 +60,32 @@ export default RestModel.extend({
   },
 
   createProperties() {
-    const types = this.get("web_hook_event_types");
-    const categoryIds = this.get("categories").map(c => c.id);
-    const tagNames = this.get("tag_names");
+    const types = this.web_hook_event_types;
+    const categoryIds = this.categories.map(c => c.id);
+    const tagNames = this.tag_names;
 
     // Hack as {{group-selector}} accepts a comma-separated string as data source, but
     // we use an array to populate the datasource above.
-    const groupsFilter = this.get("groupsFilterInName");
+    const groupsFilter = this.groupsFilterInName;
     const groupNames =
       typeof groupsFilter === "string" ? groupsFilter.split(",") : groupsFilter;
 
     return {
-      payload_url: this.get("payload_url"),
-      content_type: this.get("content_type"),
-      secret: this.get("secret"),
-      wildcard_web_hook: this.get("wildcard_web_hook"),
-      verify_certificate: this.get("verify_certificate"),
-      active: this.get("active"),
-      web_hook_event_type_ids: Ember.isEmpty(types)
+      payload_url: this.payload_url,
+      content_type: this.content_type,
+      secret: this.secret,
+      wildcard_web_hook: this.wildcard_web_hook,
+      verify_certificate: this.verify_certificate,
+      active: this.active,
+      web_hook_event_type_ids: isEmpty(types)
         ? [null]
         : types.map(type => type.id),
-      category_ids: Ember.isEmpty(categoryIds) ? [null] : categoryIds,
-      tag_names: Ember.isEmpty(tagNames) ? [null] : tagNames,
+      category_ids: isEmpty(categoryIds) ? [null] : categoryIds,
+      tag_names: isEmpty(tagNames) ? [null] : tagNames,
       group_ids:
-        Ember.isEmpty(groupNames) || Ember.isEmpty(groupNames[0])
+        isEmpty(groupNames) || isEmpty(groupNames[0])
           ? [null]
-          : Discourse.Site.currentProp("groups").reduce((groupIds, g) => {
+          : Site.currentProp("groups").reduce((groupIds, g) => {
               if (groupNames.includes(g.name)) {
                 groupIds.push(g.id);
               }

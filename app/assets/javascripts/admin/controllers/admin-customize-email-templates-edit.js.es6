@@ -1,23 +1,32 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import Controller from "@ember/controller";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 import { bufferedProperty } from "discourse/mixins/buffered-content";
 
-export default Ember.Controller.extend(bufferedProperty("emailTemplate"), {
+export default Controller.extend(bufferedProperty("emailTemplate"), {
   saved: false,
 
-  hasMultipleSubjects: function() {
-    const buffered = this.get("buffered");
+  @discourseComputed("buffered.body", "buffered.subject")
+  saveDisabled(body, subject) {
+    return (
+      this.emailTemplate.body === body && this.emailTemplate.subject === subject
+    );
+  },
+
+  @discourseComputed("buffered")
+  hasMultipleSubjects(buffered) {
     if (buffered.getProperties("subject")["subject"]) {
       return false;
     } else {
       return buffered.getProperties("id")["id"];
     }
-  }.property("buffered"),
+  },
 
   actions: {
     saveChanges() {
       this.set("saved", false);
-      const buffered = this.get("buffered");
-      this.get("emailTemplate")
+      const buffered = this.buffered;
+      this.emailTemplate
         .save(buffered.getProperties("subject", "body"))
         .then(() => {
           this.set("saved", true);
@@ -31,10 +40,10 @@ export default Ember.Controller.extend(bufferedProperty("emailTemplate"), {
         I18n.t("admin.customize.email_templates.revert_confirm"),
         result => {
           if (result) {
-            this.get("emailTemplate")
+            this.emailTemplate
               .revert()
               .then(props => {
-                const buffered = this.get("buffered");
+                const buffered = this.buffered;
                 buffered.setProperties(props);
                 this.commitBuffer();
               })

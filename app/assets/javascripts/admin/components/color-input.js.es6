@@ -1,4 +1,7 @@
-import { default as loadScript, loadCSS } from "discourse/lib/load-script";
+import { schedule } from "@ember/runloop";
+import Component from "@ember/component";
+import loadScript, { loadCSS } from "discourse/lib/load-script";
+import { observes } from "discourse-common/utils/decorators";
 
 /**
   An input field for a color.
@@ -7,36 +10,40 @@ import { default as loadScript, loadCSS } from "discourse/lib/load-script";
   @param brightnessValue is a number from 0 to 255 representing the brightness of the color. See ColorSchemeColor.
   @params valid is a boolean indicating if the input field is a valid color.
 **/
-export default Ember.Component.extend({
+export default Component.extend({
   classNames: ["color-picker"],
-  hexValueChanged: function() {
-    var hex = this.get("hexValue");
-    let $text = this.$("input.hex-input");
 
-    if (this.get("valid")) {
-      $text.attr(
+  @observes("hexValue", "brightnessValue", "valid")
+  hexValueChanged: function() {
+    var hex = this.hexValue;
+    let text = this.element.querySelector("input.hex-input");
+
+    if (this.valid) {
+      text.setAttribute(
         "style",
         "color: " +
-          (this.get("brightnessValue") > 125 ? "black" : "white") +
+          (this.brightnessValue > 125 ? "black" : "white") +
           "; background-color: #" +
           hex +
           ";"
       );
 
-      if (this.get("pickerLoaded")) {
-        this.$(".picker").spectrum({ color: "#" + this.get("hexValue") });
+      if (this.pickerLoaded) {
+        $(this.element.querySelector(".picker")).spectrum({
+          color: "#" + this.hexValue
+        });
       }
     } else {
-      $text.attr("style", "");
+      text.setAttribute("style", "");
     }
-  }.observes("hexValue", "brightnessValue", "valid"),
+  },
 
   didInsertElement() {
     loadScript("/javascripts/spectrum.js").then(() => {
       loadCSS("/javascripts/spectrum.css").then(() => {
-        Ember.run.schedule("afterRender", () => {
-          this.$(".picker")
-            .spectrum({ color: "#" + this.get("hexValue") })
+        schedule("afterRender", () => {
+          $(this.element.querySelector(".picker"))
+            .spectrum({ color: "#" + this.hexValue })
             .on("change.spectrum", (me, color) => {
               this.set("hexValue", color.toHexString().replace("#", ""));
             });
@@ -44,7 +51,7 @@ export default Ember.Component.extend({
         });
       });
     });
-    Ember.run.schedule("afterRender", () => {
+    schedule("afterRender", () => {
       this.hexValueChanged();
     });
   }

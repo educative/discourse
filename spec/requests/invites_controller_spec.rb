@@ -1,9 +1,11 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe InvitesController do
   context 'show' do
-    let(:invite) { Fabricate(:invite) }
-    let(:user) { Fabricate(:coding_horror) }
+    fab!(:invite) { Fabricate(:invite) }
+    fab!(:user) { Fabricate(:coding_horror) }
 
     it "returns error if invite not found" do
       get "/invites/nopeNOPEnope"
@@ -12,7 +14,7 @@ describe InvitesController do
 
       body = response.body
       expect(body).to_not have_tag(:script, with: { src: '/assets/application.js' })
-      expect(CGI.unescapeHTML(body)).to include(I18n.t('invite.not_found', site_name: SiteSetting.title, base_url: Discourse.base_url))
+      expect(CGI.unescapeHTML(body)).to include(I18n.t('invite.not_found', base_url: Discourse.base_url))
     end
 
     it "renders the accept invite page if invite exists" do
@@ -26,7 +28,7 @@ describe InvitesController do
     end
 
     it "returns error if invite has already been redeemed" do
-      invite.update_attributes!(redeemed_at: 1.day.ago)
+      invite.update!(redeemed_at: 1.day.ago)
       get "/invites/#{invite.invite_key}"
 
       expect(response.status).to eq(200)
@@ -47,7 +49,7 @@ describe InvitesController do
     context 'while logged in' do
       let!(:user) { sign_in(Fabricate(:user))      }
       let!(:invite) { Fabricate(:invite, invited_by: user) }
-      let(:another_invite) { Fabricate(:invite, email: 'anotheremail@address.com') }
+      fab!(:another_invite) { Fabricate(:invite, email: 'anotheremail@address.com') }
 
       it 'raises an error when the email is missing' do
         delete "/invites.json"
@@ -208,13 +210,26 @@ describe InvitesController do
         expect(response.status).to eq(200)
         json = JSON.parse(response.body)
         expect(json["success"]).to eq(false)
-        expect(json["message"]).to eq(I18n.t('invite.not_found'))
+        expect(json["message"]).to eq(I18n.t('invite.not_found_json'))
+        expect(session[:current_user_id]).to be_blank
+      end
+    end
+
+    context 'with an invalid invite record' do
+      let(:invite) { Fabricate(:invite) }
+      it "responds with error message" do
+        invite.update_attribute(:email, "John Doe <john.doe@example.com>")
+        put "/invites/show/#{invite.invite_key}.json"
+        expect(response.status).to eq(200)
+        json = JSON.parse(response.body)
+        expect(json["success"]).to eq(false)
+        expect(json["message"]).to eq(I18n.t('invite.error_message'))
         expect(session[:current_user_id]).to be_blank
       end
     end
 
     context 'with a deleted invite' do
-      let(:topic) { Fabricate(:topic) }
+      fab!(:topic) { Fabricate(:topic) }
 
       let(:invite) do
         Invite.invite_by_email("iceking@adventuretime.ooo", topic.user, topic)
@@ -230,13 +245,13 @@ describe InvitesController do
         expect(response.status).to eq(200)
         json = JSON.parse(response.body)
         expect(json["success"]).to eq(false)
-        expect(json["message"]).to eq(I18n.t('invite.not_found'))
+        expect(json["message"]).to eq(I18n.t('invite.not_found_json'))
         expect(session[:current_user_id]).to be_blank
       end
     end
 
     context 'with a valid invite id' do
-      let(:topic) { Fabricate(:topic) }
+      fab!(:topic) { Fabricate(:topic) }
       let(:invite) do
         Invite.invite_by_email("iceking@adventuretime.ooo", topic.user, topic)
       end
@@ -248,7 +263,7 @@ describe InvitesController do
       end
 
       context 'when redeem returns a user' do
-        let(:user) { Fabricate(:coding_horror) }
+        fab!(:user) { Fabricate(:coding_horror) }
 
         context 'success' do
           it 'logs in the user' do
@@ -263,6 +278,9 @@ describe InvitesController do
             expect(response.status).to eq(200)
             expect(session[:current_user_id]).to eq(invite.user_id)
             expect(invite.redeemed?).to be_truthy
+            user = User.find(invite.user_id)
+            expect(user.ip_address).to be_present
+            expect(user.registration_ip_address).to be_present
           end
 
           it 'redirects to the first topic the user was invited to' do
@@ -271,6 +289,16 @@ describe InvitesController do
             json = JSON.parse(response.body)
             expect(json["success"]).to eq(true)
             expect(json["redirect_to"]).to eq(topic.relative_url)
+          end
+
+          context "if a timezone guess is provided" do
+            it "sets the timezone of the user in user_options" do
+              put "/invites/show/#{invite.invite_key}.json", params: { timezone: "Australia/Melbourne" }
+              expect(response.status).to eq(200)
+              invite.reload
+              user = User.find(invite.user_id)
+              expect(user.user_option.timezone).to eq("Australia/Melbourne")
+            end
           end
         end
 
@@ -285,10 +313,6 @@ describe InvitesController do
         end
 
         context '.post_process_invite' do
-          before do
-            SiteSetting.queue_jobs = true
-          end
-
           it 'sends a welcome message if set' do
             user.send_welcome_message = true
             put "/invites/show/#{invite.invite_key}.json"
@@ -298,11 +322,20 @@ describe InvitesController do
             expect(Jobs::SendSystemMessage.jobs.size).to eq(1)
           end
 
+          it 'refreshes automatic groups if staff' do
+            topic.user.grant_admin!
+            invite.update!(moderator: true)
+
+            put "/invites/show/#{invite.invite_key}.json"
+            expect(response.status).to eq(200)
+
+            expect(invite.reload.user.groups.pluck(:name)).to contain_exactly("moderators", "staff")
+          end
+
           context "without password" do
             it "sends password reset email" do
               put "/invites/show/#{invite.invite_key}.json"
               expect(response.status).to eq(200)
-              expect(JSON.parse(response.body)["success"]).to eq(true)
 
               expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(1)
               expect(Jobs::CriticalUserEmail.jobs.size).to eq(0)
@@ -313,7 +346,6 @@ describe InvitesController do
               SiteSetting.enable_sso = true
               put "/invites/show/#{invite.invite_key}.json"
               expect(response.status).to eq(200)
-              expect(JSON.parse(response.body)["success"]).to eq(true)
 
               expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
               expect(Jobs::CriticalUserEmail.jobs.size).to eq(0)
@@ -323,7 +355,6 @@ describe InvitesController do
               SiteSetting.enable_local_logins = false
               put "/invites/show/#{invite.invite_key}.json"
               expect(response.status).to eq(200)
-              expect(JSON.parse(response.body)["success"]).to eq(true)
 
               expect(Jobs::InvitePasswordInstructionsEmail.jobs.size).to eq(0)
               expect(Jobs::CriticalUserEmail.jobs.size).to eq(0)
@@ -332,7 +363,7 @@ describe InvitesController do
 
           context "with password" do
             context "user was invited via email" do
-              before { invite.update_column(:via_email, true) }
+              before { invite.update_column(:emailed_status, Invite.emailed_status_types[:pending]) }
 
               it "doesn't send an activation email and activates the user" do
                 expect do
@@ -352,7 +383,7 @@ describe InvitesController do
             end
 
             context "user was invited via link" do
-              before { invite.update_column(:via_email, false) }
+              before { invite.update_column(:emailed_status, Invite.emailed_status_types[:not_required]) }
 
               it "sends an activation email and doesn't activate the user" do
                 expect do
@@ -388,7 +419,7 @@ describe InvitesController do
     end
 
     context 'new registrations are disabled' do
-      let(:topic) { Fabricate(:topic) }
+      fab!(:topic) { Fabricate(:topic) }
 
       let(:invite) do
         Invite.invite_by_email("iceking@adventuretime.ooo", topic.user, topic)
@@ -407,7 +438,7 @@ describe InvitesController do
     end
 
     context 'user is already logged in' do
-      let(:topic) { Fabricate(:topic) }
+      fab!(:topic) { Fabricate(:topic) }
 
       let(:invite) do
         Invite.invite_by_email("iceking@adventuretime.ooo", topic.user, topic)
@@ -435,7 +466,7 @@ describe InvitesController do
     context 'while logged in' do
       let!(:user) { sign_in(Fabricate(:user)) }
       let!(:invite) { Fabricate(:invite, invited_by: user) }
-      let(:another_invite) { Fabricate(:invite, email: 'last_name@example.com') }
+      fab!(:another_invite) { Fabricate(:invite, email: 'last_name@example.com') }
 
       it 'raises an error when the email is missing' do
         post "/invites/reinvite.json"
@@ -453,7 +484,6 @@ describe InvitesController do
       end
 
       it "resends the invite" do
-        SiteSetting.queue_jobs = true
         post "/invites/reinvite.json", params: { email: invite.email }
         expect(response.status).to eq(200)
         expect(Jobs::InviteEmail.jobs.size).to eq(1)
@@ -483,11 +513,21 @@ describe InvitesController do
       end
 
       it "allows admin to bulk invite" do
-        SiteSetting.queue_jobs = true
         sign_in(Fabricate(:admin))
         post "/invites/upload_csv.json", params: { file: file, name: filename }
         expect(response.status).to eq(200)
         expect(Jobs::BulkInvite.jobs.size).to eq(1)
+      end
+
+      it "sends limited invites at a time" do
+        SiteSetting.max_bulk_invites = 3
+        sign_in(Fabricate(:admin))
+        post "/invites/upload_csv.json", params: { file: file, name: filename }
+
+        expect(response.status).to eq(422)
+        expect(Jobs::BulkInvite.jobs.size).to eq(1)
+        json = ::JSON.parse(response.body)
+        expect(json["errors"][0]).to eq(I18n.t("bulk_invite.max_rows", max_bulk_invites: SiteSetting.max_bulk_invites))
       end
     end
   end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe Admin::SiteSettingsController do
@@ -7,7 +9,7 @@ describe Admin::SiteSettingsController do
   end
 
   context 'while logged in as an admin' do
-    let(:admin) { Fabricate(:admin) }
+    fab!(:admin) { Fabricate(:admin) }
 
     before do
       sign_in(admin)
@@ -51,31 +53,204 @@ describe Admin::SiteSettingsController do
         expect(SiteSetting.test_setting).to eq('')
       end
 
-      it 'allows upload site settings to be updated' do
-        upload = Fabricate(:upload)
+      describe 'default user options' do
+        let!(:user1) { Fabricate(:user) }
+        let!(:user2) { Fabricate(:user) }
 
-        put "/admin/site_settings/test_upload.json", params: {
-          test_upload: upload.url
-        }
+        it 'should update all existing user options' do
+          user2.user_option.email_in_reply_to = false
+          user2.user_option.save!
 
-        expect(response.status).to eq(200)
-        expect(SiteSetting.test_upload).to eq(upload)
+          expect {
+            put "/admin/site_settings/default_email_in_reply_to.json", params: {
+              default_email_in_reply_to: false,
+              updateExistingUsers: true
+            }
+          }.to change { UserOption.where(email_in_reply_to: false).count }.by(User.count - 1)
+        end
 
-        user_history = UserHistory.last
+        it 'should not update existing user options' do
+          expect {
+            put "/admin/site_settings/default_email_in_reply_to.json", params: {
+              default_email_in_reply_to: false
+            }
+          }.to change { UserOption.where(email_in_reply_to: false).count }.by(0)
+        end
 
-        expect(user_history.action).to eq(
-          UserHistory.actions[:change_site_setting]
-        )
+        it 'should disable email digests in existing user options' do
+          expect {
+            put "/admin/site_settings/default_email_digest_frequency.json", params: {
+              default_email_digest_frequency: 0,
+              updateExistingUsers: true
+            }
+          }.to change { UserOption.where(email_digests: false).count }.by(User.count)
+        end
+      end
 
-        expect(user_history.previous_value).to eq(nil)
-        expect(user_history.new_value).to eq(upload.url)
+      describe 'default categories' do
+        let(:user1) { Fabricate(:user) }
+        let(:user2) { Fabricate(:user) }
+        let(:watching) { NotificationLevels.all[:watching] }
+        let(:tracking) { NotificationLevels.all[:tracking] }
 
-        put "/admin/site_settings/test_upload.json", params: {
-          test_upload: nil
-        }
+        let(:category_ids) { 3.times.collect { Fabricate(:category).id } }
 
-        expect(response.status).to eq(200)
-        expect(SiteSetting.test_upload).to eq(nil)
+        before do
+          SiteSetting.setting(:default_categories_watching, category_ids.first(2).join("|"))
+          CategoryUser.create!(category_id: category_ids.last, notification_level: tracking, user: user2)
+        end
+
+        after do
+          SiteSetting.setting(:default_categories_watching, "")
+        end
+
+        it 'should update existing users user preference' do
+          put "/admin/site_settings/default_categories_watching.json", params: {
+            default_categories_watching: category_ids.last(2).join("|"),
+            updateExistingUsers: true
+          }
+
+          expect(CategoryUser.where(category_id: category_ids.first, notification_level: watching).count).to eq(0)
+          expect(CategoryUser.where(category_id: category_ids.last, notification_level: watching).count).to eq(User.count - 1)
+        end
+
+        it 'should not update existing users user preference' do
+          expect {
+            put "/admin/site_settings/default_categories_watching.json", params: {
+              default_categories_watching: category_ids.last(2).join("|")
+            }
+          }.to change { CategoryUser.where(category_id: category_ids.first, notification_level: watching).count }.by(0)
+
+          expect(CategoryUser.where(category_id: category_ids.last, notification_level: watching).count).to eq(0)
+        end
+      end
+
+      describe 'default tags' do
+        let(:user1) { Fabricate(:user) }
+        let(:user2) { Fabricate(:user) }
+        let(:watching) { NotificationLevels.all[:watching] }
+        let(:tracking) { NotificationLevels.all[:tracking] }
+
+        let(:tags) { 3.times.collect { Fabricate(:tag) } }
+
+        before do
+          SiteSetting.setting(:default_tags_watching, tags.first(2).pluck(:name).join("|"))
+          TagUser.create!(tag_id: tags.last.id, notification_level: tracking, user: user2)
+        end
+
+        after do
+          SiteSetting.setting(:default_tags_watching, "")
+        end
+
+        it 'should update existing users user preference' do
+          put "/admin/site_settings/default_tags_watching.json", params: {
+            default_tags_watching: tags.last(2).pluck(:name).join("|"),
+            updateExistingUsers: true
+          }
+
+          expect(TagUser.where(tag_id: tags.first.id, notification_level: watching).count).to eq(0)
+          expect(TagUser.where(tag_id: tags.last.id, notification_level: watching).count).to eq(User.count - 1)
+        end
+
+        it 'should not update existing users user preference' do
+          expect {
+            put "/admin/site_settings/default_tags_watching.json", params: {
+              default_tags_watching: tags.last(2).pluck(:name).join("|")
+            }
+          }.to change { TagUser.where(tag_id: tags.first.id, notification_level: watching).count }.by(0)
+
+          expect(TagUser.where(tag_id: tags.last.id, notification_level: watching).count).to eq(0)
+        end
+      end
+
+      describe '#user_count' do
+        let(:user) { Fabricate(:user) }
+        let(:tracking) { NotificationLevels.all[:tracking] }
+
+        it 'should return correct user count for default categories change' do
+          category_id = Fabricate(:category).id
+
+          put "/admin/site_settings/default_categories_watching/user_count.json", params: {
+            default_categories_watching: category_id
+          }
+
+          expect(JSON.parse(response.body)["user_count"]).to eq(User.count)
+
+          CategoryUser.create!(category_id: category_id, notification_level: tracking, user: user)
+
+          put "/admin/site_settings/default_categories_watching/user_count.json", params: {
+            default_categories_watching: category_id
+          }
+
+          expect(JSON.parse(response.body)["user_count"]).to eq(User.count - 1)
+
+          SiteSetting.setting(:default_categories_watching, "")
+        end
+
+        it 'should return correct user count for default tags change' do
+          tag = Fabricate(:tag)
+
+          put "/admin/site_settings/default_tags_watching/user_count.json", params: {
+            default_tags_watching: tag.name
+          }
+
+          expect(JSON.parse(response.body)["user_count"]).to eq(User.count)
+
+          TagUser.create!(tag_id: tag.id, notification_level: tracking, user: user)
+
+          put "/admin/site_settings/default_tags_watching/user_count.json", params: {
+            default_tags_watching: tag.name
+          }
+
+          expect(JSON.parse(response.body)["user_count"]).to eq(User.count - 1)
+
+          SiteSetting.setting(:default_tags_watching, "")
+        end
+      end
+
+      describe 'upload site settings' do
+        it 'can remove the site setting' do
+          SiteSetting.test_upload = Fabricate(:upload)
+
+          put "/admin/site_settings/test_upload.json", params: {
+            test_upload: nil
+          }
+
+          expect(response.status).to eq(200)
+          expect(SiteSetting.test_upload).to eq(nil)
+        end
+
+        it 'can reset the site setting to the default' do
+          SiteSetting.test_upload = nil
+          default_upload = Upload.find(-1)
+
+          put "/admin/site_settings/test_upload.json", params: {
+            test_upload: default_upload.url
+          }
+
+          expect(response.status).to eq(200)
+          expect(SiteSetting.test_upload).to eq(default_upload)
+        end
+
+        it 'can update the site setting' do
+          upload = Fabricate(:upload)
+
+          put "/admin/site_settings/test_upload.json", params: {
+            test_upload: upload.url
+          }
+
+          expect(response.status).to eq(200)
+          expect(SiteSetting.test_upload).to eq(upload)
+
+          user_history = UserHistory.last
+
+          expect(user_history.action).to eq(
+            UserHistory.actions[:change_site_setting]
+          )
+
+          expect(user_history.previous_value).to eq(nil)
+          expect(user_history.new_value).to eq(upload.url)
+        end
       end
 
       it 'logs the change' do

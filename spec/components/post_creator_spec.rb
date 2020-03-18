@@ -1,14 +1,16 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 require 'post_creator'
 require 'topic_subtype'
 
 describe PostCreator do
 
-  let(:user) { Fabricate(:user) }
+  fab!(:user) { Fabricate(:user) }
   let(:topic) { Fabricate(:topic, user: user) }
 
   context "new topic" do
-    let(:category) { Fabricate(:category, user: user) }
+    fab!(:category) { Fabricate(:category, user: user) }
     let(:basic_topic_params) { { title: "hello world topic", raw: "my name is fred", archetype_id: 1 } }
     let(:image_sizes) { { 'http://an.image.host/image.jpg' => { "width" => 111, "height" => 222 } } }
 
@@ -50,6 +52,11 @@ describe PostCreator do
     it "ensures the user can create the topic" do
       Guardian.any_instance.expects(:can_create?).with(Topic, nil).returns(false)
       expect { creator.create }.to raise_error(Discourse::InvalidAccess)
+    end
+
+    it "can be created with custom fields" do
+      post = PostCreator.create(user, basic_topic_params.merge(topic_opts: { custom_fields: { hello: "world" } }))
+      expect(post.topic.custom_fields).to eq("hello" => "world")
     end
 
     context "reply to post number" do
@@ -123,7 +130,7 @@ describe PostCreator do
 
       it "generates the correct messages for a secure topic" do
 
-        UserActionCreator.enable
+        UserActionManager.enable
 
         admin = Fabricate(:admin)
 
@@ -132,11 +139,10 @@ describe PostCreator do
         cat.save
 
         created_post = nil
-        reply = nil
 
         messages = MessageBus.track_publish do
           created_post = PostCreator.new(admin, basic_topic_params.merge(category: cat.id)).create
-          reply = PostCreator.new(admin, raw: "this is my test reply 123 testing", topic_id: created_post.topic_id).create
+          _reply = PostCreator.new(admin, raw: "this is my test reply 123 testing", topic_id: created_post.topic_id).create
         end
 
         # 2 for topic, one to notify of new topic another for tracking state
@@ -157,7 +163,7 @@ describe PostCreator do
 
       it 'generates the correct messages for a normal topic' do
 
-        UserActionCreator.enable
+        UserActionManager.enable
 
         p = nil
         messages = MessageBus.track_publish do
@@ -176,7 +182,7 @@ describe PostCreator do
         user_action = messages.find { |m| m.channel == "/u/#{p.user.username}" }
         expect(user_action).not_to eq(nil)
 
-        expect(messages.length).to eq(5)
+        expect(messages.filter { |m| m.channel != "/distributed_hash" }.length).to eq(5)
       end
 
       it 'extracts links from the post' do
@@ -211,6 +217,7 @@ describe PostCreator do
         Jobs.stubs(:enqueue).with(:feature_topic_users, has_key(:topic_id))
         Jobs.expects(:enqueue).with(:notify_mailing_list_subscribers, has_key(:post_id))
         Jobs.expects(:enqueue).with(:post_alert, has_key(:post_id))
+        Jobs.expects(:enqueue).with(:update_topic_upload_security, has_key(:topic_id))
         Jobs.expects(:enqueue).with(:process_post, has_key(:invalidate_oneboxes))
         creator.opts[:invalidate_oneboxes] = true
         creator.create
@@ -220,6 +227,7 @@ describe PostCreator do
         Jobs.stubs(:enqueue).with(:feature_topic_users, has_key(:topic_id))
         Jobs.expects(:enqueue).with(:notify_mailing_list_subscribers, has_key(:post_id))
         Jobs.expects(:enqueue).with(:post_alert, has_key(:post_id))
+        Jobs.expects(:enqueue).with(:update_topic_upload_security, has_key(:topic_id))
         Jobs.expects(:enqueue).with(:process_post, has_key(:image_sizes))
         creator.opts[:image_sizes] = { 'http://an.image.host/image.jpg' => { 'width' => 17, 'height' => 31 } }
         creator.create
@@ -348,7 +356,7 @@ describe PostCreator do
         end
 
         describe "topic's auto close based on last post" do
-          let(:topic_timer) do
+          fab!(:topic_timer) do
             Fabricate(:topic_timer,
               based_on_last_post: true,
               execute_at: Time.zone.now - 12.hours,
@@ -358,8 +366,8 @@ describe PostCreator do
 
           let(:topic) { topic_timer.topic }
 
-          let(:post) do
-            Fabricate(:post, topic: topic)
+          fab!(:post) do
+            Fabricate(:post, topic: topic_timer.topic)
           end
 
           it "updates topic's auto close date" do
@@ -374,8 +382,8 @@ describe PostCreator do
 
             topic_timer.reload
 
-            expect(topic_timer.execute_at).to eq(Time.zone.now + 12.hours)
-            expect(topic_timer.created_at).to eq(Time.zone.now)
+            expect(topic_timer.execute_at).to eq_time(Time.zone.now + 12.hours)
+            expect(topic_timer.created_at).to eq_time(Time.zone.now)
           end
 
           describe "when auto_close_topics_post_count has been reached" do
@@ -401,7 +409,7 @@ describe PostCreator do
               ))
 
               expect(topic.closed).to eq(true)
-              expect(topic_timer.reload.deleted_at).to eq(Time.zone.now)
+              expect(topic_timer.reload.deleted_at).to eq_time(Time.zone.now)
             end
           end
         end
@@ -439,8 +447,8 @@ describe PostCreator do
             end
 
             it "creates missing tags if some exist" do
-              existing_tag1 = Fabricate(:tag, name: tag_names[0])
-              existing_tag1 = Fabricate(:tag, name: tag_names[1])
+              _existing_tag1 = Fabricate(:tag, name: tag_names[0])
+              _existing_tag1 = Fabricate(:tag, name: tag_names[1])
               expect { @post = creator_with_tags.create }.to change { Tag.count }.by(tag_names.size - 2)
               expect(@post.topic.tags.map(&:name).sort).to eq(tag_names.sort)
             end
@@ -473,12 +481,19 @@ describe PostCreator do
   end
 
   context 'whisper' do
-    let!(:topic) { Fabricate(:topic, user: user) }
+    fab!(:topic) { Fabricate(:topic, user: user) }
 
     it 'whispers do not mess up the public view' do
-      first = PostCreator.new(user,
+
+      freeze_time
+
+      first = PostCreator.new(
+        user,
         topic_id: topic.id,
-        raw: 'this is the first post').create
+        raw: 'this is the first post'
+      ).create
+
+      freeze_time 1.year.from_now
 
       user_stat = user.user_stat
 
@@ -504,6 +519,9 @@ describe PostCreator do
       expect(whisper_reply.post_type).to eq(Post.types[:whisper])
 
       expect(user_stat.reload.post_count).to eq(0)
+
+      user.reload
+      expect(user.last_posted_at).to eq_time(1.year.ago)
 
       # date is not precise enough in db
       whisper_reply.reload
@@ -542,7 +560,7 @@ describe PostCreator do
 
   context 'uniqueness' do
 
-    let!(:topic) { Fabricate(:topic, user: user) }
+    fab!(:topic) { Fabricate(:topic, user: user) }
     let(:basic_topic_params) { { raw: 'test reply', topic_id: topic.id, reply_to_post_number: 4 } }
     let(:creator) { PostCreator.new(user, basic_topic_params) }
 
@@ -604,7 +622,7 @@ describe PostCreator do
 
   context "host spam" do
 
-    let!(:topic) { Fabricate(:topic, user: user) }
+    fab!(:topic) { Fabricate(:topic, user: user) }
     let(:basic_topic_params) { { raw: 'test reply', topic_id: topic.id, reply_to_post_number: 4 } }
     let(:creator) { PostCreator.new(user, basic_topic_params) }
 
@@ -631,7 +649,7 @@ describe PostCreator do
 
   # more integration testing ... maximise our testing
   context 'existing topic' do
-    let(:topic) { Fabricate(:topic, user: user, title: 'topic title with 25 chars') }
+    fab!(:topic) { Fabricate(:topic, user: user, title: 'topic title with 25 chars') }
     let(:creator) { PostCreator.new(user, raw: 'test reply', topic_id: topic.id, reply_to_post_number: 4) }
 
     it 'ensures the user can create the post' do
@@ -684,7 +702,7 @@ describe PostCreator do
   end
 
   context 'closed topic' do
-    let!(:topic) { Fabricate(:topic, user: user, closed: true) }
+    fab!(:topic) { Fabricate(:topic, user: user, closed: true) }
     let(:creator) { PostCreator.new(user, raw: 'test reply', topic_id: topic.id, reply_to_post_number: 4) }
 
     it 'responds with an error message' do
@@ -696,7 +714,7 @@ describe PostCreator do
   end
 
   context 'missing topic' do
-    let!(:topic) { Fabricate(:topic, user: user, deleted_at: 5.minutes.ago) }
+    let(:topic) { Fabricate(:topic, user: user, deleted_at: 5.minutes.ago) }
     let(:creator) { PostCreator.new(user, raw: 'test reply', topic_id: topic.id, reply_to_post_number: 4) }
 
     it 'responds with an error message' do
@@ -724,8 +742,8 @@ describe PostCreator do
   # integration test ... minimise db work
   context 'private message' do
     let(:target_user1) { Fabricate(:coding_horror) }
-    let(:target_user2) { Fabricate(:moderator) }
-    let(:unrelated) { Fabricate(:user) }
+    fab!(:target_user2) { Fabricate(:moderator) }
+    fab!(:unrelated) { Fabricate(:user) }
     let(:post) do
       PostCreator.create(user, title: 'hi there welcome to my topic',
                                raw: "this is my awesome message @#{unrelated.username_lower}",
@@ -735,6 +753,10 @@ describe PostCreator do
     end
 
     it 'acts correctly' do
+      freeze_time
+
+      user.update_columns(last_posted_at: 1.year.ago)
+
       # It's not a warning
       expect(post.topic.user_warning).to be_blank
 
@@ -752,6 +774,9 @@ describe PostCreator do
       # PMs do not increase post count or topic count
       expect(post.user.user_stat.post_count).to eq(0)
       expect(post.user.user_stat.topic_count).to eq(0)
+
+      user.reload
+      expect(user.last_posted_at).to eq_time(1.year.ago)
 
       # archive this message and ensure archive is cleared for all users on reply
       UserArchivedMessage.create(user_id: target_user2.id, topic_id: post.topic_id)
@@ -776,11 +801,33 @@ describe PostCreator do
 
       expect(post.topic.topic_allowed_users.where(user_id: admin2.id).count).to eq(0)
     end
+
+    it 'does not increase posts count for small actions' do
+      topic = Fabricate(:private_message_topic, user: Fabricate(:user))
+
+      Fabricate(:post, topic: topic)
+
+      1.upto(3) do |i|
+        user = Fabricate(:user)
+        topic.invite(topic.user, user.username)
+        topic.reload
+        expect(topic.posts_count).to eq(1)
+        expect(topic.posts.where(post_type: Post.types[:small_action]).count).to eq(i)
+      end
+
+      Fabricate(:post, topic: topic)
+      Topic.reset_highest(topic.id)
+      expect(topic.reload.posts_count).to eq(2)
+
+      Fabricate(:post, topic: topic)
+      Topic.reset_all_highest!
+      expect(topic.reload.posts_count).to eq(3)
+    end
   end
 
   context "warnings" do
     let(:target_user1) { Fabricate(:coding_horror) }
-    let(:target_user2) { Fabricate(:moderator) }
+    fab!(:target_user2) { Fabricate(:moderator) }
     let(:base_args) do
       { title: 'you need a warning buddy!',
         raw: "you did something bad and I'm telling you about it!",
@@ -861,7 +908,7 @@ describe PostCreator do
 
   context 'private message to group' do
     let(:target_user1) { Fabricate(:coding_horror) }
-    let(:target_user2) { Fabricate(:moderator) }
+    fab!(:target_user2) { Fabricate(:moderator) }
     let(:group) do
       g = Fabricate.build(:group, messageable_level: Group::ALIAS_LEVELS[:everyone])
       g.add(target_user1)
@@ -869,7 +916,7 @@ describe PostCreator do
       g.save
       g
     end
-    let(:unrelated) { Fabricate(:user) }
+    fab!(:unrelated) { Fabricate(:user) }
     let(:post) do
       PostCreator.create!(user,
         title: 'hi there welcome to my topic',
@@ -880,7 +927,7 @@ describe PostCreator do
     end
 
     it 'can post to a group correctly' do
-      SiteSetting.queue_jobs = false
+      Jobs.run_immediately!
 
       expect(post.topic.archetype).to eq(Archetype.private_message)
       expect(post.topic.topic_allowed_users.count).to eq(1)
@@ -1020,7 +1067,7 @@ describe PostCreator do
   end
 
   context "staged users" do
-    let(:staged) { Fabricate(:staged) }
+    fab!(:staged) { Fabricate(:staged) }
 
     it "automatically watches all messages it participates in" do
       post = PostCreator.create(staged,
@@ -1119,10 +1166,35 @@ describe PostCreator do
       post_creator = PostCreator.new(user, title: '', raw: '')
       expect { post_creator.create! }.to raise_error(ActiveRecord::RecordNotSaved)
     end
+
+    it "does not generate an alert for empty posts" do
+      Jobs.run_immediately!
+
+      user2 = Fabricate(:user)
+      topic = Fabricate(:private_message_topic,
+        topic_allowed_users: [
+          Fabricate.build(:topic_allowed_user, user: user),
+          Fabricate.build(:topic_allowed_user, user: user2)
+        ],
+      )
+      Fabricate(:topic_user,
+        topic: topic,
+        user: user2,
+        notification_level: TopicUser.notification_levels[:watching]
+      )
+
+      expect {
+        PostCreator.create!(user, raw: "", topic_id: topic.id, skip_validations: true)
+      }.to change { user2.notifications.count }.by(0)
+
+      expect {
+        PostCreator.create!(user, raw: "hello world", topic_id: topic.id, skip_validations: true)
+      }.to change { user2.notifications.count }.by(1)
+    end
   end
 
   context 'private message to a user that has disabled private messages' do
-    let(:another_user) { Fabricate(:user) }
+    fab!(:another_user) { Fabricate(:user) }
 
     before do
       another_user.user_option.update!(allow_private_messages: false)
@@ -1146,8 +1218,8 @@ describe PostCreator do
   end
 
   context "private message to a muted user" do
-    let(:muted_me) { Fabricate(:evil_trout) }
-    let(:another_user) { Fabricate(:user) }
+    fab!(:muted_me) { Fabricate(:evil_trout) }
+    fab!(:another_user) { Fabricate(:user) }
 
     it 'should fail' do
       updater = UserUpdater.new(muted_me, muted_me)
@@ -1168,7 +1240,7 @@ describe PostCreator do
       )
     end
 
-    let(:staff_user) { Fabricate(:admin) }
+    fab!(:staff_user) { Fabricate(:admin) }
 
     it 'succeeds if the user is staff' do
       updater = UserUpdater.new(muted_me, muted_me)
@@ -1186,10 +1258,52 @@ describe PostCreator do
     end
   end
 
+  context "private message to an ignored user" do
+    fab!(:ignorer) { Fabricate(:evil_trout) }
+    fab!(:another_user) { Fabricate(:user) }
+
+    context "when post author is ignored" do
+      let!(:ignored_user) { Fabricate(:ignored_user, user: ignorer, ignored_user: user) }
+
+      it 'should fail' do
+        pc = PostCreator.new(
+          user,
+          title: 'this message is to someone who ignored me!',
+          raw: "you will have to see this even if you ignored me!",
+          archetype: Archetype.private_message,
+          target_usernames: "#{ignorer.username},#{another_user.username}"
+        )
+
+        expect(pc).not_to be_valid
+        expect(pc.errors.full_messages).to contain_exactly(
+                                             I18n.t(:not_accepting_pms, username: ignorer.username)
+                                           )
+      end
+    end
+
+    context "when post author is admin who is ignored" do
+      fab!(:staff_user) { Fabricate(:admin) }
+      fab!(:ignored_user) { Fabricate(:ignored_user, user: ignorer, ignored_user: staff_user) }
+
+      it 'succeeds if the user is staff' do
+        pc = PostCreator.new(
+          staff_user,
+          title: 'this message is to someone who ignored me!',
+          raw: "you will have to see this even if you ignored me!",
+          archetype: Archetype.private_message,
+          target_usernames: "#{ignorer.username}"
+        )
+        expect(pc).to be_valid
+        expect(pc.errors).to be_blank
+      end
+    end
+
+  end
+
   context "private message recipients limit (max_allowed_message_recipients) reached" do
-    let(:target_user1) { Fabricate(:coding_horror) }
-    let(:target_user2) { Fabricate(:evil_trout) }
-    let(:target_user3) { Fabricate(:walter_white) }
+    fab!(:target_user1) { Fabricate(:coding_horror) }
+    fab!(:target_user2) { Fabricate(:evil_trout) }
+    fab!(:target_user3) { Fabricate(:walter_white) }
 
     before do
       SiteSetting.max_allowed_message_recipients = 2
@@ -1223,7 +1337,7 @@ describe PostCreator do
     end
 
     context "always succeeds if the user is staff" do
-      let(:staff_user) { Fabricate(:admin) }
+      fab!(:staff_user) { Fabricate(:admin) }
 
       it 'when sending message to multiple recipients' do
         pc = PostCreator.new(
@@ -1236,6 +1350,75 @@ describe PostCreator do
         expect(pc).to be_valid
         expect(pc.errors).to be_blank
       end
+    end
+  end
+
+  context "#create_post_notice" do
+    fab!(:user) { Fabricate(:user) }
+    fab!(:staged) { Fabricate(:staged) }
+    fab!(:anonymous) { Fabricate(:anonymous) }
+
+    it "generates post notices for new users" do
+      post = PostCreator.create!(user, title: "one of my first topics", raw: "one of my first posts")
+      expect(post.custom_fields[Post::NOTICE_TYPE]).to eq(Post.notices[:new_user])
+
+      post = PostCreator.create!(user, title: "another one of my first topics", raw: "another one of my first posts")
+      expect(post.custom_fields[Post::NOTICE_TYPE]).to eq(nil)
+    end
+
+    it "generates post notices for returning users" do
+      SiteSetting.returning_users_days = 30
+      old_post = Fabricate(:post, user: user, created_at: 31.days.ago)
+
+      post = PostCreator.create!(user, title: "this is a returning topic", raw: "this is a post")
+      expect(post.custom_fields[Post::NOTICE_TYPE]).to eq(Post.notices[:returning_user])
+      expect(post.custom_fields[Post::NOTICE_ARGS]).to eq(old_post.created_at.iso8601)
+
+      post = PostCreator.create!(user, title: "this is another topic", raw: "this is my another post")
+      expect(post.custom_fields[Post::NOTICE_TYPE]).to eq(nil)
+      expect(post.custom_fields[Post::NOTICE_ARGS]).to eq(nil)
+    end
+
+    it "does not generate for non-human, staged or anonymous users" do
+      SiteSetting.allow_anonymous_posting = true
+
+      [anonymous, Discourse.system_user, staged].each do |user|
+        expect(user.posts.size).to eq(0)
+        post = PostCreator.create!(user, title: "#{user.username}'s first topic", raw: "#{user.name}'s first post")
+        expect(post.custom_fields[Post::NOTICE_TYPE]).to eq(nil)
+        expect(post.custom_fields[Post::NOTICE_ARGS]).to eq(nil)
+      end
+    end
+  end
+
+  context "secure media uploads" do
+    fab!(:image_upload) { Fabricate(:upload, secure: true) }
+    fab!(:user2) { Fabricate(:user) }
+    fab!(:public_topic) { Fabricate(:topic) }
+
+    before do
+      SiteSetting.enable_s3_uploads = true
+      SiteSetting.authorized_extensions = "png|jpg|gif|mp4"
+      SiteSetting.s3_upload_bucket = "s3-upload-bucket"
+      SiteSetting.s3_access_key_id = "some key"
+      SiteSetting.s3_secret_access_key = "some secret key"
+      SiteSetting.s3_region = "us-east-1"
+      SiteSetting.secure_media = true
+
+      stub_request(:head, "https://#{SiteSetting.s3_upload_bucket}.s3.amazonaws.com/")
+
+      stub_request(
+        :put,
+        "https://#{SiteSetting.s3_upload_bucket}.s3.amazonaws.com/original/1X/#{image_upload.sha1}.#{image_upload.extension}?acl"
+      )
+    end
+
+    it "links post uploads" do
+      public_post = PostCreator.create(
+        user,
+        topic_id: public_topic.id,
+        raw: "A public post with an image.\n![](#{image_upload.short_path})"
+      )
     end
   end
 end

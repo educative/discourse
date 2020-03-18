@@ -1,3 +1,6 @@
+# frozen_string_literal: true
+# rubocop:disable Style/GlobalVars
+
 require 'cache'
 require 'open3'
 require_dependency 'route_format'
@@ -21,19 +24,51 @@ module Discourse
   end
 
   class Utils
-    def self.execute_command(*command, failure_message: "")
-      stdout, stderr, status = Open3.capture3(*command)
+    # Usage:
+    #   Discourse::Utils.execute_command("pwd", chdir: 'mydirectory')
+    # or with a block
+    #   Discourse::Utils.execute_command(chdir: 'mydirectory') do |runner|
+    #     runner.exec("pwd")
+    #   end
+    def self.execute_command(*command, **args)
+      runner = CommandRunner.new(**args)
 
-      if !status.success?
-        failure_message = "#{failure_message}\n" if !failure_message.blank?
-        raise "#{caller[0]}: #{failure_message}#{stderr}"
+      if block_given?
+        raise RuntimeError.new("Cannot pass command and block to execute_command") if command.present?
+        yield runner
+      else
+        runner.exec(*command)
       end
-
-      stdout
     end
 
     def self.pretty_logs(logs)
       logs.join("\n".freeze)
+    end
+
+    private
+
+    class CommandRunner
+      def initialize(**init_params)
+        @init_params = init_params
+      end
+
+      def exec(*command, **exec_params)
+        raise RuntimeError.new("Cannot specify same parameters at block and command level") if (@init_params.keys & exec_params.keys).present?
+        execute_command(*command, **@init_params.merge(exec_params))
+      end
+
+      private
+
+      def execute_command(*command, failure_message: "", success_status_codes: [0], chdir: ".")
+        stdout, stderr, status = Open3.capture3(*command, chdir: chdir)
+
+        if !status.exited? || !success_status_codes.include?(status.exitstatus)
+          failure_message = "#{failure_message}\n" if !failure_message.blank?
+          raise "#{caller[0]}: #{failure_message}#{stderr}"
+        end
+
+        stdout
+      end
     end
   end
 
@@ -54,6 +89,8 @@ module Discourse
       current_db: cm.current_db,
       current_hostname: cm.current_hostname
     }.merge(context))
+
+    raise ex if Rails.env.test?
   end
 
   # Expected less matches than what we got in a find
@@ -67,13 +104,18 @@ module Discourse
 
   # When they don't have permission to do something
   class InvalidAccess < StandardError
-    attr_reader :obj, :custom_message, :opts
+    attr_reader :obj
+    attr_reader :opts
+    attr_reader :custom_message
+    attr_reader :group
+
     def initialize(msg = nil, obj = nil, opts = nil)
       super(msg)
 
       @opts = opts || {}
-      @custom_message = opts[:custom_message] if @opts[:custom_message]
       @obj = obj
+      @custom_message = opts[:custom_message] if @opts[:custom_message]
+      @group = opts[:group] if @opts[:group]
     end
   end
 
@@ -82,12 +124,15 @@ module Discourse
     attr_reader :status
     attr_reader :check_permalinks
     attr_reader :original_path
+    attr_reader :custom_message
 
-    def initialize(message = nil, status: 404, check_permalinks: false, original_path: nil)
+    def initialize(msg = nil, status: 404, check_permalinks: false, original_path: nil, custom_message: nil)
+      super(msg)
+
       @status = status
       @check_permalinks = check_permalinks
       @original_path = original_path
-      super(message)
+      @custom_message = custom_message
     end
   end
 
@@ -105,6 +150,8 @@ module Discourse
 
   class Deprecation < StandardError; end
 
+  class ScssError < StandardError; end
+
   def self.filters
     @filters ||= [:latest, :unread, :new, :read, :posted, :bookmarks]
   end
@@ -114,11 +161,11 @@ module Discourse
   end
 
   def self.top_menu_items
-    @top_menu_items ||= Discourse.filters + [:category, :categories, :top]
+    @top_menu_items ||= Discourse.filters + [:categories, :top]
   end
 
   def self.anonymous_top_menu_items
-    @anonymous_top_menu_items ||= Discourse.anonymous_filters + [:category, :categories, :top]
+    @anonymous_top_menu_items ||= Discourse.anonymous_filters + [:categories, :top]
   end
 
   PIXEL_RATIOS ||= [1, 1.5, 2, 3]
@@ -129,7 +176,7 @@ module Discourse
 
     SiteSetting.avatar_sizes.split("|").map(&:to_i).each do |size|
       PIXEL_RATIOS.each do |pixel_ratio|
-        set << size * pixel_ratio
+        set << (size * pixel_ratio).to_i
       end
     end
 
@@ -137,29 +184,8 @@ module Discourse
   end
 
   def self.activate_plugins!
-    all_plugins = Plugin::Instance.find_all("#{Rails.root}/plugins")
-
-    if Rails.env.development?
-      plugin_hash = Digest::SHA1.hexdigest(all_plugins.map { |p| p.path }.sort.join('|'))
-      hash_file = "#{Rails.root}/tmp/plugin-hash"
-
-      old_hash = begin
-        File.read(hash_file)
-      rescue Errno::ENOENT
-      end
-
-      if old_hash && old_hash != plugin_hash
-        puts "WARNING: It looks like your discourse plugins have recently changed."
-        puts "It is highly recommended to remove your `tmp` directory, otherwise"
-        puts "plugins might not work."
-        puts
-      else
-        File.write(hash_file, plugin_hash)
-      end
-    end
-
     @plugins = []
-    all_plugins.each do |p|
+    Plugin::Instance.find_all("#{Rails.root}/plugins").each do |p|
       v = p.metadata.required_version || Discourse::VERSION::STRING
       if Discourse.has_needed_version?(Discourse::VERSION::STRING, v)
         p.activate!
@@ -168,6 +194,7 @@ module Discourse
         STDERR.puts "Could not activate #{p.metadata.name}, discourse does not meet required version (#{v})"
       end
     end
+    DiscourseEvent.trigger(:after_plugin_activation)
   end
 
   def self.disabled_plugin_names
@@ -198,6 +225,42 @@ module Discourse
     plugins.find_all { |p| !p.metadata.official? }
   end
 
+  def self.find_plugins(args)
+    plugins.select do |plugin|
+      next if args[:include_official] == false && plugin.metadata.official?
+      next if args[:include_unofficial] == false && !plugin.metadata.official?
+      next if !args[:include_disabled] && !plugin.enabled?
+
+      true
+    end
+  end
+
+  def self.find_plugin_css_assets(args)
+    plugins = self.find_plugins(args)
+
+    assets = []
+
+    targets = [nil]
+    targets << :mobile if args[:mobile_view]
+    targets << :desktop if args[:desktop_view]
+
+    targets.each do |target|
+      assets += plugins.find_all do |plugin|
+        plugin.css_asset_exists?(target)
+      end.map do |plugin|
+        target.nil? ? plugin.directory_name : "#{plugin.directory_name}_#{target}"
+      end
+    end
+
+    assets
+  end
+
+  def self.find_plugin_js_assets(args)
+    self.find_plugins(args).find_all do |plugin|
+      plugin.js_asset_exists?
+    end.map { |plugin| "plugins/#{plugin.directory_name}" }
+  end
+
   def self.assets_digest
     @assets_digest ||= begin
       digest = Digest::MD5.hexdigest(ActionView::Base.assets_manifest.assets.values.sort.join)
@@ -213,12 +276,12 @@ module Discourse
   end
 
   BUILTIN_AUTH ||= [
-    Auth::AuthProvider.new(authenticator: Auth::FacebookAuthenticator.new, frame_width: 580, frame_height: 400),
-    Auth::AuthProvider.new(authenticator: Auth::GoogleOAuth2Authenticator.new, frame_width: 850, frame_height: 500),
-    Auth::AuthProvider.new(authenticator: Auth::OpenIdAuthenticator.new("yahoo", "https://me.yahoo.com", 'enable_yahoo_logins', trusted: true)),
-    Auth::AuthProvider.new(authenticator: Auth::GithubAuthenticator.new),
-    Auth::AuthProvider.new(authenticator: Auth::TwitterAuthenticator.new),
-    Auth::AuthProvider.new(authenticator: Auth::InstagramAuthenticator.new, frame_width: 1, frame_height: 1)
+    Auth::AuthProvider.new(authenticator: Auth::FacebookAuthenticator.new, frame_width: 580, frame_height: 400, icon: "fab-facebook"),
+    Auth::AuthProvider.new(authenticator: Auth::GoogleOAuth2Authenticator.new, frame_width: 850, frame_height: 500), # Custom icon implemented in client
+    Auth::AuthProvider.new(authenticator: Auth::GithubAuthenticator.new, icon: "fab-github"),
+    Auth::AuthProvider.new(authenticator: Auth::TwitterAuthenticator.new, icon: "fab-twitter"),
+    Auth::AuthProvider.new(authenticator: Auth::InstagramAuthenticator.new, icon: "fab-instagram"),
+    Auth::AuthProvider.new(authenticator: Auth::DiscordAuthenticator.new, icon: "fab-discord")
   ]
 
   def self.auth_providers
@@ -240,7 +303,31 @@ module Discourse
   end
 
   def self.cache
-    @cache ||= Cache.new
+    @cache ||= begin
+      if GlobalSetting.skip_redis?
+        ActiveSupport::Cache::MemoryStore.new
+      else
+        Cache.new
+      end
+    end
+  end
+
+  # hostname of the server, operating system level
+  # called os_hostname so we do no confuse it with current_hostname
+  def self.os_hostname
+    @os_hostname ||=
+      begin
+        require 'socket'
+        Socket.gethostname
+      rescue => e
+        warn_exception(e, message: 'Socket.gethostname is not working')
+        begin
+          `hostname`.strip
+        rescue => e
+          warn_exception(e, message: 'hostname command is not working')
+          'unknown_host'
+        end
+      end
   end
 
   # Get the current base URL for the current site
@@ -258,8 +345,13 @@ module Discourse
 
   def self.base_url_no_prefix
     default_port = SiteSetting.force_https? ? 443 : 80
-    url = "#{base_protocol}://#{current_hostname}"
+    url = +"#{base_protocol}://#{current_hostname}"
     url << ":#{SiteSetting.port}" if SiteSetting.port.to_i > 0 && SiteSetting.port.to_i != default_port
+
+    if Rails.env.development? && SiteSetting.port.blank?
+      url << ":#{ENV["UNICORN_PORT"] || 3000}"
+    end
+
     url
   end
 
@@ -277,7 +369,7 @@ module Discourse
 
     return unless uri
 
-    path = uri.path || ""
+    path = +(uri.path || "")
     if !uri.host || (uri.host == Discourse.current_hostname && path.start_with?(Discourse.base_uri))
       path.slice!(Discourse.base_uri)
       return Rails.application.routes.recognize_path(path)
@@ -294,9 +386,9 @@ module Discourse
   end
 
   READONLY_MODE_KEY_TTL  ||= 60
-  READONLY_MODE_KEY      ||= 'readonly_mode'.freeze
-  PG_READONLY_MODE_KEY   ||= 'readonly_mode:postgres'.freeze
-  USER_READONLY_MODE_KEY ||= 'readonly_mode:user'.freeze
+  READONLY_MODE_KEY      ||= 'readonly_mode'
+  PG_READONLY_MODE_KEY   ||= 'readonly_mode:postgres'
+  USER_READONLY_MODE_KEY ||= 'readonly_mode:user'
 
   READONLY_KEYS ||= [
     READONLY_MODE_KEY,
@@ -306,10 +398,10 @@ module Discourse
 
   def self.enable_readonly_mode(key = READONLY_MODE_KEY)
     if key == USER_READONLY_MODE_KEY
-      $redis.set(key, 1)
+      Discourse.redis.set(key, 1)
     else
-      $redis.setex(key, READONLY_MODE_KEY_TTL, 1)
-      keep_readonly_mode(key)
+      Discourse.redis.setex(key, READONLY_MODE_KEY_TTL, 1)
+      keep_readonly_mode(key) if !Rails.env.test?
     end
 
     MessageBus.publish(readonly_channel, true)
@@ -319,22 +411,24 @@ module Discourse
 
   def self.keep_readonly_mode(key)
     # extend the expiry by 1 minute every 30 seconds
-    unless Rails.env.test?
+    @mutex ||= Mutex.new
+
+    @mutex.synchronize do
       @dbs ||= Set.new
       @dbs << RailsMultisite::ConnectionManagement.current_db
       @threads ||= {}
 
       unless @threads[key]&.alive?
         @threads[key] = Thread.new do
-          while @dbs.size > 0
+          while @dbs.size > 0 do
             sleep 30
 
-            @dbs.each do |db|
-              RailsMultisite::ConnectionManagement.with_connection(db) do
-                if readonly_mode?(key)
-                  $redis.expire(key, READONLY_MODE_KEY_TTL)
-                else
-                  @dbs.delete(db)
+            @mutex.synchronize do
+              @dbs.each do |db|
+                RailsMultisite::ConnectionManagement.with_connection(db) do
+                  if !Discourse.redis.expire(key, READONLY_MODE_KEY_TTL)
+                    @dbs.delete(db)
+                  end
                 end
               end
             end
@@ -345,35 +439,48 @@ module Discourse
   end
 
   def self.disable_readonly_mode(key = READONLY_MODE_KEY)
-    $redis.del(key)
+    Discourse.redis.del(key)
     MessageBus.publish(readonly_channel, false)
     Site.clear_anon_cache!
     true
   end
 
   def self.readonly_mode?(keys = READONLY_KEYS)
-    recently_readonly? || $redis.mget(*keys).compact.present?
+    recently_readonly? || Discourse.redis.mget(*keys).compact.present?
   end
 
   def self.pg_readonly_mode?
-    $redis.get(PG_READONLY_MODE_KEY).present?
+    Discourse.redis.get(PG_READONLY_MODE_KEY).present?
   end
 
-  def self.last_read_only
-    @last_read_only ||= DistributedCache.new('last_read_only', namespace: false)
+  # Shared between processes
+  def self.postgres_last_read_only
+    @postgres_last_read_only ||= DistributedCache.new('postgres_last_read_only', namespace: false)
+  end
+
+  # Per-process
+  def self.redis_last_read_only
+    @redis_last_read_only ||= {}
   end
 
   def self.recently_readonly?
-    read_only = last_read_only[$redis.namespace]
-    read_only.present? && read_only > 15.seconds.ago
+    postgres_read_only = postgres_last_read_only[Discourse.redis.namespace]
+    redis_read_only = redis_last_read_only[Discourse.redis.namespace]
+
+    (redis_read_only.present? && redis_read_only > 15.seconds.ago) ||
+      (postgres_read_only.present? && postgres_read_only > 15.seconds.ago)
   end
 
-  def self.received_readonly!
-    last_read_only[$redis.namespace] = Time.zone.now
+  def self.received_postgres_readonly!
+    postgres_last_read_only[Discourse.redis.namespace] = Time.zone.now
+  end
+
+  def self.received_redis_readonly!
+    redis_last_read_only[Discourse.redis.namespace] = Time.zone.now
   end
 
   def self.clear_readonly!
-    last_read_only[$redis.namespace] = nil
+    postgres_last_read_only[Discourse.redis.namespace] = redis_last_read_only[Discourse.redis.namespace] = nil
     Site.clear_anon_cache!
     true
   end
@@ -404,7 +511,7 @@ module Discourse
       begin
         git_cmd = 'git rev-parse HEAD'
         self.try_git(git_cmd, Discourse::VERSION::STRING)
-      end
+      end # rubocop:disable Style/GlobalVars
   end
 
   def self.git_branch
@@ -422,6 +529,16 @@ module Discourse
       begin
         git_cmd = 'git describe --dirty --match "v[0-9]*"'
         self.try_git(git_cmd, 'unknown')
+      end
+  end
+
+  def self.last_commit_date
+    ensure_version_file_loaded
+    $last_commit_date ||=
+      begin
+        git_cmd = 'git log -1 --format="%ct"'
+        seconds = self.try_git(git_cmd, nil)
+        seconds.nil? ? nil : DateTime.strptime(seconds, '%s')
       end
   end
 
@@ -450,7 +567,9 @@ module Discourse
   SYSTEM_USER_ID ||= -1
 
   def self.system_user
-    @system_user ||= User.find_by(id: SYSTEM_USER_ID)
+    @system_users ||= {}
+    current_db = RailsMultisite::ConnectionManagement.current_db
+    @system_users[current_db] ||= User.find_by(id: SYSTEM_USER_ID)
   end
 
   def self.store
@@ -461,6 +580,10 @@ module Discourse
       @local_store_loaded ||= require 'file_store/local_store'
       FileStore::LocalStore.new
     end
+  end
+
+  def self.stats
+    PluginStore.new("stats")
   end
 
   def self.current_user_provider
@@ -486,8 +609,9 @@ module Discourse
     # note: some of this reconnecting may no longer be needed per https://github.com/redis/redis-rb/pull/414
     MessageBus.after_fork
     SiteSetting.after_fork
-    $redis._client.reconnect
+    Discourse.redis._client.reconnect
     Rails.cache.reconnect
+    Discourse.cache.reconnect
     Logster.store.redis.reconnect
     # shuts down all connections in the pool
     Sidekiq.redis_pool.shutdown { |c| nil }
@@ -610,7 +734,7 @@ module Discourse
     end
   end
 
-  def self.deprecate(warning, drop_from: nil, since: nil, raise_error: false)
+  def self.deprecate(warning, drop_from: nil, since: nil, raise_error: false, output_in_test: false)
     location = caller_locations[1].yield_self { |l| "#{l.path}:#{l.lineno}:in \`#{l.label}\`" }
     warning = ["Deprecation notice:", warning]
     warning << "(deprecated since Discourse #{since})" if since
@@ -626,12 +750,20 @@ module Discourse
       STDERR.puts(warning)
     end
 
+    if output_in_test && Rails.env == "test"
+      STDERR.puts(warning)
+    end
+
     digest = Digest::MD5.hexdigest(warning)
     redis_key = "deprecate-notice-#{digest}"
 
-    if !$redis.without_namespace.get(redis_key)
+    if !Discourse.redis.without_namespace.get(redis_key)
       Rails.logger.warn(warning)
-      $redis.without_namespace.setex(redis_key, 3600, "x")
+      begin
+        Discourse.redis.without_namespace.setex(redis_key, 3600, "x")
+      rescue Redis::CommandError => e
+        raise unless e.message =~ /READONLY/
+      end
     end
     warning
   end
@@ -675,4 +807,59 @@ module Discourse
     ['1', 'true'].include?(ENV["SKIP_POST_DEPLOYMENT_MIGRATIONS"]&.to_s)
   end
 
+  # this is used to preload as much stuff as possible prior to forking
+  # in turn this can conserve large amounts of memory on forking servers
+  def self.preload_rails!
+    return if @preloaded_rails
+
+    # load up all models and schema
+    (ActiveRecord::Base.connection.tables - %w[schema_migrations versions]).each do |table|
+      table.classify.constantize.first rescue nil
+    end
+
+    # ensure we have a full schema cache in case we missed something above
+    ActiveRecord::Base.connection.data_sources.each do |table|
+      ActiveRecord::Base.connection.schema_cache.add(table)
+    end
+
+    schema_cache = ActiveRecord::Base.connection.schema_cache
+
+    # load up schema cache for all multisite assuming all dbs have
+    # an identical schema
+    RailsMultisite::ConnectionManagement.each_connection do
+      dup_cache = schema_cache.dup
+      # this line is not really needed, but just in case the
+      # underlying implementation changes lets give it a shot
+      dup_cache.connection = nil
+      ActiveRecord::Base.connection.schema_cache = dup_cache
+      I18n.t(:posts)
+
+      # this will force Cppjieba to preload if any site has it
+      # enabled allowing it to be reused between all child processes
+      Search.prepare_data("test")
+    end
+
+    # router warm up
+    Rails.application.routes.recognize_path('abc') rescue nil
+
+    # preload discourse version
+    Discourse.git_version
+    Discourse.git_branch
+    Discourse.full_version
+
+    require 'actionview_precompiler'
+    ActionviewPrecompiler.precompile
+  ensure
+    @preloaded_rails = true
+  end
+
+  def self.redis
+    $redis
+  end
+
+  def self.is_parallel_test?
+    ENV['RAILS_ENV'] == "test" && ENV['TEST_ENV_NUMBER']
+  end
 end
+
+# rubocop:enable Style/GlobalVars

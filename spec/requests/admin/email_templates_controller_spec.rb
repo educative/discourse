@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe Admin::EmailTemplatesController do
-  let(:admin) { Fabricate(:admin) }
-  let(:user) { Fabricate(:user) }
+  fab!(:admin) { Fabricate(:admin) }
+  fab!(:user) { Fabricate(:user) }
 
   def original_text(key)
     I18n.overrides_disabled { I18n.t(key) }
@@ -37,6 +39,29 @@ RSpec.describe Admin::EmailTemplatesController do
 
       json = ::JSON.parse(response.body)
       expect(json['email_templates']).to be_present
+    end
+
+    it 'returns overridden = true if subject or body has translation_overrides record' do
+      sign_in(admin)
+
+      put '/admin/customize/email_templates/user_notifications.admin_login', params: {
+        email_template: { subject: original_subject, body: original_body }
+      }, headers: headers
+      expect(response.status).to eq(200)
+
+      get '/admin/customize/email_templates.json'
+      expect(response.status).to eq(200)
+      templates = JSON.parse(response.body)['email_templates']
+      template = templates.find { |t| t['id'] == 'user_notifications.admin_login' }
+      expect(template['can_revert']).to eq(true)
+
+      TranslationOverride.destroy_all
+
+      get '/admin/customize/email_templates.json'
+      expect(response.status).to eq(200)
+      templates = JSON.parse(response.body)['email_templates']
+      template = templates.find { |t| t['id'] == 'user_notifications.admin_login' }
+      expect(template['can_revert']).to eq(false)
     end
   end
 
@@ -140,7 +165,7 @@ RSpec.describe Admin::EmailTemplatesController do
         include_examples "invalid email template"
       end
 
-      context "when subject and body are invalid invalid" do
+      context "when subject and body are invalid" do
         let(:email_subject) { 'Subject with %{invalid} interpolation key' }
         let(:email_body) { 'Body with some invalid interpolation keys: %{invalid}' }
 
@@ -214,6 +239,21 @@ RSpec.describe Admin::EmailTemplatesController do
         end
       end
 
+      context "when subject has plural keys" do
+        it "doesn't update the subject" do
+          old_subject = I18n.t('system_messages.pending_users_reminder.subject_template')
+          expect(old_subject).to be_a(Hash)
+
+          put '/admin/customize/email_templates/system_messages.pending_users_reminder', params: {
+            email_template: { subject: '', body: 'Lorem ipsum' }
+          }, headers: headers
+
+          expect(response.status).to eq(200)
+
+          expect(I18n.t('system_messages.pending_users_reminder.subject_template')).to eq(old_subject)
+          expect(I18n.t('system_messages.pending_users_reminder.text_body_template')).to eq('Lorem ipsum')
+        end
+      end
     end
 
   end

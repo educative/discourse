@@ -1,11 +1,12 @@
-import { acceptance, replaceCurrentUser } from "helpers/qunit-helpers";
+import { acceptance, updateCurrentUser } from "helpers/qunit-helpers";
+import selectKit from "helpers/select-kit-helper";
 
 acceptance("Managing Group Membership", {
   loggedIn: true
 });
 
 QUnit.test("As an admin", async assert => {
-  await visit("/groups/discourse/manage/membership");
+  await visit("/g/discourse/manage/membership");
 
   assert.ok(
     find('label[for="automatic_membership"]').length === 1,
@@ -65,12 +66,19 @@ QUnit.test("As an admin", async assert => {
     1,
     "it should display the membership request template field"
   );
+
+  const emailDomains = selectKit(".group-form-automatic-membership-automatic");
+  await emailDomains.expand();
+  await emailDomains.fillInFilter("foo.com");
+  await emailDomains.keyboard("enter");
+
+  assert.equal(emailDomains.header().value(), "foo.com");
 });
 
 QUnit.test("As a group owner", async assert => {
-  replaceCurrentUser({ staff: false, admin: false });
+  updateCurrentUser({ moderator: false, admin: false });
 
-  await visit("/groups/discourse/manage/membership");
+  await visit("/g/discourse/manage/membership");
 
   assert.ok(
     find('label[for="automatic_membership"]').length === 0,

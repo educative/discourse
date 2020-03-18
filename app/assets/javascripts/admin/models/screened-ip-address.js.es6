@@ -1,15 +1,17 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import { equal } from "@ember/object/computed";
 import { ajax } from "discourse/lib/ajax";
-import computed from "ember-addons/ember-computed-decorators";
+import EmberObject from "@ember/object";
 
-const ScreenedIpAddress = Discourse.Model.extend({
-  @computed("action_name")
+const ScreenedIpAddress = EmberObject.extend({
+  @discourseComputed("action_name")
   actionName(actionName) {
     return I18n.t(`admin.logs.screened_ips.actions.${actionName}`);
   },
 
-  isBlocked: Ember.computed.equal("action_name", "block"),
+  isBlocked: equal("action_name", "block"),
 
-  @computed("ip_address")
+  @discourseComputed("ip_address")
   isRange(ipAddress) {
     return ipAddress.indexOf("/") > 0;
   },
@@ -22,18 +24,17 @@ const ScreenedIpAddress = Discourse.Model.extend({
       {
         type: this.id ? "PUT" : "POST",
         data: {
-          ip_address: this.get("ip_address"),
-          action_name: this.get("action_name")
+          ip_address: this.ip_address,
+          action_name: this.action_name
         }
       }
     );
   },
 
   destroy() {
-    return ajax(
-      "/admin/logs/screened_ip_addresses/" + this.get("id") + ".json",
-      { type: "DELETE" }
-    );
+    return ajax("/admin/logs/screened_ip_addresses/" + this.id + ".json", {
+      type: "DELETE"
+    });
   }
 });
 

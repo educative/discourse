@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class UpdateGroupMentions < Jobs::Base
+  class UpdateGroupMentions < ::Jobs::Base
 
     def execute(args)
       group = Group.find_by(id: args[:group_id])

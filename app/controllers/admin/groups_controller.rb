@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class Admin::GroupsController < Admin::AdminController
   def bulk
   end
@@ -128,11 +130,12 @@ class Admin::GroupsController < Admin::AdminController
   private
 
   def group_params
-    params.require(:group).permit(
+    permitted = [
       :name,
       :mentionable_level,
       :messageable_level,
       :visibility_level,
+      :members_visibility_level,
       :automatic_membership_email_domains,
       :automatic_membership_retroactive,
       :title,
@@ -150,7 +153,12 @@ class Admin::GroupsController < Admin::AdminController
       :default_notification_level,
       :membership_request_template,
       :owner_usernames,
-      :usernames
-    )
+      :usernames,
+      :publish_read_state
+    ]
+    custom_fields = Group.editable_group_custom_fields
+    permitted << { custom_fields: custom_fields } unless custom_fields.blank?
+
+    params.require(:group).permit(permitted)
   end
 end

@@ -1,4 +1,4 @@
-require_dependency 'pretty_text'
+# frozen_string_literal: true
 
 # A very simple formatter for imported emails
 class EmailCook
@@ -40,12 +40,12 @@ class EmailCook
   end
 
   def htmlify(text)
-    result = ""
+    result = +""
+    quote_buffer = +""
 
     in_text = false
     in_quote = false
 
-    quote_buffer = ""
     text.each_line do |line|
       # replace indentation with non-breaking spaces
       line.sub!(/^\s{2,}/) { |s| "\u00A0" * s.length }

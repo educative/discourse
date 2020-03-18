@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 task 'redis:clean_up' => ['environment'] do
   return unless Rails.configuration.multisite
 
@@ -7,7 +9,7 @@ task 'redis:clean_up' => ['environment'] do
   regexp = /((\$(?<message_bus>\w+)$)|(^?(?<namespace>\w+):))/
 
   cursor = 0
-  redis = $redis.without_namespace
+  redis = Discourse.redis.without_namespace
 
   loop do
     cursor, keys = redis.scan(cursor)

@@ -1,10 +1,10 @@
+import discourseComputed from "discourse-common/utils/decorators";
 import { ajax } from "discourse/lib/ajax";
 import { url } from "discourse/lib/computed";
 import RestModel from "discourse/models/rest";
 import UserDraft from "discourse/models/user-draft";
 import { emojiUnescape } from "discourse/lib/text";
-import computed from "ember-addons/ember-computed-decorators";
-
+import { Promise } from "rsvp";
 import {
   NEW_TOPIC_KEY,
   NEW_PRIVATE_MESSAGE_KEY
@@ -38,28 +38,28 @@ export default RestModel.extend({
     return this.findItems();
   },
 
-  @computed("content.length", "loaded")
+  @discourseComputed("content.length", "loaded")
   noContent(contentLength, loaded) {
     return loaded && contentLength === 0;
   },
 
   remove(draft) {
-    let content = this.get("content").filter(
+    let content = this.content.filter(
       item => item.draft_key !== draft.draft_key
     );
     this.setProperties({ content, itemsLoaded: content.length });
   },
 
   findItems() {
-    let findUrl = this.get("baseUrl");
+    let findUrl = this.baseUrl;
 
-    const lastLoadedUrl = this.get("lastLoadedUrl");
+    const lastLoadedUrl = this.lastLoadedUrl;
     if (lastLoadedUrl === findUrl) {
-      return Ember.RSVP.resolve();
+      return Promise.resolve();
     }
 
-    if (this.get("loading")) {
-      return Ember.RSVP.resolve();
+    if (this.loading) {
+      return Promise.resolve();
     }
 
     this.set("loading", true);
@@ -90,10 +90,10 @@ export default RestModel.extend({
 
             copy.pushObject(UserDraft.create(draft));
           });
-          this.get("content").pushObjects(copy);
+          this.content.pushObjects(copy);
           this.setProperties({
             loaded: true,
-            itemsLoaded: this.get("itemsLoaded") + result.drafts.length
+            itemsLoaded: this.itemsLoaded + result.drafts.length
           });
         }
       })

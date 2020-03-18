@@ -5,6 +5,7 @@ import { h } from "virtual-dom";
 import { avatarFor } from "discourse/widgets/post";
 import { userPath } from "discourse/lib/url";
 import { autoUpdatingRelativeAge } from "discourse/lib/formatter";
+import { computed } from "@ember/object";
 
 export function actionDescriptionHtml(actionCode, createdAt, username) {
   const dt = new Date(createdAt);
@@ -13,7 +14,7 @@ export function actionDescriptionHtml(actionCode, createdAt, username) {
   var who = "";
   if (username) {
     if (actionCode === "invited_group" || actionCode === "removed_group") {
-      who = `<a class="mention-group" href="/groups/${username}">@${username}</a>`;
+      who = `<a class="mention-group" href="/g/${username}">@${username}</a>`;
     } else {
       who = `<a class="mention" href="${userPath(username)}">@${username}</a>`;
     }
@@ -22,12 +23,12 @@ export function actionDescriptionHtml(actionCode, createdAt, username) {
 }
 
 export function actionDescription(actionCode, createdAt, username) {
-  return function() {
+  return computed(actionCode, createdAt, function() {
     const ac = this.get(actionCode);
     if (ac) {
       return actionDescriptionHtml(ac, this.get(createdAt), this.get(username));
     }
-  }.property(actionCode, createdAt);
+  });
 }
 
 const icons = {
@@ -109,7 +110,7 @@ export default createWidget("post-small-action", {
 
     const description = actionDescriptionHtml(
       attrs.actionCode,
-      attrs.created_at,
+      new Date(attrs.created_at),
       attrs.actionCodeWho
     );
     contents.push(new RawHtml({ html: `<p>${description}</p>` }));

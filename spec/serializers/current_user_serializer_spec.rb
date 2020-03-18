@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe CurrentUserSerializer do
   context "when SSO is not enabled" do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
     let :serializer do
       CurrentUserSerializer.new(user, scope: Guardian.new, root: false)
     end
@@ -34,10 +36,10 @@ RSpec.describe CurrentUserSerializer do
   end
 
   context "#top_category_ids" do
-    let(:user) { Fabricate(:user) }
-    let(:category1) { Fabricate(:category) }
-    let(:category2) { Fabricate(:category) }
-    let(:category3) { Fabricate(:category) }
+    fab!(:user) { Fabricate(:user) }
+    fab!(:category1) { Fabricate(:category) }
+    fab!(:category2) { Fabricate(:category) }
+    fab!(:category3) { Fabricate(:category) }
     let :serializer do
       CurrentUserSerializer.new(user, scope: Guardian.new, root: false)
     end
@@ -48,7 +50,7 @@ RSpec.describe CurrentUserSerializer do
     end
 
     it "should include correct id in top_category_ids array" do
-      category = Category.first
+      _category = Category.first
       CategoryUser.create!(user_id: user.id,
                            category_id: category1.id,
                            notification_level: CategoryUser.notification_levels[:tracking])
@@ -66,8 +68,59 @@ RSpec.describe CurrentUserSerializer do
     end
   end
 
+  context "#muted_tag_ids" do
+    fab!(:user) { Fabricate(:user) }
+    fab!(:tag) { Fabricate(:tag) }
+    let!(:tag_user) do
+      TagUser.create!(user_id: user.id,
+                      notification_level: TagUser.notification_levels[:muted],
+                      tag_id: tag.id
+                     )
+    end
+    let :serializer do
+      CurrentUserSerializer.new(user, scope: Guardian.new, root: false)
+    end
+
+    it 'include muted tag ids' do
+      payload = serializer.as_json
+      expect(payload[:muted_tag_ids]).to eq([tag.id])
+    end
+  end
+
+  context "#second_factor_enabled" do
+    fab!(:user) { Fabricate(:user) }
+    let :serializer do
+      CurrentUserSerializer.new(user, scope: Guardian.new(user), root: false)
+    end
+    let(:json) { serializer.as_json }
+
+    it "is false by default" do
+      expect(json[:second_factor_enabled]).to eq(false)
+    end
+
+    context "when totp enabled" do
+      before do
+        User.any_instance.stubs(:totp_enabled?).returns(true)
+      end
+
+      it "is true" do
+        expect(json[:second_factor_enabled]).to eq(true)
+      end
+    end
+
+    context "when security_keys enabled" do
+      before do
+        User.any_instance.stubs(:security_keys_enabled?).returns(true)
+      end
+
+      it "is true" do
+        expect(json[:second_factor_enabled]).to eq(true)
+      end
+    end
+  end
+
   context "#groups" do
-    let(:member) { Fabricate(:user) }
+    fab!(:member) { Fabricate(:user) }
     let :serializer do
       CurrentUserSerializer.new(member, scope: Guardian.new, root: false)
     end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 require 'stylesheet/compiler'
 
@@ -38,7 +40,7 @@ describe Stylesheet::Manager do
     child_theme.set_field(target: :common, name: "embedded_scss", value: ".child_embedded{.scss{color: red;}}")
     child_theme.save!
 
-    theme.add_child_theme!(child_theme)
+    theme.add_relative_theme!(:child, child_theme)
 
     old_link = Stylesheet::Manager.stylesheet_link_tag(:desktop_theme, 'all', theme.id)
 
@@ -66,7 +68,7 @@ describe Stylesheet::Manager do
 
   describe 'digest' do
     after do
-      DiscoursePluginRegistry.stylesheets.delete "fake_file"
+      DiscoursePluginRegistry.reset!
     end
 
     it 'can correctly account for plugins in digest' do
@@ -75,7 +77,7 @@ describe Stylesheet::Manager do
       manager = Stylesheet::Manager.new(:desktop_theme, theme.id)
       digest1 = manager.digest
 
-      DiscoursePluginRegistry.stylesheets.add "fake_file"
+      DiscoursePluginRegistry.stylesheets["fake"] = Set.new(["fake_file"])
 
       manager = Stylesheet::Manager.new(:desktop_theme, theme.id)
       digest2 = manager.digest
@@ -86,7 +88,7 @@ describe Stylesheet::Manager do
     it "can correctly account for settings in theme's components" do
       theme = Fabricate(:theme)
       child = Fabricate(:theme, component: true)
-      theme.add_child_theme!(child)
+      theme.add_relative_theme!(:child, child)
 
       child.set_field(target: :settings, name: :yaml, value: "childcolor: red")
       child.set_field(target: :common, name: :scss, value: "body {background-color: $childcolor}")
@@ -150,12 +152,12 @@ describe Stylesheet::Manager do
 
       digest1 = manager.color_scheme_digest
 
-      category2.update_attributes(uploaded_background_id: 789, updated_at: 1.day.ago)
+      category2.update(uploaded_background_id: 789, updated_at: 1.day.ago)
 
       digest2 = manager.color_scheme_digest
       expect(digest2).to_not eq(digest1)
 
-      category1.update_attributes(uploaded_background_id: nil, updated_at: 5.minutes.ago)
+      category1.update(uploaded_background_id: nil, updated_at: 5.minutes.ago)
 
       digest3 = manager.color_scheme_digest
       expect(digest3).to_not eq(digest2)

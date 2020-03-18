@@ -26,13 +26,6 @@
   .title-category-wrapper {
     margin-top: 5px;
   }
-  .private-message-glyph {
-    display: none;
-  }
-}
-
-.private_message #topic-title .private-message-glyph {
-  display: inline;
 }
 
 .topic-status-info {
@@ -41,18 +34,20 @@
   padding-top: 10px;
   h3 {
     margin: 0;
+    display: flex;
+    button {
+      align-self: flex-start;
+    }
   }
 }
 
 #topic-progress-wrapper {
   position: fixed;
-  width: 0;
   right: 0;
   bottom: 0;
   z-index: z("timeline");
-  margin-right: 148px;
-  .topic-admin-menu-button-container .toggle-admin-menu {
-    height: 43px;
+  &:not(.docked) {
+    margin-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -105,7 +100,6 @@
   background-color: $secondary;
   color: $tertiary;
   border: 1px solid $tertiary-low;
-  border-bottom: none;
   width: 145px;
   height: 42px;
 
@@ -141,7 +135,8 @@
   }
 }
 
-.topic-error {
+.topic-error,
+.topic-notice {
   padding: 18px;
   width: 90%;
   margin-left: auto;
@@ -149,7 +144,8 @@
   font-size: $font-up-4;
   line-height: $line-height-medium;
 
-  .topic-retry {
+  .topic-retry,
+  .topic-join-group {
     display: block;
     margin-top: 20px;
     margin-left: auto;
@@ -214,4 +210,10 @@ sub sub {
   .btn.pull-right {
     margin-right: 0;
   }
+}
+
+.topic-footer-main-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
 }

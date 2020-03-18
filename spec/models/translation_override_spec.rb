@@ -1,10 +1,13 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe TranslationOverride do
   context 'validations' do
     describe '#value' do
       before do
-        I18n.backend.store_translations(:en, some_key: '%{first} %{second}')
+        I18n.backend.store_translations(I18n.locale, some_key: '%{first} %{second}')
+        I18n.backend.store_translations(:en, something: { one: '%{key1} %{key2}', other: '%{key3} %{key4}' })
       end
 
       describe 'when interpolation keys are missing' do
@@ -30,6 +33,40 @@ describe TranslationOverride do
             expect(translation_override.errors.full_messages).to include(I18n.t(
               'activerecord.errors.models.translation_overrides.attributes.value.invalid_interpolation_keys',
               keys: 'something'
+            ))
+          end
+        end
+      end
+
+      describe 'pluralized keys' do
+        describe 'valid keys' do
+          it 'converts zero to other' do
+            translation_override = TranslationOverride.upsert!(I18n.locale, 'something.zero', '%{key3} %{key4} hello')
+            expect(translation_override.errors.full_messages).to eq([])
+          end
+
+          it 'converts two to other' do
+            translation_override = TranslationOverride.upsert!(I18n.locale, 'something.two', '%{key3} %{key4} hello')
+            expect(translation_override.errors.full_messages).to eq([])
+          end
+
+          it 'converts few to other' do
+            translation_override = TranslationOverride.upsert!(I18n.locale, 'something.few', '%{key3} %{key4} hello')
+            expect(translation_override.errors.full_messages).to eq([])
+          end
+
+          it 'converts many to other' do
+            translation_override = TranslationOverride.upsert!(I18n.locale, 'something.many', '%{key3} %{key4} hello')
+            expect(translation_override.errors.full_messages).to eq([])
+          end
+        end
+
+        describe 'invalid keys' do
+          it "does not transform 'tonz'" do
+            translation_override = TranslationOverride.upsert!(I18n.locale, 'something.tonz', '%{key3} %{key4} hello')
+            expect(translation_override.errors.full_messages).to include(I18n.t(
+              'activerecord.errors.models.translation_overrides.attributes.value.invalid_interpolation_keys',
+              keys: 'key3, key4'
             ))
           end
         end

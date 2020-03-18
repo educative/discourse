@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Migration; end
 
 class Discourse::InvalidMigration < StandardError; end
@@ -63,6 +65,10 @@ class Migration::SafeMigrate
         raise e
       end
     end
+  end
+
+  def self.post_migration_path
+    Discourse::DB_POST_MIGRATE_PATH
   end
 
   def self.enable!

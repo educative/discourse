@@ -1,7 +1,9 @@
+# frozen_string_literal: true
+
 class GroupMentionsUpdater
   def self.update(current_name, previous_name)
     Post.where(
-      "cooked LIKE '%class=\"mention-group\"%' AND raw LIKE :previous_name",
+      "cooked LIKE '%class=\"mention-group%' AND raw LIKE :previous_name",
       previous_name: "%@#{previous_name}%"
     ).find_in_batches do |posts|
 

@@ -1,6 +1,6 @@
-require 'rails_helper'
+# frozen_string_literal: true
 
-require_dependency 'theme_javascript_compiler'
+require 'rails_helper'
 
 describe ThemeJavascriptCompiler do
 
@@ -62,12 +62,23 @@ describe ThemeJavascriptCompiler do
       expect(render("{{dummy-helper themeSettings.setting_key}}")).
         to eq('dummy(setting(22:setting_key))')
     end
+
+    it "doesn't duplicate number parameter inside {{each}}" do
+      expect(compiler.compile("{{#each item as |test test2|}}{{theme-setting 'setting_key'}}{{/each}}")).
+        to include('{"name":"theme-setting","hash":{},"hashTypes":{},"hashContexts":{},"types":["NumberLiteral","StringLiteral"]')
+      # Fail would be if theme-setting is defined with types:["NumberLiteral","NumberLiteral","StringLiteral"]
+    end
   end
 
   describe ThemeJavascriptCompiler::EmberTemplatePrecompiler do
     # For the Ember (Glimmer) templates, serverside rendering is not trivial,
     # so check the compiled JSON against known working output
     let(:compiler) { described_class.new(theme_id) }
+    let(:helper_opcode) do
+      append = statement("{{dummy-helper 1}}")[0]
+      helper = append[1]
+      helper[0]
+    end
 
     def statement(template)
       compiled = compiler.compile(template)
@@ -78,24 +89,24 @@ describe ThemeJavascriptCompiler do
 
     it 'adds the theme id to the helpers' do
       expect(statement("{{theme-prefix 'translation_key'}}")).
-        to eq([[1, [27, "theme-prefix", [22, "translation_key"], nil], false]])
+        to eq([[1, [helper_opcode, "theme-prefix", [22, "translation_key"], nil], false]])
       expect(statement("{{theme-i18n 'translation_key'}}")).
-        to eq([[1, [27, "theme-i18n", [22, "translation_key"], nil], false]])
+        to eq([[1, [helper_opcode, "theme-i18n", [22, "translation_key"], nil], false]])
       expect(statement("{{theme-setting 'setting_key'}}")).
-        to eq([[1, [27, "theme-setting", [22, "setting_key"], nil], false]])
+        to eq([[1, [helper_opcode, "theme-setting", [22, "setting_key"], nil], false]])
 
       # Works when used inside other statements
       expect(statement("{{dummy-helper (theme-prefix 'translation_key')}}")).
-        to eq([[1, [27, "dummy-helper", [[27, "theme-prefix", [22, "translation_key"], nil]], nil], false]])
+        to eq([[1, [helper_opcode, "dummy-helper", [[helper_opcode, "theme-prefix", [22, "translation_key"], nil]], nil], false]])
     end
 
     it 'works with the old settings syntax' do
       expect(statement("{{themeSettings.setting_key}}")).
-        to eq([[1, [27, "theme-setting", [22, "setting_key"], [["deprecated"], [true]]], false]])
+        to eq([[1, [helper_opcode, "theme-setting", [22, "setting_key"], [["deprecated"], [true]]], false]])
 
       # Works when used inside other statements
       expect(statement("{{dummy-helper themeSettings.setting_key}}")).
-        to eq([[1, [27, "dummy-helper", [[27, "theme-setting", [22, "setting_key"], [["deprecated"], [true]]]], nil], false]])
+        to eq([[1, [helper_opcode, "dummy-helper", [[helper_opcode, "theme-setting", [22, "setting_key"], [["deprecated"], [true]]]], nil], false]])
     end
   end
 

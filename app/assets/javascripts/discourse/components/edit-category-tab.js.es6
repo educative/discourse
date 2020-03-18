@@ -1,30 +1,35 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import { scheduleOnce } from "@ember/runloop";
+import Component from "@ember/component";
 import { propertyEqual } from "discourse/lib/computed";
 
-export default Ember.Component.extend({
+export default Component.extend({
   tagName: "li",
   classNameBindings: ["active", "tabClassName"],
 
-  tabClassName: function() {
-    return "edit-category-" + this.get("tab");
-  }.property("tab"),
+  @discourseComputed("tab")
+  tabClassName(tab) {
+    return "edit-category-" + tab;
+  },
 
   active: propertyEqual("selectedTab", "tab"),
 
-  title: function() {
-    return I18n.t("category." + this.get("tab").replace("-", "_"));
-  }.property("tab"),
+  @discourseComputed("tab")
+  title(tab) {
+    return I18n.t("category." + tab.replace("-", "_"));
+  },
 
   didInsertElement() {
     this._super(...arguments);
-    Ember.run.scheduleOnce("afterRender", this, this._addToCollection);
+    scheduleOnce("afterRender", this, this._addToCollection);
   },
 
   _addToCollection: function() {
-    this.get("panels").addObject(this.get("tabClassName"));
+    this.panels.addObject(this.tabClassName);
   },
 
   _resetModalScrollState() {
-    const $modalBody = this.$()
+    const $modalBody = $(this.element)
       .parents("#discourse-modal")
       .find(".modal-body");
     if ($modalBody.length === 1) {
@@ -34,7 +39,7 @@ export default Ember.Component.extend({
 
   actions: {
     select: function() {
-      this.set("selectedTab", this.get("tab"));
+      this.set("selectedTab", this.tab);
       this._resetModalScrollState();
     }
   }

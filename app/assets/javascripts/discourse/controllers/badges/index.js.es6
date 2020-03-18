@@ -1,6 +1,10 @@
-export default Ember.Controller.extend({
-  badgeGroups: function() {
-    var sorted = _.sortBy(this.get("model"), function(badge) {
+import discourseComputed from "discourse-common/utils/decorators";
+import Controller from "@ember/controller";
+
+export default Controller.extend({
+  @discourseComputed("model")
+  badgeGroups(model) {
+    var sorted = _.sortBy(model, function(badge) {
       var pos = badge.get("badge_grouping.position");
       var type = badge.get("badge_type_id");
       var name = badge.get("name");
@@ -31,5 +35,5 @@ export default Ember.Controller.extend({
     }
 
     return grouped;
-  }.property("model")
+  }
 });

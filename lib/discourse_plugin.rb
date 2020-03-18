@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # A basic plugin for Discourse. Meant to be extended and filled in.
 # Most work is delegated to a registry.
 
@@ -20,7 +22,7 @@ class DiscoursePlugin
       original_class = mixin.to_s.demodulize.sub("Mixin", "")
       dependency_file_name = original_class.underscore
       require_dependency(dependency_file_name)
-      original_class.constantize.send(:include, mixin)
+      original_class.constantize.public_send(:include, mixin)
     end
   end
 
@@ -34,8 +36,8 @@ class DiscoursePlugin
     @registry.register_js(file, opts)
   end
 
-  def register_css(file)
-    @registry.register_css(file)
+  def register_css(file, plugin_directory_name)
+    @registry.register_css(file, plugin_directory_name)
   end
 
   def register_archetype(name, options = {})

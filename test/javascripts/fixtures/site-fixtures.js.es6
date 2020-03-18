@@ -1,4 +1,4 @@
-import { LIKED_CONSOLIDATED_TYPE } from "discourse/widgets/notification-item";
+import { NOTIFICATION_TYPES } from "fixtures/concerns/notification-types";
 
 export default {
   "site.json": {
@@ -6,44 +6,23 @@ export default {
       default_archetype: "regular",
       disabled_plugins: [],
       shared_drafts_category_id: 24,
-      notification_types: {
-        mentioned: 1,
-        replied: 2,
-        quoted: 3,
-        edited: 4,
-        liked: 5,
-        private_message: 6,
-        invited_to_private_message: 7,
-        invitee_accepted: 8,
-        posted: 9,
-        moved_post: 10,
-        linked: 11,
-        granted_badge: 12,
-        liked_consolidated: LIKED_CONSOLIDATED_TYPE
-      },
+      notification_types: NOTIFICATION_TYPES,
       post_types: {
         regular: 1,
         moderator_action: 2,
         small_action: 3,
         whisper: 4
       },
-      group_names: [
-        "admins",
-        "discourse",
-        "everyone",
-        "mcneel",
-        "moderators",
-        "newrelic",
-        "plugin_authors",
-        "sitepoint",
-        "staff",
-        "translators",
-        "trust_level_0",
-        "trust_level_1",
-        "trust_level_2",
-        "trust_level_3",
-        "trust_level_4",
-        "ubuntu"
+      groups: [
+        { id: 1, name: "admins" },
+        { id: 2, name: "moderators" },
+        { id: 3, name: "staff" },
+        { id: 4, name: "custom_group" },
+        { id: 10, name: "trust_level_0" },
+        { id: 11, name: "trust_level_1" },
+        { id: 12, name: "trust_level_2" },
+        { id: 13, name: "trust_level_3" },
+        { id: 14, name: "trust_level_4" }
       ],
       filters: [
         "latest",
@@ -62,7 +41,6 @@ export default {
         "starred",
         "read",
         "posted",
-        "category",
         "categories",
         "top"
       ],
@@ -70,7 +48,6 @@ export default {
         "latest",
         "top",
         "categories",
-        "category",
         "categories",
         "top"
       ],
@@ -615,7 +592,6 @@ export default {
           message_override: null,
           frame_width: 580,
           frame_height: 400,
-          full_screen_login: false,
           can_connect: true,
           can_revoke: true
         }

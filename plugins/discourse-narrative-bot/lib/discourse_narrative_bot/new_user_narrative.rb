@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'distributed_mutex'
 
 module DiscourseNarrativeBot
@@ -115,7 +117,9 @@ module DiscourseNarrativeBot
       }
     }
 
-    SEARCH_ANSWER = ':herb:'.freeze
+    def self.search_answer
+      ':herb:'
+    end
 
     def self.reset_trigger
       I18n.t('discourse_narrative_bot.new_user_narrative.reset_trigger')
@@ -150,7 +154,7 @@ module DiscourseNarrativeBot
       raw = <<~RAW
       #{post.raw}
 
-      #{I18n.t("#{I18N_KEY}.search.hidden_message", i18n_post_args)}
+      #{I18n.t("#{I18N_KEY}.search.hidden_message", i18n_post_args.merge(search_answer: NewUserNarrative.search_answer))}
       RAW
 
       PostRevisor.new(post, topic).revise!(
@@ -204,7 +208,9 @@ module DiscourseNarrativeBot
       end
 
       if @data[:topic_id]
-        opts = opts.merge(topic_id: @data[:topic_id])
+        opts = opts
+          .merge(topic_id: @data[:topic_id])
+          .except(:title, :target_usernames, :archetype)
       end
 
       post = reply_to(@post, raw, opts)
@@ -493,7 +499,7 @@ module DiscourseNarrativeBot
       post_topic_id = @post.topic_id
       return unless valid_topic?(post_topic_id)
 
-      if @post.raw.match(/#{SEARCH_ANSWER}/)
+      if @post.raw.match(/#{NewUserNarrative.search_answer}/)
         fake_delay
         reply_to(@post, I18n.t("#{I18N_KEY}.search.reply", i18n_post_args(search_url: url_helpers(:search_url))))
       else
@@ -523,7 +529,7 @@ module DiscourseNarrativeBot
     end
 
     def like_post(post)
-      PostAction.act(self.discobot_user, post, PostActionType.types[:like])
+      PostActionCreator.like(self.discobot_user, post)
     end
 
     def welcome_topic
@@ -532,7 +538,10 @@ module DiscourseNarrativeBot
     end
 
     def url_helpers(url, opts = {})
-      Rails.application.routes.url_helpers.send(url, opts.merge(host: Discourse.base_url))
+      Rails.application.routes.url_helpers.public_send(
+        url,
+        opts.merge(host: Discourse.base_url)
+      )
     end
   end
 end

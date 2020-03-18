@@ -1,7 +1,9 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe "Redis rake tasks" do
-  let(:redis) { $redis.without_namespace }
+  let(:redis) { Discourse.redis.without_namespace }
 
   before do
     @multisite = Rails.configuration.multisite

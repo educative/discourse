@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 require 'cache'
 
@@ -42,6 +44,9 @@ describe "Redis Store" do
   end
 
   it "can be cleared without clearing our cache" do
+    cache.clear
+    store.clear
+
     store.fetch "key" do
       "key in store"
     end
@@ -51,6 +56,7 @@ describe "Redis Store" do
     end
 
     store.clear
+
     expect(store.read("key")).to eq(nil)
     expect(cache.fetch("key")).to eq("key in cache")
 

@@ -1,19 +1,26 @@
+/*global Mousetrap:true*/
 import { buildResolver } from "discourse-common/resolver";
-import {
-  default as computed,
-  observes
-} from "ember-addons/ember-computed-decorators";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
+import { computed } from "@ember/object";
+import FocusEvent from "discourse-common/mixins/focus-event";
+import EmberObject from "@ember/object";
+import deprecated from "discourse-common/lib/deprecated";
 
 const _pluginCallbacks = [];
 
-const Discourse = Ember.Application.extend({
+const Discourse = Ember.Application.extend(FocusEvent, {
   rootElement: "#main",
   _docTitle: document.title,
   RAW_TEMPLATES: {},
   __widget_helpers: {},
-  showingSignup: false,
   customEvents: {
     paste: "paste"
+  },
+
+  reset() {
+    this._super(...arguments);
+
+    Mousetrap.reset();
   },
 
   getURL(url) {
@@ -22,8 +29,8 @@ const Discourse = Ember.Application.extend({
     // if it's a non relative URL, return it.
     if (url !== "/" && !/^\/[^\/]/.test(url)) return url;
 
-    if (url.indexOf(Discourse.BaseUri) !== -1) return url;
     if (url[0] !== "/") url = "/" + url;
+    if (url.startsWith(Discourse.BaseUri)) return url;
 
     return Discourse.BaseUri + url;
   },
@@ -41,9 +48,9 @@ const Discourse = Ember.Application.extend({
 
   Resolver: buildResolver("discourse"),
 
-  @observes("_docTitle", "hasFocus", "notifyCount")
+  @observes("_docTitle", "hasFocus", "contextCount", "notificationCount")
   _titleChanged() {
-    let title = this.get("_docTitle") || Discourse.SiteSettings.title;
+    let title = this._docTitle || Discourse.SiteSettings.title;
 
     // if we change this we can trigger changes on document.title
     // only set if changed.
@@ -51,50 +58,68 @@ const Discourse = Ember.Application.extend({
       $("title").text(title);
     }
 
-    const notifyCount = this.get("notifyCount");
-    if (notifyCount > 0 && !Discourse.User.currentProp("dynamic_favicon")) {
-      title = `(${notifyCount}) ${title}`;
+    let displayCount = this.displayCount;
+    let dynamicFavicon = this.currentUser && this.currentUser.dynamic_favicon;
+    if (displayCount > 0 && !dynamicFavicon) {
+      title = `(${displayCount}) ${title}`;
     }
 
     document.title = title;
   },
 
-  @observes("notifyCount")
+  @discourseComputed("contextCount", "notificationCount")
+  displayCount() {
+    return this.currentUser &&
+      this.currentUser.get("title_count_mode") === "notifications"
+      ? this.notificationCount
+      : this.contextCount;
+  },
+
+  @observes("contextCount", "notificationCount")
   faviconChanged() {
-    if (Discourse.User.currentProp("dynamic_favicon")) {
+    if (this.currentUser && this.currentUser.get("dynamic_favicon")) {
       let url = Discourse.SiteSettings.site_favicon_url;
+
+      // Since the favicon is cached on the browser for a really long time, we
+      // append the favicon_url as query params to the path so that the cache
+      // is not used when the favicon changes.
       if (/^http/.test(url)) {
         url = Discourse.getURL("/favicon/proxied?" + encodeURIComponent(url));
       }
-      new window.Favcount(url).set(this.get("notifyCount"));
+
+      var displayCount = this.displayCount;
+
+      new window.Favcount(url).set(displayCount);
     }
   },
 
-  // The classes of buttons to show on a post
-  @computed
-  postButtons() {
-    return Discourse.SiteSettings.post_menu.split("|").map(function(i) {
-      return i.replace(/\+/, "").capitalize();
-    });
+  updateContextCount(count) {
+    this.set("contextCount", count);
   },
 
-  notifyTitle(count) {
-    this.set("notifyCount", count);
+  updateNotificationCount(count) {
+    if (!this.hasFocus) {
+      this.set("notificationCount", count);
+    }
   },
 
-  notifyBackgroundCountIncrement() {
-    if (!this.get("hasFocus")) {
+  incrementBackgroundContextCount() {
+    if (!this.hasFocus) {
       this.set("backgroundNotify", true);
-      this.set("notifyCount", (this.get("notifyCount") || 0) + 1);
+      this.set("contextCount", (this.contextCount || 0) + 1);
     }
   },
 
   @observes("hasFocus")
-  resetBackgroundNotifyCount() {
-    if (this.get("hasFocus") && this.get("backgroundNotify")) {
-      this.set("notifyCount", 0);
+  resetCounts() {
+    if (this.hasFocus && this.backgroundNotify) {
+      this.set("contextCount", 0);
     }
     this.set("backgroundNotify", false);
+
+    if (this.hasFocus) {
+      this.set("notificationCount", 0);
+    }
   },
 
   authenticationComplete(options) {
@@ -155,7 +180,7 @@ const Discourse = Ember.Application.extend({
     });
   },
 
-  @computed("currentAssetVersion", "desiredAssetVersion")
+  @discourseComputed("currentAssetVersion", "desiredAssetVersion")
   requiresRefresh(currentAssetVersion, desiredAssetVersion) {
     return desiredAssetVersion && currentAssetVersion !== desiredAssetVersion;
   },
@@ -164,21 +189,31 @@ const Discourse = Ember.Application.extend({
     _pluginCallbacks.push({ version, code });
   },
 
-  assetVersion: Ember.computed({
+  assetVersion: computed({
     get() {
-      return this.get("currentAssetVersion");
+      return this.currentAssetVersion;
     },
     set(key, val) {
       if (val) {
-        if (this.get("currentAssetVersion")) {
+        if (this.currentAssetVersion) {
           this.set("desiredAssetVersion", val);
         } else {
           this.set("currentAssetVersion", val);
         }
       }
-      return this.get("currentAssetVersion");
+      return this.currentAssetVersion;
     }
   })
 }).create();
+
+Object.defineProperty(Discourse, "Model", {
+  get() {
+    deprecated("Use an `@ember/object` instead of Discourse.Model", {
+      since: "2.4.0",
+      dropFrom: "2.5.0"
+    });
+    return EmberObject;
+  }
+});
 
 export default Discourse;

@@ -1,3 +1,4 @@
+import selectKit from "helpers/select-kit-helper";
 import { acceptance } from "helpers/qunit-helpers";
 
 acceptance("Admin - Suspend User", {
@@ -7,7 +8,7 @@ acceptance("Admin - Suspend User", {
     server.put("/admin/users/:user_id/suspend", () =>
       helper.response(200, {
         suspension: {
-          suspended: true
+          suspended_till: "2099-01-01T12:00:00.000Z"
         }
       })
     );
@@ -15,7 +16,7 @@ acceptance("Admin - Suspend User", {
     server.put("/admin/users/:user_id/unsuspend", () =>
       helper.response(200, {
         suspension: {
-          suspended: false
+          suspended_till: null
         }
       })
     );

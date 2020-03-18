@@ -1,5 +1,4 @@
-require_dependency 'enum_site_setting'
-require_dependency 'notification_levels'
+# frozen_string_literal: true
 
 class NotificationLevelWhenReplyingSiteSetting < EnumSiteSetting
 

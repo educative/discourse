@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'ipaddr'
 require 'resolv'
 require 'time'
 require 'socket'
@@ -11,7 +12,7 @@ HOSTS_PATH = "/etc/hosts"
 
 CRITICAL_HOST_ENV_VARS = %w{
   DISCOURSE_DB_HOST
-  DISCOURSE_DB_BACKUP_HOST
+  DISCOURSE_DB_REPLICA_HOST
   DISCOURSE_REDIS_HOST
   DISCOURSE_REDIS_SLAVE_HOST
 }

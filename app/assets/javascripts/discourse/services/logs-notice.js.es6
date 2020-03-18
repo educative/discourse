@@ -1,18 +1,19 @@
-import {
-  default as computed,
+import { isEmpty } from "@ember/utils";
+import EmberObject from "@ember/object";
+import discourseComputed, {
   on,
   observes
-} from "ember-addons/ember-computed-decorators";
+} from "discourse-common/utils/decorators";
 import { autoUpdatingRelativeAge } from "discourse/lib/formatter";
 
 const LOGS_NOTICE_KEY = "logs-notice-text";
 
-const LogsNotice = Ember.Object.extend({
+const LogsNotice = EmberObject.extend({
   text: "",
 
   @on("init")
   _setup() {
-    if (!this.get("isActivated")) return;
+    if (!this.isActivated) return;
 
     const text = this.keyValueStore.getItem(LOGS_NOTICE_KEY);
     if (text) this.set("text", text);
@@ -20,7 +21,7 @@ const LogsNotice = Ember.Object.extend({
     this.messageBus.subscribe("/logs_error_rate_exceeded", data => {
       const duration = data.duration;
       const rate = data.rate;
-      var siteSettingLimit = 0;
+      let siteSettingLimit = 0;
 
       if (duration === "minute") {
         siteSettingLimit = this.siteSettings.alert_admins_if_errors_per_minute;
@@ -28,54 +29,49 @@ const LogsNotice = Ember.Object.extend({
         siteSettingLimit = this.siteSettings.alert_admins_if_errors_per_hour;
       }
 
-      var translationKey = rate === siteSettingLimit ? "reached" : "exceeded";
+      let translationKey = rate === siteSettingLimit ? "reached" : "exceeded";
+      translationKey += `_${duration}_MF`;
 
       this.set(
         "text",
-        I18n.t(`logs_error_rate_notice.${translationKey}`, {
+        I18n.messageFormat(`logs_error_rate_notice.${translationKey}`, {
           relativeAge: autoUpdatingRelativeAge(
             new Date(data.publish_at * 1000)
           ),
-          siteSettingRate: I18n.t("logs_error_rate_notice.rate", {
-            count: siteSettingLimit,
-            duration: duration
-          }),
-          rate: I18n.t("logs_error_rate_notice.rate", {
-            count: rate,
-            duration: duration
-          }),
+          rate,
+          limit: siteSettingLimit,
           url: Discourse.getURL("/logs")
         })
       );
     });
   },
 
-  @computed("text")
+  @discourseComputed("text")
   isEmpty(text) {
-    return Ember.isEmpty(text);
+    return isEmpty(text);
   },
 
-  @computed("text")
+  @discourseComputed("text")
   message(text) {
     return new Handlebars.SafeString(text);
   },
 
-  @computed("currentUser")
+  @discourseComputed("currentUser")
   isAdmin(currentUser) {
     return currentUser && currentUser.admin;
   },
 
-  @computed("isEmpty", "isAdmin")
-  hidden(isEmpty, isAdmin) {
-    return !isAdmin || isEmpty;
+  @discourseComputed("isEmpty", "isAdmin")
+  hidden(thisIsEmpty, isAdmin) {
+    return !isAdmin || thisIsEmpty;
   },
 
   @observes("text")
   _updateKeyValueStore() {
-    this.keyValueStore.setItem(LOGS_NOTICE_KEY, this.get("text"));
+    this.keyValueStore.setItem(LOGS_NOTICE_KEY, this.text);
   },
 
-  @computed(
+  @discourseComputed(
     "siteSettings.alert_admins_if_errors_per_hour",
     "siteSettings.alert_admins_if_errors_per_minute"
   )

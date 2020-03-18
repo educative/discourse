@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class Unread
 
   # This module helps us calculate unread and new post counts
@@ -25,7 +27,7 @@ class Unread
 
     new_posts = (highest_post_number - @topic_user.highest_seen_post_number)
     new_posts = 0 if new_posts < 0
-    return new_posts
+    new_posts
   end
 
   protected

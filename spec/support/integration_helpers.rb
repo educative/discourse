@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module IntegrationHelpers
   def create_user
     get "/u/hp.json"
@@ -26,5 +28,9 @@ module IntegrationHelpers
   def sign_in(user)
     get "/session/#{user.username}/become"
     user
+  end
+
+  def read_secure_session
+    SecureSession.new(session[:secure_session_id])
   end
 end

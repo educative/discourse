@@ -1,3 +1,6 @@
+import { isEmpty } from "@ember/utils";
+import { run } from "@ember/runloop";
+import { later } from "@ember/runloop";
 /* global QUnit, resetSite */
 
 import sessionFixtures from "fixtures/session-fixtures";
@@ -13,23 +16,24 @@ import { flushMap } from "discourse/models/store";
 import { clearRewrites } from "discourse/lib/url";
 import { initSearchData } from "discourse/widgets/search-menu";
 import { resetDecorators } from "discourse/widgets/widget";
+import { resetWidgetCleanCallbacks } from "discourse/components/mount-widget";
+import { resetDecorators as resetPostCookedDecorators } from "discourse/widgets/post-cooked";
+import { resetDecorators as resetPluginOutletDecorators } from "discourse/components/plugin-connector";
 import { resetCache as resetOneboxCache } from "pretty-text/oneboxer";
 import { resetCustomPostMessageCallbacks } from "discourse/controllers/topic";
+import User from "discourse/models/user";
 
 export function currentUser() {
-  return Discourse.User.create(
-    sessionFixtures["/session/current.json"].current_user
-  );
+  return User.create(sessionFixtures["/session/current.json"].current_user);
 }
 
-export function replaceCurrentUser(properties) {
-  const user = Discourse.User.current();
-  user.setProperties(properties);
-  Discourse.User.resetCurrent(user);
+export function updateCurrentUser(properties) {
+  User.current().setProperties(properties);
 }
 
+// Note: do not use this in acceptance tests. Use `loggedIn: true` instead
 export function logIn() {
-  Discourse.User.resetCurrent(currentUser());
+  User.resetCurrent(currentUser());
 }
 
 const Plugin = $.fn.modal;
@@ -57,17 +61,18 @@ function AcceptanceModal(option, _relatedTarget) {
 window.bootbox.$body = $("#ember-testing");
 $.fn.modal = AcceptanceModal;
 
-let _pretenderCallbacks = [];
+let _pretenderCallbacks = {};
 
-export function applyPretender(server, helper) {
-  _pretenderCallbacks.forEach(cb => cb(server, helper));
+export function applyPretender(name, server, helper) {
+  const cb = _pretenderCallbacks[name];
+  if (cb) cb(server, helper);
 }
 
 export function acceptance(name, options) {
   options = options || {};
 
   if (options.pretend) {
-    _pretenderCallbacks.push(options.pretend);
+    _pretenderCallbacks[name] = options.pretend;
   }
 
   QUnit.module("Acceptance: " + name, {
@@ -114,7 +119,7 @@ export function acceptance(name, options) {
       }
       flushMap();
       localStorage.clear();
-      Discourse.User.resetCurrent();
+      User.resetCurrent();
       resetSite(Discourse.SiteSettings);
       resetExtraClasses();
       clearOutletCache();
@@ -123,9 +128,22 @@ export function acceptance(name, options) {
       clearRewrites();
       initSearchData();
       resetDecorators();
+      resetPostCookedDecorators();
+      resetPluginOutletDecorators();
       resetOneboxCache();
       resetCustomPostMessageCallbacks();
+      Discourse._runInitializer("instanceInitializers", function(
+        initName,
+        initializer
+      ) {
+        if (initializer && initializer.teardown) {
+          initializer.teardown(Discourse.__container__);
+        }
+      });
       Discourse.reset();
+
+      // We do this after reset so that the willClearRender will have already fired
+      resetWidgetCleanCallbacks();
     }
   });
 }
@@ -141,7 +159,7 @@ export function controllerFor(controller, model) {
 export function asyncTestDiscourse(text, func) {
   QUnit.test(text, function(assert) {
     const done = assert.async();
-    Ember.run(() => {
+    run(() => {
       func.call(this, assert);
       done();
     });
@@ -166,7 +184,7 @@ QUnit.assert.not = function(actual, message) {
 
 QUnit.assert.blank = function(actual, message) {
   this.pushResult({
-    result: Ember.isEmpty(actual),
+    result: isEmpty(actual),
     actual,
     message
   });
@@ -174,7 +192,7 @@ QUnit.assert.blank = function(actual, message) {
 
 QUnit.assert.present = function(actual, message) {
   this.pushResult({
-    result: !Ember.isEmpty(actual),
+    result: !isEmpty(actual),
     actual,
     message
   });
@@ -192,7 +210,7 @@ export function waitFor(assert, callback, timeout) {
   timeout = timeout || 500;
 
   const done = assert.async();
-  Ember.run.later(() => {
+  later(() => {
     callback();
     done();
   }, timeout);

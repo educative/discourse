@@ -1,11 +1,11 @@
 import { acceptance } from "helpers/qunit-helpers";
-import { IMAGE_VERSION as v } from "pretty-text/emoji";
-import { resetCache } from "discourse/components/emoji-picker";
+import { IMAGE_VERSION as v } from "pretty-text/emoji/version";
 
 acceptance("EmojiPicker", {
   loggedIn: true,
   beforeEach() {
-    resetCache();
+    const store = Discourse.__container__.lookup("service:emoji-store");
+    store.reset();
   }
 });
 
@@ -60,13 +60,43 @@ QUnit.test("emoji picker triggers event when picking emoji", async assert => {
   );
 });
 
+QUnit.test(
+  "emoji picker adds leading whitespace before emoji",
+  async assert => {
+    await visit("/t/internationalization-localization/280");
+    await click("#topic-footer-buttons .btn.create");
+
+    // Whitespace should be added on text
+    await fillIn(".d-editor-input", "This is a test input");
+    await click("button.emoji.btn");
+    await click(".emoji-picker button[title='grinning']");
+    assert.equal(
+      find(".d-editor-input").val(),
+      "This is a test input :grinning:",
+      "it adds the emoji code and a leading whitespace when there is text"
+    );
+    await click("button.emoji.btn");
+
+    // Whitespace should not be added on whitespace
+    await fillIn(".d-editor-input", "This is a test input ");
+    await click("button.emoji.btn");
+    await click(".emoji-picker button[title='grinning']");
+    assert.equal(
+      find(".d-editor-input").val(),
+      "This is a test input :grinning:",
+      "it adds the emoji code and no leading whitespace when user already entered whitespace"
+    );
+    await click("button.emoji.btn");
+  }
+);
+
 QUnit.test("emoji picker has a list of recently used emojis", async assert => {
   await visit("/t/internationalization-localization/280");
   await click("#topic-footer-buttons .btn.create");
   await click("button.emoji.btn");
 
   await click(
-    ".emoji-picker .section[data-section='people'] button.emoji[title='grinning']"
+    ".emoji-picker .section[data-section='smileys_&_emotion'] button.emoji[title='grinning']"
   );
   assert.equal(
     find('.emoji-picker .section[data-section="recent"]').css("display"),

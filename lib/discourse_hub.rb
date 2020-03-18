@@ -1,5 +1,4 @@
-require_dependency 'version'
-require_dependency 'site_setting'
+# frozen_string_literal: true
 
 module DiscourseHub
 
@@ -15,7 +14,7 @@ module DiscourseHub
   end
 
   def self.stats_fetched_at=(time_with_zone)
-    $redis.set STATS_FETCHED_AT_KEY, time_with_zone.to_i
+    Discourse.redis.set STATS_FETCHED_AT_KEY, time_with_zone.to_i
   end
 
   def self.get_payload
@@ -40,7 +39,8 @@ module DiscourseHub
 
   def self.singular_action(action, rel_url, params = {})
     connect_opts = connect_opts(params)
-    JSON.parse(Excon.send(action,
+
+    JSON.parse(Excon.public_send(action,
       "#{hub_base_url}#{rel_url}",
       {
         headers: { 'Referer' => referer, 'Accept' => accepts.join(', ') },
@@ -53,7 +53,7 @@ module DiscourseHub
   def self.collection_action(action, rel_url, params = {})
     connect_opts = connect_opts(params)
 
-    response = Excon.send(action,
+    response = Excon.public_send(action,
       "#{hub_base_url}#{rel_url}",
       {
         body: JSON[params],
@@ -102,7 +102,7 @@ module DiscourseHub
   end
 
   def self.stats_fetched_at
-    t = $redis.get(STATS_FETCHED_AT_KEY)
+    t = Discourse.redis.get(STATS_FETCHED_AT_KEY)
     t ? Time.zone.at(t.to_i) : 1.year.ago
   end
 

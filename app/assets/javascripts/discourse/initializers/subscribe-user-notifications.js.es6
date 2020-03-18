@@ -1,3 +1,4 @@
+import EmberObject from "@ember/object";
 // Subscribes to user events on the message bus
 import {
   init as initDesktopNotifications,
@@ -10,6 +11,8 @@ import {
   unsubscribe as unsubscribePushNotifications,
   isPushNotificationsEnabled
 } from "discourse/lib/push-notifications";
+import { set } from "@ember/object";
+import ENV from "discourse-common/config/environment";
 
 export default {
   name: "subscribe-user-notifications",
@@ -18,20 +21,12 @@ export default {
   initialize(container) {
     const user = container.lookup("current-user:main");
     const bus = container.lookup("message-bus:main");
-    const appEvents = container.lookup("app-events:main");
+    const appEvents = container.lookup("service:app-events");
 
     if (user) {
-      if (user.get("staff")) {
-        bus.subscribe("/flagged_counts", data => {
-          user.set("site_flagged_posts_count", data.total);
-        });
-        bus.subscribe("/queue_counts", data => {
-          user.set("post_queue_new_count", data.post_queue_new_count);
-          if (data.post_queue_new_count > 0) {
-            user.set("show_queued_posts", 1);
-          }
-        });
-      }
+      bus.subscribe("/reviewable_counts", data => {
+        user.set("reviewable_count", data.reviewable_count);
+      });
 
       bus.subscribe(
         `/notification/${user.get("id")}`,
@@ -51,6 +46,14 @@ export default {
             oldPM !== data.unread_private_messages
           ) {
             appEvents.trigger("notifications:changed");
+
+            if (
+              site.mobileView &&
+              (data.unread_notifications - oldUnread > 0 ||
+                data.unread_private_messages - oldPM > 0)
+            ) {
+              appEvents.trigger("header:update-topic", null, 5000);
+            }
           }
 
           const stale = store.findStale(
@@ -82,7 +85,7 @@ export default {
               }
               oldNotifications.insertAt(
                 insertPosition,
-                Ember.Object.create(lastNotification)
+                EmberObject.create(lastNotification)
               );
             }
 
@@ -119,24 +122,19 @@ export default {
       });
 
       bus.subscribe("/client_settings", data =>
-        Ember.set(siteSettings, data.name, data.value)
+        set(siteSettings, data.name, data.value)
       );
       bus.subscribe("/refresh_client", data =>
         Discourse.set("assetVersion", data)
       );
 
-      if (!Ember.testing) {
+      if (ENV.environment !== "test") {
         bus.subscribe(alertChannel(user), data => onNotification(data, user));
         initDesktopNotifications(bus, appEvents);
 
         if (isPushNotificationsEnabled(user, site.mobileView)) {
           disableDesktopNotifications();
-          registerPushNotifications(
-            Discourse.User.current(),
-            site.mobileView,
-            router,
-            appEvents
-          );
+          registerPushNotifications(user, site.mobileView, router, appEvents);
         } else {
           unsubscribePushNotifications(user);
         }

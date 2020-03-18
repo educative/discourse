@@ -1,57 +1,53 @@
-import {
+import Component from "@ember/component";
+import discourseComputed, {
   on,
-  observes,
-  default as computed
-} from "ember-addons/ember-computed-decorators";
+  observes
+} from "discourse-common/utils/decorators";
 import { findRawTemplate } from "discourse/lib/raw-templates";
+const { makeArray } = Ember;
 
-export default Ember.Component.extend({
-  @computed("placeholderKey")
+export default Component.extend({
+  @discourseComputed("placeholderKey")
   placeholder(placeholderKey) {
     return placeholderKey ? I18n.t(placeholderKey) : "";
   },
 
   @observes("badgeNames")
   _update() {
-    if (this.get("canReceiveUpdates") === "true")
+    if (this.canReceiveUpdates === "true") {
       this._initializeAutocomplete({ updateData: true });
+    }
   },
 
   @on("didInsertElement")
   _initializeAutocomplete(opts) {
-    var self = this;
-    var selectedBadges;
+    let selectedBadges;
 
-    self.$("input").autocomplete({
+    $(this.element.querySelector("input")).autocomplete({
       allowAny: false,
-      items: _.isArray(this.get("badgeNames"))
-        ? this.get("badgeNames")
-        : [this.get("badgeNames")],
-      single: this.get("single"),
+      items: makeArray(this.badgeNames),
+      single: this.single,
       updateData: opts && opts.updateData ? opts.updateData : false,
-      onChangeItems: function(items) {
+      template: findRawTemplate("badge-selector-autocomplete"),
+
+      onChangeItems(items) {
         selectedBadges = items;
-        self.set("badgeNames", items.join(","));
+        this.set("badgeNames", items.join(","));
       },
-      transformComplete: function(g) {
+
+      transformComplete(g) {
         return g.name;
       },
-      dataSource: function(term) {
-        return self
-          .get("badgeFinder")(term)
-          .then(function(badges) {
-            if (!selectedBadges) {
-              return badges;
-            }
 
-            return badges.filter(function(badge) {
-              return !selectedBadges.any(function(s) {
-                return s === badge.name;
-              });
-            });
-          });
-      },
-      template: findRawTemplate("badge-selector-autocomplete")
+      dataSource(term) {
+        return this.badgeFinder(term).then(badges => {
+          if (!selectedBadges) return badges;
+
+          return badges.filter(
+            badge => !selectedBadges.any(s => s === badge.name)
+          );
+        });
+      }
     });
   }
 });

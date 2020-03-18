@@ -5,7 +5,6 @@
 }
 
 .modal-middle-container {
-  margin-top: 10%;
   max-width: 100%;
   margin-bottom: 30px; // For iOS Safari issues
 }
@@ -16,15 +15,21 @@
   width: 100%;
 }
 
-.modal.fade {
-  transition: opacity 0.3s linear, top 0.3s ease-out;
-  top: -25%;
-}
-.modal.fade.in {
-  top: 50%;
-}
-.modal-body {
-  padding: 10px;
+.modal {
+  &.fade {
+    transition: opacity 0.3s linear, top 0.3s ease-out;
+    top: -25%;
+  }
+  &.fade.in {
+    top: 50%;
+  }
+  .modal-body {
+    padding: 0.667em;
+    > * {
+      // adding box-sizing: border-box; to .modal-body causes iOS dropdown issues
+      box-sizing: border-box;
+    }
+  }
 }
 
 // we need a little extra room on mobile for the
@@ -42,13 +47,12 @@
 
 .close {
   font-size: $font-up-4;
-  padding: 10px 15px 5px 5px;
-  color: $primary;
 }
 
-#move-selected {
+#choosing-topic {
   p {
     margin-top: 0;
+    padding-bottom: 0;
   }
 
   input[type="radio"] {
@@ -67,7 +71,7 @@
 
   form {
     margin-top: 20px;
-    input[type="text"] {
+    input:not(.filter-input)[type="text"] {
       box-sizing: border-box;
       width: 100%;
     }
@@ -82,7 +86,6 @@
 
 .edit-category-modal {
   .modal-body {
-    box-sizing: border-box;
     position: relative;
     height: 350px;
   }
@@ -103,15 +106,18 @@
   margin-bottom: 20px;
 }
 
-.alert {
-  padding: 5px;
-  &.alert-success {
-    background-color: $success-low;
-    color: $success;
+/* fix for tall modals */
+
+.fixed-modal {
+  .modal-middle-container {
+    margin-bottom: 0;
+  }
+  .modal-inner-container {
+    max-height: 90vh;
+    overflow: auto;
   }
 }
 
-.change-timestamp-footer .btn-primary {
-  float: right;
-  margin-right: 5px;
+.modal .modal-body.reorder-categories {
+  max-height: calc(100vh - 220px);
 }

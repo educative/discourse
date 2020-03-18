@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 require 'email'
 
@@ -106,6 +108,15 @@ describe Email::Styles do
       expect(frag.at('iframe')).to be_blank
       expect(frag.at('a')).to be_blank
     end
+
+    it "prefers data-original-href attribute to get iframe link" do
+      original_url = "https://vimeo.com/329875646/85f1546a42"
+      iframe_url = "https://player.vimeo.com/video/329875646"
+      frag = html_fragment("<iframe src=\"#{iframe_url}\" data-original-href=\"#{original_url}\"></iframe>")
+      expect(frag.at('iframe')).to be_blank
+      expect(frag.at('a')).to be_present
+      expect(frag.at('a')['href']).to eq(original_url)
+    end
   end
 
   context "rewriting protocol relative URLs to the forum" do
@@ -188,4 +199,23 @@ describe Email::Styles do
     end
   end
 
+  context "replace_relative_urls" do
+    it "replaces secure media within a link with a placeholder" do
+      frag = html_fragment("<a href=\"#{Discourse.base_url}\/secure-media-uploads/original/1X/testimage.png\"><img src=\"/secure-media-uploads/original/1X/testimage.png\"></a>")
+      expect(frag.at('p.secure-media-notice')).to be_present
+      expect(frag.at('img')).not_to be_present
+      expect(frag.at('a')).not_to be_present
+    end
+
+    it "replaces secure images with a placeholder" do
+      frag = html_fragment("<img src=\"/secure-media-uploads/original/1X/testimage.png\">")
+      expect(frag.at('p.secure-media-notice')).to be_present
+      expect(frag.at('img')).not_to be_present
+    end
+
+    it "does not replace topic links with secure-media-uploads in the name" do
+      frag = html_fragment("<a href=\"#{Discourse.base_url}\/t/secure-media-uploads/235723\">Visit Topic</a>")
+      expect(frag.at('p.secure-media-notice')).not_to be_present
+    end
+  end
 end

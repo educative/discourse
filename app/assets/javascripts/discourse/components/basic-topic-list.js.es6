@@ -1,19 +1,25 @@
-export default Ember.Component.extend({
-  loadingMore: Ember.computed.alias("topicList.loadingMore"),
-  loading: Ember.computed.not("loaded"),
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
+import { alias, not } from "@ember/object/computed";
+import Component from "@ember/component";
 
-  loaded: function() {
-    var topicList = this.get("topicList");
+export default Component.extend({
+  loadingMore: alias("topicList.loadingMore"),
+  loading: not("loaded"),
+
+  @discourseComputed("topicList.loaded")
+  loaded() {
+    var topicList = this.topicList;
     if (topicList) {
       return topicList.get("loaded");
     } else {
       return true;
     }
-  }.property("topicList.loaded"),
+  },
 
+  @observes("topicList.[]")
   _topicListChanged: function() {
-    this._initFromTopicList(this.get("topicList"));
-  }.observes("topicList.[]"),
+    this._initFromTopicList(this.topicList);
+  },
 
   _initFromTopicList(topicList) {
     if (topicList !== null) {
@@ -24,13 +30,55 @@ export default Ember.Component.extend({
 
   init() {
     this._super(...arguments);
-    const topicList = this.get("topicList");
+    const topicList = this.topicList;
     if (topicList) {
       this._initFromTopicList(topicList);
-    } else {
-      // Without a topic list, we assume it's loaded always.
-      this.set("loaded", true);
     }
+  },
+
+  didInsertElement() {
+    this._super(...arguments);
+
+    this.topics.forEach(topic => {
+      const includeUnreadIndicator =
+        typeof topic.unread_by_group_member !== "undefined";
+
+      if (includeUnreadIndicator) {
+        const unreadIndicatorChannel = `/private-messages/unread-indicator/${topic.id}`;
+        this.messageBus.subscribe(unreadIndicatorChannel, data => {
+          const nodeClassList = document.querySelector(
+            `.indicator-topic-${data.topic_id}`
+          ).classList;
+
+          if (data.show_indicator) {
+            nodeClassList.remove("read");
+          } else {
+            nodeClassList.add("read");
+          }
+        });
+      }
+    });
+  },
+
+  willDestroyElement() {
+    this._super(...arguments);
+
+    this.topics.forEach(topic => {
+      const includeUnreadIndicator =
+        typeof topic.unread_by_group_member !== "undefined";
+
+      if (includeUnreadIndicator) {
+        const unreadIndicatorChannel = `/private-messages/unread-indicator/${topic.id}`;
+        this.messageBus.unsubscribe(unreadIndicatorChannel);
+      }
+    });
+  },
+
+  @discourseComputed("topics")
+  showUnreadIndicator(topics) {
+    return topics.some(
+      topic => typeof topic.unread_by_group_member !== "undefined"
+    );
   },
 
   click(e) {
@@ -58,7 +106,7 @@ export default Ember.Component.extend({
           }
         }
 
-        const topic = this.get("topics").findBy("id", parseInt(topicId));
+        const topic = this.topics.findBy("id", parseInt(topicId, 10));
         this.appEvents.trigger("topic-entrance:show", {
           topic,
           position: target.offset()

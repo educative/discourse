@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 if ARGV.empty?
   puts 'Usage: ', ''
   puts '  ruby plugin-translations.rb <plugins_base_dir>'
@@ -26,7 +28,7 @@ class PluginTxUpdater
     'discourse-patreon',
     'discourse-saved-searches',
     'discourse-solved',
-    'discourse-staff-notes',
+    'discourse-user-notes',
     'discourse-voting'
   ]
 
@@ -40,7 +42,7 @@ class PluginTxUpdater
     PLUGINS.each do |plugin_name|
       plugin_dir = File.join(@base_dir, plugin_name)
       Bundler.with_clean_env do
-        Dir.chdir(plugin_dir) do
+        Dir.chdir(plugin_dir) do # rubocop:disable DiscourseCops/NoChdir because this is not part of the app
           puts '', plugin_dir, '-' * 80, ''
 
           begin

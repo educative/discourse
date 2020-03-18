@@ -1,9 +1,9 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
-require_dependency 'jobs/scheduled/invalidate_inactive_admins'
-
 describe Jobs::InvalidateInactiveAdmins do
-  let!(:active_admin) { Fabricate(:admin, last_seen_at: 1.hour.ago) }
+  fab!(:active_admin) { Fabricate(:admin, last_seen_at: 1.hour.ago) }
   before { active_admin.email_tokens.update_all(confirmed: true) }
 
   subject { Jobs::InvalidateInactiveAdmins.new.execute({}) }
@@ -16,7 +16,7 @@ describe Jobs::InvalidateInactiveAdmins do
   end
 
   context "with an admin who hasn't been seen recently" do
-    let!(:not_seen_admin) { Fabricate(:admin, last_seen_at: 370.days.ago) }
+    fab!(:not_seen_admin) { Fabricate(:admin, last_seen_at: 370.days.ago) }
     before { not_seen_admin.email_tokens.update_all(confirmed: true) }
 
     context 'invalidate_inactive_admin_email_after_days = 365' do
@@ -29,7 +29,16 @@ describe Jobs::InvalidateInactiveAdmins do
         expect(not_seen_admin.reload.email_tokens.where(confirmed: true).exists?).to eq(false)
       end
 
-      it 'makes the user as not active' do
+      it 'makes the user as not active and logs the action' do
+        subject
+        expect(not_seen_admin.reload.active).to eq(false)
+
+        log = UserHistory.last
+        expect(log.target_user_id).to eq(not_seen_admin.id)
+        expect(log.action).to eq(UserHistory.actions[:deactivate_user])
+      end
+
+      it 'adds a staff log' do
         subject
         expect(not_seen_admin.reload.active).to eq(false)
       end
@@ -37,18 +46,26 @@ describe Jobs::InvalidateInactiveAdmins do
       context 'with social logins' do
         before do
           GithubUserInfo.create!(user_id: not_seen_admin.id, screen_name: 'bob', github_user_id: 100)
-          InstagramUserInfo.create!(user_id: not_seen_admin.id, screen_name: 'bob', instagram_user_id: 'examplel123123')
-          UserOpenId.create!(url: 'https://me.yahoo.com/id/123' , user_id: not_seen_admin.id, email: 'bob@example.com', active: true)
-          GoogleUserInfo.create!(user_id: not_seen_admin.id, google_user_id: 100, email: 'bob@example.com')
+          UserAssociatedAccount.create!(provider_name: "google_oauth2", user_id: not_seen_admin.id, provider_uid: 100, info: { email: "bob@google.account.com" })
         end
 
         it 'removes the social logins' do
           subject
           expect(GithubUserInfo.where(user_id: not_seen_admin.id).exists?).to eq(false)
-          expect(InstagramUserInfo.where(user_id: not_seen_admin.id).exists?).to eq(false)
-          expect(GoogleUserInfo.where(user_id: not_seen_admin.id).exists?).to eq(false)
-          expect(UserOpenId.where(user_id: not_seen_admin.id).exists?).to eq(false)
+          expect(UserAssociatedAccount.where(user_id: not_seen_admin.id).exists?).to eq(false)
         end
+      end
+
+      it "doesn't deactivate admins with recent posts" do
+        Fabricate(:post, user: not_seen_admin)
+        subject
+        expect(not_seen_admin.reload.active).to eq(true)
+      end
+
+      it "doesn't deactivate admins with recently used api keys" do
+        Fabricate(:api_key, user: not_seen_admin, last_used_at: 1.day.ago)
+        subject
+        expect(not_seen_admin.reload.active).to eq(true)
       end
     end
 

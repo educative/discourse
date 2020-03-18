@@ -1,4 +1,7 @@
-export default Ember.Component.extend({
+import { scheduleOnce } from "@ember/runloop";
+import Component from "@ember/component";
+
+export default Component.extend({
   classNames: ["invite-list"],
   users: null,
   inviteEmail: "",
@@ -14,6 +17,8 @@ export default Ember.Component.extend({
       { id: "regular", label: I18n.t("wizard.invites.roles.regular") }
     ]);
 
+    this.set("inviteRole", this.get("roles.0.id"));
+
     this.updateField();
   },
 
@@ -26,7 +31,7 @@ export default Ember.Component.extend({
   },
 
   updateField() {
-    const users = this.get("users");
+    const users = this.users;
 
     this.set("field.value", JSON.stringify(users));
 
@@ -39,15 +44,15 @@ export default Ember.Component.extend({
   actions: {
     addUser() {
       const user = {
-        email: this.get("inviteEmail") || "",
-        role: this.get("inviteRole")
+        email: this.inviteEmail || "",
+        role: this.inviteRole
       };
 
       if (!/(.+)@(.+){2,}\.(.+){2,}/.test(user.email)) {
         return this.set("invalid", true);
       }
 
-      const users = this.get("users");
+      const users = this.users;
       if (users.findBy("email", user.email)) {
         return this.set("invalid", true);
       }
@@ -58,13 +63,13 @@ export default Ember.Component.extend({
       this.updateField();
 
       this.set("inviteEmail", "");
-      Ember.run.scheduleOnce("afterRender", () =>
-        this.$(".invite-email").focus()
+      scheduleOnce("afterRender", () =>
+        this.element.querySelector(".invite-email").focus()
       );
     },
 
     removeUser(user) {
-      this.get("users").removeObject(user);
+      this.users.removeObject(user);
       this.updateField();
     }
   }

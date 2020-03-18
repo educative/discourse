@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe DirectoryItem do
@@ -49,7 +51,8 @@ describe DirectoryItem do
 
   context 'refresh' do
     before do
-      UserActionCreator.enable
+      freeze_time DateTime.parse('2017-02-02 12:00')
+      UserActionManager.enable
     end
 
     it "creates the record for the user and handles likes" do
@@ -58,7 +61,7 @@ describe DirectoryItem do
 
       user2 = Fabricate(:user)
 
-      PostAction.act(user2, post, PostActionType.types[:like])
+      PostActionCreator.like(user2, post)
 
       DirectoryItem.refresh!
 
@@ -87,11 +90,13 @@ describe DirectoryItem do
     it "handles users with no activity" do
       post = nil
 
-      freeze_time(2.years.ago) do
-        post = create_post
-        # Create records for that activity
-        DirectoryItem.refresh!
-      end
+      freeze_time(2.years.ago)
+
+      post = create_post
+      # Create records for that activity
+      DirectoryItem.refresh!
+
+      freeze_time(2.years.from_now)
 
       DirectoryItem.refresh!
       [:yearly, :monthly, :weekly, :daily, :quarterly].each do |period|
@@ -139,6 +144,18 @@ describe DirectoryItem do
         .first
 
       expect(monthly_directory_item.days_visited).to eq(3)
+    end
+
+    context 'must approve users' do
+      before do
+        SiteSetting.must_approve_users = true
+      end
+
+      it "doesn't include user who hasn't been approved" do
+        user = Fabricate(:user, approved: false)
+        DirectoryItem.refresh!
+        expect(DirectoryItem.where(user_id: user.id).count).to eq(0)
+      end
     end
 
   end

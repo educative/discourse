@@ -1,20 +1,23 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { isEmpty } from "@ember/utils";
+import { alias } from "@ember/object/computed";
+import Controller from "@ember/controller";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 import DiscourseURL from "discourse/lib/url";
 import ModalFunctionality from "discourse/mixins/modal-functionality";
 
-export default Ember.Controller.extend(ModalFunctionality, {
+export default Controller.extend(ModalFunctionality, {
   loading: false,
-  reason: Ember.computed.alias("model.membership_request_template"),
+  reason: alias("model.membership_request_template"),
 
-  @computed("model.name")
+  @discourseComputed("model.name")
   title(groupName) {
     return I18n.t("groups.membership_request.title", { group_name: groupName });
   },
 
-  @computed("loading", "reason")
+  @discourseComputed("loading", "reason")
   disableSubmit(loading, reason) {
-    return loading || Ember.isEmpty(reason);
+    return loading || isEmpty(reason);
   },
 
   actions: {
@@ -22,8 +25,8 @@ export default Ember.Controller.extend(ModalFunctionality, {
       if (this.currentUser) {
         this.set("loading", true);
 
-        this.get("model")
-          .requestMembership(this.get("reason"))
+        this.model
+          .requestMembership(this.reason)
           .then(result => {
             DiscourseURL.routeTo(result.relative_url);
           })

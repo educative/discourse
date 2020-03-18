@@ -1,11 +1,12 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import Controller from "@ember/controller";
 import ModalFunctionality from "discourse/mixins/modal-functionality";
 import { ajax } from "discourse/lib/ajax";
-import { allowsImages } from "discourse/lib/utilities";
+import { allowsImages } from "discourse/lib/uploads";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 
-export default Ember.Controller.extend(ModalFunctionality, {
-  @computed(
+export default Controller.extend(ModalFunctionality, {
+  @discourseComputed(
     "selected",
     "user.system_avatar_upload_id",
     "user.gravatar_avatar_upload_id",
@@ -22,7 +23,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
     }
   },
 
-  @computed(
+  @discourseComputed(
     "selected",
     "user.system_avatar_template",
     "user.gravatar_avatar_template",
@@ -39,9 +40,12 @@ export default Ember.Controller.extend(ModalFunctionality, {
     }
   },
 
-  @computed()
+  @discourseComputed()
   allowAvatarUpload() {
-    return this.siteSettings.allow_uploaded_avatars && allowsImages();
+    return (
+      this.siteSettings.allow_uploaded_avatars &&
+      allowsImages(this.currentUser.staff)
+    );
   },
 
   actions: {
@@ -62,7 +66,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
           } else {
             this.set("gravatarFailed", false);
 
-            this.get("user").setProperties({
+            this.user.setProperties({
               gravatar_avatar_upload_id: result.gravatar_upload_id,
               gravatar_avatar_template: result.gravatar_avatar_template
             });
@@ -72,17 +76,17 @@ export default Ember.Controller.extend(ModalFunctionality, {
     },
 
     selectAvatar(url) {
-      this.get("user")
+      this.user
         .selectAvatar(url)
         .then(() => window.location.reload())
         .catch(popupAjaxError);
     },
 
     saveAvatarSelection() {
-      const selectedUploadId = this.get("selectedUploadId");
-      const type = this.get("selected");
+      const selectedUploadId = this.selectedUploadId;
+      const type = this.selected;
 
-      this.get("user")
+      this.user
         .pickAvatar(selectedUploadId, type)
         .then(() => window.location.reload())
         .catch(popupAjaxError);

@@ -1,4 +1,6 @@
 import PreloadStore from "preload-store";
+import { asyncTestDiscourse } from "helpers/qunit-helpers";
+import { Promise } from "rsvp";
 
 QUnit.module("preload-store", {
   beforeEach() {
@@ -55,7 +57,7 @@ asyncTestDiscourse(
     assert.expect(1);
 
     const finder = function() {
-      return new Ember.RSVP.Promise(function(resolve) {
+      return new Promise(function(resolve) {
         resolve("hahahah");
       });
     };
@@ -74,7 +76,7 @@ asyncTestDiscourse(
     assert.expect(1);
 
     const finder = function() {
-      return new Ember.RSVP.Promise(function(resolve, reject) {
+      return new Promise(function(resolve, reject) {
         reject("error");
       });
     };

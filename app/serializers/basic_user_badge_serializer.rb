@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class BasicUserBadgeSerializer < ApplicationSerializer
   attributes :id, :granted_at, :count, :grouping_position
 
@@ -8,6 +10,6 @@ class BasicUserBadgeSerializer < ApplicationSerializer
   end
 
   def grouping_position
-    object.badge.badge_grouping.position
+    object.badge&.badge_grouping&.position
   end
 end

@@ -1,12 +1,14 @@
 # frozen_string_literal: true
 
-require_dependency "auth/current_user_provider"
-require_dependency "rate_limiter"
-
 class Auth::DefaultCurrentUserProvider
 
   CURRENT_USER_KEY ||= "_DISCOURSE_CURRENT_USER"
   API_KEY ||= "api_key"
+  API_USERNAME ||= "api_username"
+  HEADER_API_KEY ||= "HTTP_API_KEY"
+  HEADER_API_USERNAME ||= "HTTP_API_USERNAME"
+  HEADER_API_USER_EXTERNAL_ID ||= "HTTP_API_USER_EXTERNAL_ID"
+  HEADER_API_USER_ID ||= "HTTP_API_USER_ID"
   USER_API_KEY ||= "HTTP_USER_API_KEY"
   USER_API_CLIENT_ID ||= "HTTP_USER_API_CLIENT_ID"
   API_KEY_ENV ||= "_DISCOURSE_API"
@@ -28,7 +30,7 @@ class Auth::DefaultCurrentUserProvider
 
     # bypass if we have the shared session header
     if shared_key = @env['HTTP_X_SHARED_SESSION_KEY']
-      uid = $redis.get("shared_session_key_#{shared_key}")
+      uid = Discourse.redis.get("shared_session_key_#{shared_key}")
       user = nil
       if uid
         user = User.find_by(id: uid.to_i)
@@ -40,7 +42,7 @@ class Auth::DefaultCurrentUserProvider
     request = @request
 
     user_api_key = @env[USER_API_KEY]
-    api_key = @env.blank? ? nil : request[API_KEY]
+    api_key = @env.blank? ? nil : @env[HEADER_API_KEY] || request[API_KEY]
 
     auth_token = request.cookies[TOKEN_COOKIE] unless user_api_key || api_key
 
@@ -116,9 +118,11 @@ class Auth::DefaultCurrentUserProvider
 
     if current_user && should_update_last_seen?
       u = current_user
+      ip = request.ip
+
       Scheduler::Defer.later "Updating Last Seen" do
         u.update_last_seen!
-        u.update_ip_address!(request.ip)
+        u.update_ip_address!(ip)
       end
     end
 
@@ -162,6 +166,9 @@ class Auth::DefaultCurrentUserProvider
     unstage_user(user)
     make_developer_admin(user)
     enable_bootstrap_mode(user)
+
+    UserAuthToken.enforce_session_count_limit!(user.id)
+
     @env[CURRENT_USER_KEY] = user
   end
 
@@ -221,6 +228,7 @@ class Auth::DefaultCurrentUserProvider
       @user_token.destroy
     end
 
+    cookies.delete('authentication_data')
     cookies.delete(TOKEN_COOKIE)
   end
 
@@ -243,10 +251,10 @@ class Auth::DefaultCurrentUserProvider
   def should_update_last_seen?
     return false if Discourse.pg_readonly_mode?
 
-    if @request.xhr?
+    api = !!(@env[API_KEY_ENV]) || !!(@env[USER_API_KEY_ENV])
+
+    if @request.xhr? || api
       @env["HTTP_DISCOURSE_VISIBLE".freeze] == "true".freeze
-    elsif !!(@env[API_KEY_ENV]) || !!(@env[USER_API_KEY_ENV])
-      false
     else
       true
     end
@@ -278,34 +286,56 @@ class Auth::DefaultCurrentUserProvider
   end
 
   def lookup_api_user(api_key_value, request)
-    if api_key = ApiKey.where(key: api_key_value).includes(:user).first
-      api_username = request["api_username"]
+    if api_key = ApiKey.active.with_key(api_key_value).includes(:user).first
+      api_username = header_api_key? ? @env[HEADER_API_USERNAME] : request[API_USERNAME]
+
+      # Check for deprecated api auth
+      if !header_api_key?
+        if request.path == "/admin/email/handle_mail"
+          # Notify admins that the mail receiver is still using query auth and to update
+          AdminDashboardData.add_problem_message('dashboard.update_mail_receiver', 1.day)
+        else
+          # Notify admins of deprecated auth method
+          AdminDashboardData.add_problem_message('dashboard.deprecated_api_usage', 1.day)
+        end
+      end
 
       if api_key.allowed_ips.present? && !api_key.allowed_ips.any? { |ip| ip.include?(request.ip) }
         Rails.logger.warn("[Unauthorized API Access] username: #{api_username}, IP address: #{request.ip}")
         return nil
       end
 
-      if api_key.user
-        api_key.user if !api_username || (api_key.user.username_lower == api_username.downcase)
-      elsif api_username
-        User.find_by(username_lower: api_username.downcase)
-      elsif user_id = request["api_user_id"]
-        User.find_by(id: user_id.to_i)
-      elsif external_id = request["api_user_external_id"]
-        SingleSignOnRecord.find_by(external_id: external_id.to_s).try(:user)
+      user =
+        if api_key.user
+          api_key.user if !api_username || (api_key.user.username_lower == api_username.downcase)
+        elsif api_username
+          User.find_by(username_lower: api_username.downcase)
+        elsif user_id = header_api_key? ? @env[HEADER_API_USER_ID] : request["api_user_id"]
+          User.find_by(id: user_id.to_i)
+        elsif external_id = header_api_key? ? @env[HEADER_API_USER_EXTERNAL_ID] : request["api_user_external_id"]
+          SingleSignOnRecord.find_by(external_id: external_id.to_s).try(:user)
+        end
+
+      if user
+        api_key.update_columns(last_used_at: Time.zone.now)
       end
+
+      user
     end
   end
 
   private
+
+  def header_api_key?
+    !!@env[HEADER_API_KEY]
+  end
 
   def rate_limit_admin_api_requests(api_key)
     return if Rails.env == "profile"
 
     RateLimiter.new(
       nil,
-      "admin_api_min_#{api_key}",
+      "admin_api_min_#{ApiKey.hash_key(api_key)}",
       GlobalSetting.max_admin_api_reqs_per_key_per_minute,
       60
     ).performed!

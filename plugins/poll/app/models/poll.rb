@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class Poll < ActiveRecord::Base
   # because we want to use the 'type' column and don't want to use STI
   self.inheritance_column = nil
@@ -22,11 +24,17 @@ class Poll < ActiveRecord::Base
     always: 0,
     on_vote: 1,
     on_close: 2,
+    staff_only: 3,
   }
 
   enum visibility: {
     secret: 0,
     everyone: 1,
+  }
+
+  enum chart_type: {
+    bar: 0,
+    pie: 1
   }
 
   validates :min, numericality: { allow_nil: true, only_integer: true, greater_than_or_equal_to: 0 }
@@ -38,7 +46,8 @@ class Poll < ActiveRecord::Base
   end
 
   def can_see_results?(user)
-    always? || is_closed? || (on_vote? && has_voted?(user))
+    return !!user&.staff? if staff_only?
+    !!(always? || (on_vote? && has_voted?(user)) || is_closed?)
   end
 
   def has_voted?(user)
@@ -54,8 +63,8 @@ end
 #
 # Table name: polls
 #
-#  id               :bigint(8)        not null, primary key
-#  post_id          :bigint(8)
+#  id               :bigint           not null, primary key
+#  post_id          :bigint
 #  name             :string           default("poll"), not null
 #  close_at         :datetime
 #  type             :integer          default("regular"), not null
@@ -68,9 +77,15 @@ end
 #  anonymous_voters :integer
 #  created_at       :datetime         not null
 #  updated_at       :datetime         not null
+#  chart_type       :integer          default("bar"), not null
+#  groups           :string
 #
 # Indexes
 #
 #  index_polls_on_post_id           (post_id)
 #  index_polls_on_post_id_and_name  (post_id,name) UNIQUE
+#
+# Foreign Keys
+#
+#  fk_rails_...  (post_id => posts.id)
 #

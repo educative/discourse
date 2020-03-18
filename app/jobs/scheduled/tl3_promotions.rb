@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class Tl3Promotions < Jobs::Scheduled
+  class Tl3Promotions < ::Jobs::Scheduled
     daily at: 4.hours
 
     def execute(args)

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe WebHookUserSerializer do
@@ -7,7 +9,7 @@ RSpec.describe WebHookUserSerializer do
     user
   end
 
-  let(:admin) { Fabricate(:admin) }
+  fab!(:admin) { Fabricate(:admin) }
 
   let :serializer do
     WebHookUserSerializer.new(user, scope: Guardian.new(admin), root: false)
@@ -21,18 +23,13 @@ RSpec.describe WebHookUserSerializer do
 
   it 'should only include the required keys' do
     count = serializer.as_json.keys.count
-    difference = count - 43
+    difference = count - 45
 
     expect(difference).to eq(0), lambda {
-      message = ""
-
-      if difference < 0
-        message << "#{difference * -1} key(s) have been removed from this serializer."
-      else
-        message << "#{difference} key(s) have been added to this serializer."
-      end
-
-      message << "\nPlease verify if those key(s) are required as part of the web hook's payload."
+      message = (difference < 0 ?
+                "#{difference * -1} key(s) have been removed from this serializer." :
+                "#{difference} key(s) have been added to this serializer.") +
+                "\nPlease verify if those key(s) are required as part of the web hook's payload."
     }
   end
 end

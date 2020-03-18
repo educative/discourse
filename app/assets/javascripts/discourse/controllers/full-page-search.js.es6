@@ -1,3 +1,7 @@
+import { isEmpty } from "@ember/utils";
+import { or } from "@ember/object/computed";
+import { inject } from "@ember/controller";
+import Controller from "@ember/controller";
 import { ajax } from "discourse/lib/ajax";
 import {
   translateResults,
@@ -5,15 +9,12 @@ import {
   getSearchKey,
   isValidSearchTerm
 } from "discourse/lib/search";
-import {
-  default as computed,
-  observes
-} from "ember-addons/ember-computed-decorators";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
 import Category from "discourse/models/category";
 import { escapeExpression } from "discourse/lib/utilities";
 import { setTransient } from "discourse/lib/page-tracker";
-import { iconHTML } from "discourse-common/lib/icon-library";
 import Composer from "discourse/models/composer";
+import { scrollTop } from "discourse/mixins/scroll-top";
 
 const SortOrders = [
   { name: I18n.t("search.relevance"), id: 0 },
@@ -24,9 +25,9 @@ const SortOrders = [
 ];
 const PAGE_LIMIT = 10;
 
-export default Ember.Controller.extend({
-  application: Ember.inject.controller(),
-  composer: Ember.inject.controller(),
+export default Controller.extend({
+  application: inject(),
+  composer: inject(),
   bulkSelectEnabled: null,
 
   loading: false,
@@ -43,17 +44,17 @@ export default Ember.Controller.extend({
   page: 1,
   resultCount: null,
 
-  @computed("resultCount")
+  @discourseComputed("resultCount")
   hasResults(resultCount) {
     return (resultCount || 0) > 0;
   },
 
-  @computed("q")
+  @discourseComputed("q")
   hasAutofocus(q) {
-    return Ember.isEmpty(q);
+    return isEmpty(q);
   },
 
-  @computed("q")
+  @discourseComputed("q")
   highlightQuery(q) {
     if (!q) {
       return;
@@ -62,7 +63,7 @@ export default Ember.Controller.extend({
     return _.reject(q.split(/\s+/), t => t === "l").join(" ");
   },
 
-  @computed("skip_context", "context")
+  @discourseComputed("skip_context", "context")
   searchContextEnabled: {
     get(skip, context) {
       return (!skip && context) || skip === "false";
@@ -72,7 +73,7 @@ export default Ember.Controller.extend({
     }
   },
 
-  @computed("context", "context_id")
+  @discourseComputed("context", "context_id")
   searchContextDescription(context, id) {
     var name = id;
     if (context === "category") {
@@ -86,18 +87,18 @@ export default Ember.Controller.extend({
     return searchContextDescription(context, name);
   },
 
-  @computed("q")
+  @discourseComputed("q")
   searchActive(q) {
     return isValidSearchTerm(q);
   },
 
-  @computed("q")
+  @discourseComputed("q")
   noSortQ(q) {
     q = this.cleanTerm(q);
     return escapeExpression(q);
   },
 
-  @computed("canCreateTopic", "siteSettings.login_required")
+  @discourseComputed("canCreateTopic", "siteSettings.login_required")
   showSuggestion(canCreateTopic, loginRequired) {
     return canCreateTopic || !loginRequired;
   },
@@ -137,43 +138,43 @@ export default Ember.Controller.extend({
 
   @observes("model")
   modelChanged() {
-    if (this.get("searchTerm") !== this.get("q")) {
-      this.setSearchTerm(this.get("q"));
+    if (this.searchTerm !== this.q) {
+      this.setSearchTerm(this.q);
     }
   },
 
-  @computed("q")
+  @discourseComputed("q")
   showLikeCount(q) {
     return q && q.indexOf("order:likes") > -1;
   },
 
   @observes("q")
   qChanged() {
-    const model = this.get("model");
-    if (model && this.get("model.q") !== this.get("q")) {
-      this.setSearchTerm(this.get("q"));
+    const model = this.model;
+    if (model && this.get("model.q") !== this.q) {
+      this.setSearchTerm(this.q);
       this.send("search");
     }
   },
 
-  @computed("q")
+  @discourseComputed("q")
   isPrivateMessage(q) {
     return (
       q &&
       this.currentUser &&
-      (q.indexOf("in:private") > -1 ||
+      (q.indexOf("in:personal") > -1 ||
         q.indexOf(
-          `private_messages:${this.currentUser.get("username_lower")}`
+          `personal_messages:${this.currentUser.get("username_lower")}`
         ) > -1)
     );
   },
 
   @observes("loading")
   _showFooter() {
-    this.set("application.showFooter", !this.get("loading"));
+    this.set("application.showFooter", !this.loading);
   },
 
-  @computed("resultCount", "noSortQ")
+  @discourseComputed("resultCount", "noSortQ")
   resultCountLabel(count, term) {
     const plus = count % 50 === 0 ? "+" : "";
     return I18n.t("search.result_count", { count, plus, term });
@@ -184,57 +185,58 @@ export default Ember.Controller.extend({
     this.set("resultCount", this.get("model.posts.length"));
   },
 
-  @computed("hasResults")
+  @discourseComputed("hasResults")
   canBulkSelect(hasResults) {
     return this.currentUser && this.currentUser.staff && hasResults;
   },
 
-  @computed("model.grouped_search_result.can_create_topic")
+  @discourseComputed("model.grouped_search_result.can_create_topic")
   canCreateTopic(userCanCreateTopic) {
     return this.currentUser && userCanCreateTopic;
   },
 
-  @computed("expanded")
-  searchAdvancedIcon(expanded) {
-    return iconHTML(expanded ? "caret-down" : "caret-right");
-  },
-
-  @computed("page")
+  @discourseComputed("page")
   isLastPage(page) {
     return page === PAGE_LIMIT;
   },
 
+  searchButtonDisabled: or("searching", "loading"),
+
   _search() {
-    if (this.get("searching")) {
+    if (this.searching) {
       return;
     }
 
     this.set("invalidSearch", false);
-    const searchTerm = this.get("searchTerm");
+    const searchTerm = this.searchTerm;
     if (!isValidSearchTerm(searchTerm)) {
       this.set("invalidSearch", true);
       return;
     }
 
-    this.set("searching", true);
-    this.set("loading", true);
-    this.set("bulkSelectEnabled", false);
-    this.get("selected").clear();
+    let args = { q: searchTerm, page: this.page };
 
-    var args = { q: searchTerm, page: this.get("page") };
+    if (args.page === 1) {
+      this.set("bulkSelectEnabled", false);
+      this.selected.clear();
+      this.set("searching", true);
+      scrollTop();
+    } else {
+      this.set("loading", true);
+    }
 
-    const sortOrder = this.get("sortOrder");
+    const sortOrder = this.sortOrder;
     if (sortOrder && SortOrders[sortOrder].term) {
       args.q += " " + SortOrders[sortOrder].term;
     }
 
     this.set("q", args.q);
 
-    const skip = this.get("skip_context");
-    if ((!skip && this.get("context")) || skip === "false") {
+    const skip = this.skip_context;
+    if ((!skip && this.context) || skip === "false") {
       args.search_context = {
-        type: this.get("context"),
-        id: this.get("context_id")
+        type: this.context,
+        id: this.context_id
       };
     }
 
@@ -250,9 +252,9 @@ export default Ember.Controller.extend({
 
         if (args.page > 1) {
           if (model) {
-            this.get("model").posts.pushObjects(model.posts);
-            this.get("model").topics.pushObjects(model.topics);
-            this.get("model").set(
+            this.model.posts.pushObjects(model.posts);
+            this.model.topics.pushObjects(model.topics);
+            this.model.set(
               "grouped_search_result",
               results.grouped_search_result
             );
@@ -278,17 +280,15 @@ export default Ember.Controller.extend({
           topicCategory = match[1];
         }
       }
-      this.get("composer").open({
+      this.composer.open({
         action: Composer.CREATE_TOPIC,
-        draftKey: Composer.CREATE_TOPIC,
+        draftKey: Composer.NEW_TOPIC_KEY,
         topicCategory
       });
     },
 
     selectAll() {
-      this.get("selected").addObjects(
-        this.get("model.posts").map(r => r.topic)
-      );
+      this.selected.addObjects(this.get("model.posts").map(r => r.topic));
       // Doing this the proper way is a HUGE pain,
       // we can hack this to work by observing each on the array
       // in the component, however, when we select ANYTHING, we would force
@@ -298,18 +298,19 @@ export default Ember.Controller.extend({
     },
 
     clearAll() {
-      this.get("selected").clear();
+      this.selected.clear();
       $(".fps-result input[type=checkbox]").prop("checked", false);
     },
 
     toggleBulkSelect() {
       this.toggleProperty("bulkSelectEnabled");
-      this.get("selected").clear();
+      this.selected.clear();
     },
 
     search() {
       this.set("page", 1);
       this._search();
+      if (this.site.mobileView) this.set("expanded", false);
     },
 
     toggleAdvancedSearch() {
@@ -317,10 +318,10 @@ export default Ember.Controller.extend({
     },
 
     loadMore() {
-      var page = this.get("page");
+      var page = this.page;
       if (
         this.get("model.grouped_search_result.more_full_page_results") &&
-        !this.get("loading") &&
+        !this.loading &&
         page < PAGE_LIMIT
       ) {
         this.incrementProperty("page");

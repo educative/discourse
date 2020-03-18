@@ -1,10 +1,10 @@
 import { withPluginApi } from "discourse/lib/plugin-api";
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
 import showModal from "discourse/lib/show-modal";
 
 function initializePollUIBuilder(api) {
   api.modifyClass("controller:composer", {
-    @computed(
+    @discourseComputed(
       "siteSettings.poll_enabled",
       "siteSettings.poll_minimum_trust_level_to_create",
       "model.topic.pm_with_non_human_user"
@@ -21,10 +21,7 @@ function initializePollUIBuilder(api) {
 
     actions: {
       showPollBuilder() {
-        showModal("poll-ui-builder").set(
-          "toolbarEvent",
-          this.get("toolbarEvent")
-        );
+        showModal("poll-ui-builder").set("toolbarEvent", this.toolbarEvent);
       }
     }
   });

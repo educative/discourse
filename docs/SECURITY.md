@@ -6,11 +6,11 @@ We take security very seriously at Discourse. We welcome any peer review of our 
 
 In order to give the community time to respond and upgrade we strongly urge you report all security issues privately. Please use our [vulnerability disclosure program at Hacker One](https://hackerone.com/discourse) to provide details and repro steps and we will respond ASAP. If you prefer not to use Hacker One, email us directly at `team@discourse.org` with details and repro steps. Security issues *always* take precedence over bug fixes and feature work. We can and do mark releases as "urgent" if they contain serious security fixes.
 
-For a list of recent security commits, check [our GitHub commits prefixed with SECURITY](https://github.com/discourse/discourse/search?utf8=%E2%9C%93&q=SECURITY&type=Commits).
+For a list of recent security commits, check [our GitHub commits prefixed with SECURITY](https://github.com/discourse/discourse/search?o=desc&q=SECURITY&s=committer-date&type=Commits).
 
 ### Password Storage
 
-Discourse uses the PBKDF2 algorithm to encrypt salted passwords. This algorithm is blessed by NIST. Security experts on the web [tend to agree that PBKDF2 is a secure choice](http://security.stackexchange.com/questions/4781/do-any-security-experts-recommend-bcrypt-for-password-storage).
+Discourse uses the PBKDF2 algorithm to encrypt salted passwords. This algorithm is blessed by NIST. Security experts on the web [tend to agree that PBKDF2 is a secure choice](https://security.stackexchange.com/questions/4781/do-any-security-experts-recommend-bcrypt-for-password-storage).
 
 **options you can customise in your production.rb file**
 
@@ -35,7 +35,7 @@ In addition, titles and all other places where non-admins can enter code are pro
 
 ### CSRF
 
-[CSRF](http://en.wikipedia.org/wiki/Cross-site_request_forgery) allows malicious sites to perform HTTP requests in the context of a forum user without their knowledge -- mostly by getting users who already hold a valid forum login cookie to click a specific link in their web browser.
+[CSRF](https://en.wikipedia.org/wiki/Cross-site_request_forgery) allows malicious sites to perform HTTP requests in the context of a forum user without their knowledge -- mostly by getting users who already hold a valid forum login cookie to click a specific link in their web browser.
 
 Discourse extends the built-in Rails CSRF protection in the following ways:
 
@@ -47,7 +47,7 @@ Discourse extends the built-in Rails CSRF protection in the following ways:
 
 ### DDOS
 
-If you install via our recommended Docker image in our [install guide][ig], nginx is the front end web server. For additional DDOS protection we recommend placing [HAProxy](http://haproxy.1wt.eu/) in front.
+If you install via our recommended Docker image in our [install guide][ig], nginx is the front end web server. For additional DDOS protection we recommend placing [HAProxy](https://www.haproxy.org/) in front.
 
 ### Deployment concerns
 

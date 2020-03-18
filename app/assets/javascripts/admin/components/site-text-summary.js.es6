@@ -1,6 +1,7 @@
-import { on } from "ember-addons/ember-computed-decorators";
+import Component from "@ember/component";
+import { on } from "discourse-common/utils/decorators";
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNames: ["site-text"],
   classNameBindings: ["siteText.overridden"],
 
@@ -9,26 +10,28 @@ export default Ember.Component.extend({
     const term = this._searchTerm();
 
     if (term) {
-      this.$(".site-text-id, .site-text-value").highlight(term, {
+      $(
+        this.element.querySelector(".site-text-id, .site-text-value")
+      ).highlight(term, {
         className: "text-highlight"
       });
     }
-    this.$(".site-text-value").ellipsis();
+    $(this.element.querySelector(".site-text-value")).ellipsis();
   },
 
   click() {
-    this.send("edit");
+    this.editAction(this.siteText);
   },
 
   _searchTerm() {
-    const regex = this.get("searchRegex");
-    const siteText = this.get("siteText");
+    const regex = this.searchRegex;
+    const siteText = this.siteText;
 
     if (regex && siteText) {
       const matches = siteText.value.match(new RegExp(regex, "i"));
       if (matches) return matches[0];
     }
 
-    return this.get("term");
+    return this.term;
   }
 });

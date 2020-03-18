@@ -1,8 +1,8 @@
-require_dependency 'admin_user_index_query'
+# frozen_string_literal: true
 
 module Jobs
 
-  class PendingUsersReminder < Jobs::Scheduled
+  class PendingUsersReminder < ::Jobs::Scheduled
     every 1.hour
 
     def execute(args)
@@ -20,7 +20,7 @@ module Jobs
 
         if count > 0
           target_usernames = Group[:moderators].users.map do |user|
-            next if user.id < 0
+            next if user.bot?
 
             unseen_count = user.notifications.joins(:topic)
               .where("notifications.id > ?", user.seen_notification_id)
@@ -50,11 +50,11 @@ module Jobs
     end
 
     def previous_newest_username
-      $redis.get previous_newest_username_cache_key
+      Discourse.redis.get previous_newest_username_cache_key
     end
 
     def previous_newest_username=(username)
-      $redis.setex previous_newest_username_cache_key, 7.days, username
+      Discourse.redis.setex previous_newest_username_cache_key, 7.days, username
     end
 
     def previous_newest_username_cache_key

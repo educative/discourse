@@ -1,19 +1,22 @@
-import debounce from "discourse/lib/debounce";
+import Controller from "@ember/controller";
+import discourseDebounce from "discourse/lib/debounce";
 import { outputExportResult } from "discourse/lib/export-result";
 import { exportEntity } from "discourse/lib/export-csv";
 import ScreenedIpAddress from "admin/models/screened-ip-address";
+import { observes } from "discourse-common/utils/decorators";
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   loading: false,
   filter: null,
   savedIpAddress: null,
 
-  show: debounce(function() {
+  @observes("filter")
+  show: discourseDebounce(function() {
     this.set("loading", true);
-    ScreenedIpAddress.findAll(this.get("filter")).then(result => {
+    ScreenedIpAddress.findAll(this.filter).then(result => {
       this.setProperties({ model: result, loading: false });
     });
-  }, 250).observes("filter"),
+  }, 250),
 
   actions: {
     allow(record) {
@@ -34,7 +37,7 @@ export default Ember.Controller.extend({
     },
 
     cancel(record) {
-      const savedIpAddress = this.get("savedIpAddress");
+      const savedIpAddress = this.savedIpAddress;
       if (savedIpAddress && record.get("editing")) {
         record.set("ip_address", savedIpAddress);
       }
@@ -74,7 +77,7 @@ export default Ember.Controller.extend({
               .destroy()
               .then(deleted => {
                 if (deleted) {
-                  this.get("model").removeObject(record);
+                  this.model.removeObject(record);
                 } else {
                   bootbox.alert(I18n.t("generic_error"));
                 }
@@ -92,7 +95,7 @@ export default Ember.Controller.extend({
     },
 
     recordAdded(arg) {
-      this.get("model").unshiftObject(arg);
+      this.model.unshiftObject(arg);
     },
 
     rollUp() {

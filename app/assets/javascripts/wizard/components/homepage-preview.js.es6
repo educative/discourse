@@ -1,4 +1,4 @@
-import { observes } from "ember-addons/ember-computed-decorators";
+import { observes } from "discourse-common/utils/decorators";
 import {
   createPreviewComponent,
   LOREM,
@@ -16,7 +16,7 @@ export default createPreviewComponent(659, 320, {
 
   images() {
     return {
-      logo: this.get("wizard").getLogoUrl(),
+      logo: this.wizard.getLogoUrl(),
       avatar: "/images/wizard/trout.png"
     };
   },

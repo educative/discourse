@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class BadgeGrant < Jobs::Scheduled
+  class BadgeGrant < ::Jobs::Scheduled
     def self.run
       self.new.execute(nil)
     end
@@ -20,6 +22,7 @@ module Jobs
       end
 
       BadgeGranter.revoke_ungranted_titles!
+      UserBadge.ensure_consistency! # Badge granter sometimes uses raw SQL, so hooks do not run. Clean up data
     end
 
   end

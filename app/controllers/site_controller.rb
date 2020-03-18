@@ -1,4 +1,4 @@
-require_dependency 'site_serializer'
+# frozen_string_literal: true
 
 class SiteController < ApplicationController
   layout false

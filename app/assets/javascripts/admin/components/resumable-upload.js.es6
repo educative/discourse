@@ -1,5 +1,8 @@
+import { schedule } from "@ember/runloop";
+import { later } from "@ember/runloop";
+import Component from "@ember/component";
 import { iconHTML } from "discourse-common/lib/icon-library";
-import { bufferedRender } from "discourse-common/lib/buffered-render";
+import discourseComputed, { on } from "discourse-common/utils/decorators";
 
 /*global Resumable:true */
 
@@ -13,119 +16,124 @@ import { bufferedRender } from "discourse-common/lib/buffered-render";
         uploadText="UPLOAD"
     }}
 **/
-export default Ember.Component.extend(
-  bufferedRender({
-    tagName: "button",
-    classNames: ["btn", "ru"],
-    classNameBindings: ["isUploading"],
-    attributeBindings: ["translatedTitle:title"],
+export default Component.extend({
+  tagName: "button",
+  classNames: ["btn", "ru"],
+  classNameBindings: ["isUploading"],
+  attributeBindings: ["translatedTitle:title"],
+  resumable: null,
+  isUploading: false,
+  progress: 0,
+  rerenderTriggers: ["isUploading", "progress"],
+  uploadingIcon: null,
+  progressBar: null,
 
-    resumable: null,
-
-    isUploading: false,
-    progress: 0,
-
-    rerenderTriggers: ["isUploading", "progress"],
-
-    translatedTitle: function() {
-      const title = this.get("title");
-      return title ? I18n.t(title) : this.get("text");
-    }.property("title", "text"),
-
-    text: function() {
-      if (this.get("isUploading")) {
-        return this.get("progress") + " %";
-      } else {
-        return this.get("uploadText");
+  @on("init")
+  _initialize() {
+    this.resumable = new Resumable({
+      target: Discourse.getURL(this.target),
+      maxFiles: 1, // only 1 file at a time
+      headers: {
+        "X-CSRF-Token": document.querySelector("meta[name='csrf-token']")
+          .content
       }
-    }.property("isUploading", "progress"),
+    });
 
-    buildBuffer(buffer) {
-      const icon = this.get("isUploading") ? "times" : "upload";
-      buffer.push(iconHTML(icon));
-      buffer.push("<span class='ru-label'>" + this.get("text") + "</span>");
-      buffer.push(
-        "<span class='ru-progress' style='width:" +
-          this.get("progress") +
-          "%'></span>"
-      );
-    },
+    this.resumable.on("fileAdded", () => {
+      // automatically upload the selected file
+      this.resumable.upload();
 
-    click: function() {
-      if (this.get("isUploading")) {
-        this.resumable.cancel();
-        var self = this;
-        Ember.run.later(function() {
-          self._reset();
-        });
-        return false;
-      } else {
-        return true;
-      }
-    },
-
-    _reset: function() {
-      this.setProperties({ isUploading: false, progress: 0 });
-    },
-
-    _initialize: function() {
-      this.resumable = new Resumable({
-        target: Discourse.getURL(this.get("target")),
-        maxFiles: 1, // only 1 file at a time
-        headers: {
-          "X-CSRF-Token": $("meta[name='csrf-token']").attr("content")
-        }
+      // mark as uploading
+      later(() => {
+        this.set("isUploading", true);
+        this._updateIcon();
       });
+    });
 
-      var self = this;
-
-      this.resumable.on("fileAdded", function() {
-        // automatically upload the selected file
-        self.resumable.upload();
-        // mark as uploading
-        Ember.run.later(function() {
-          self.set("isUploading", true);
-        });
+    this.resumable.on("fileProgress", file => {
+      // update progress
+      later(() => {
+        this.set("progress", parseInt(file.progress() * 100, 10));
+        this._updateProgressBar();
       });
+    });
 
-      this.resumable.on("fileProgress", function(file) {
-        // update progress
-        Ember.run.later(function() {
-          self.set("progress", parseInt(file.progress() * 100, 10));
-        });
+    this.resumable.on("fileSuccess", file => {
+      later(() => {
+        // mark as not uploading anymore
+        this._reset();
+
+        // fire an event to allow the parent route to reload its model
+        this.success(file.fileName);
       });
+    });
 
-      this.resumable.on("fileSuccess", function(file) {
-        Ember.run.later(function() {
-          // mark as not uploading anymore
-          self._reset();
-          // fire an event to allow the parent route to reload its model
-          self.success(file.fileName);
-        });
+    this.resumable.on("fileError", (file, message) => {
+      later(() => {
+        // mark as not uploading anymore
+        this._reset();
+
+        // fire an event to allow the parent route to display the error message
+        this.error(file.fileName, message);
       });
+    });
+  },
 
-      this.resumable.on("fileError", function(file, message) {
-        Ember.run.later(function() {
-          // mark as not uploading anymore
-          self._reset();
-          // fire an event to allow the parent route to display the error message
-          self.error(file.fileName, message);
-        });
-      });
-    }.on("init"),
+  @on("didInsertElement")
+  _assignBrowse() {
+    schedule("afterRender", () => this.resumable.assignBrowse($(this.element)));
+  },
 
-    _assignBrowse: function() {
-      var self = this;
-      Ember.run.schedule("afterRender", function() {
-        self.resumable.assignBrowse(self.$());
-      });
-    }.on("didInsertElement"),
+  @on("willDestroyElement")
+  _teardown() {
+    if (this.resumable) {
+      this.resumable.cancel();
+      this.resumable = null;
+    }
+  },
 
-    _teardown: function() {
-      if (this.resumable) {
-        this.resumable.cancel();
-        this.resumable = null;
-      }
-    }.on("willDestroyElement")
-  })
-);
+  @discourseComputed("title", "text")
+  translatedTitle(title, text) {
+    return title ? I18n.t(title) : text;
+  },
+
+  @discourseComputed("isUploading", "progress")
+  text(isUploading, progress) {
+    if (isUploading) {
+      return progress + " %";
+    } else {
+      return this.uploadText;
+    }
+  },
+
+  didReceiveAttrs() {
+    this._super(...arguments);
+    this._updateIcon();
+  },
+
+  click() {
+    if (this.isUploading) {
+      this.resumable.cancel();
+      later(() => this._reset());
+      return false;
+    } else {
+      return true;
+    }
+  },
+
+  _updateIcon() {
+    const icon = this.isUploading ? "times" : "upload";
+    this.set("uploadingIcon", `${iconHTML(icon)}`.htmlSafe());
+  },
+
+  _updateProgressBar() {
+    const pb = `${"width:" + this.progress + "%"}`.htmlSafe();
+    this.set("progressBar", pb);
+  },
+
+  _reset() {
+    this.setProperties({ isUploading: false, progress: 0 });
+    this._updateIcon();
+    this._updateProgressBar();
+  }
+});

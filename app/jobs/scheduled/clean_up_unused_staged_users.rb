@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class CleanUpUnusedStagedUsers < Jobs::Scheduled
+  class CleanUpUnusedStagedUsers < ::Jobs::Scheduled
     every 1.day
 
     def execute(args)
@@ -8,7 +10,7 @@ module Jobs
 
       User.joins("LEFT JOIN posts ON posts.user_id = users.id")
         .where("posts.user_id IS NULL")
-        .where(staged: true)
+        .where(staged: true, admin: false, moderator: false)
         .where("users.created_at < ?", 1.year.ago)
         .find_each do |user|
 

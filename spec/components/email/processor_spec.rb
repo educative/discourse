@@ -1,19 +1,21 @@
+# frozen_string_literal: true
+
 require "rails_helper"
 require "email/processor"
 
 describe Email::Processor do
   after do
-    $redis.flushall
+    Discourse.redis.flushall
   end
 
   let(:from) { "foo@bar.com" }
 
   context "when reply via email is too short" do
     let(:mail) { file_from_fixtures("chinese_reply.eml", "emails").read }
-    let(:post) { Fabricate(:post) }
-    let(:user) { Fabricate(:user, email: 'discourse@bar.com') }
+    fab!(:post) { Fabricate(:post) }
+    fab!(:user) { Fabricate(:user, email: 'discourse@bar.com') }
 
-    let!(:post_reply_key) do
+    fab!(:post_reply_key) do
       Fabricate(:post_reply_key,
         user: user,
         post: post,
@@ -76,7 +78,7 @@ describe Email::Processor do
 
     it "only sends one rejection email per day" do
       key = "rejection_email:#{[from]}:email_reject_empty:#{Date.today}"
-      $redis.expire(key, 0)
+      Discourse.redis.expire(key, 0)
 
       expect {
         Email::Processor.process!(mail)
@@ -89,7 +91,7 @@ describe Email::Processor do
       freeze_time(Date.today + 1)
 
       key = "rejection_email:#{[from]}:email_reject_empty:#{Date.today}"
-      $redis.expire(key, 0)
+      Discourse.redis.expire(key, 0)
 
       expect {
         Email::Processor.process!(mail3)
@@ -99,8 +101,8 @@ describe Email::Processor do
 
   context "unrecognized error" do
 
-    let(:mail) { "From: #{from}\nTo: bar@foo.com\nSubject: FOO BAR\n\nFoo foo bar bar?" }
-    let(:mail2) { "From: #{from}\nTo: foo@foo.com\nSubject: BAR BAR\n\nBar bar bar bar?" }
+    let(:mail) { "Date: Fri, 15 Jan 2016 00:12:43 +0100\nFrom: #{from}\nTo: bar@foo.com\nSubject: FOO BAR\n\nFoo foo bar bar?" }
+    let(:mail2) { "Date: Fri, 15 Jan 2016 00:12:43 +0100\nFrom: #{from}\nTo: foo@foo.com\nSubject: BAR BAR\n\nBar bar bar bar?" }
 
     it "sends a rejection email on an unrecognized error" do
       begin
@@ -129,7 +131,7 @@ describe Email::Processor do
     it "sends more than one rejection email per day" do
       Email::Receiver.any_instance.stubs(:process_internal).raises("boom")
       key = "rejection_email:#{[from]}:email_reject_unrecognized_error:#{Date.today}"
-      $redis.expire(key, 0)
+      Discourse.redis.expire(key, 0)
 
       expect {
         Email::Processor.process!(mail)
@@ -144,7 +146,7 @@ describe Email::Processor do
 
   context "from reply to email address" do
 
-    let(:mail) { "From: reply@bar.com\nTo: reply@bar.com\nSubject: FOO BAR\n\nFoo foo bar bar?" }
+    let(:mail) { "Date: Fri, 15 Jan 2016 00:12:43 +0100\nFrom: reply@bar.com\nTo: reply@bar.com\nSubject: FOO BAR\n\nFoo foo bar bar?" }
 
     it "ignores the email" do
       Email::Receiver.any_instance.stubs(:process_internal).raises(Email::Receiver::FromReplyByAddressError.new)
@@ -177,7 +179,7 @@ describe Email::Processor do
 
   describe 'when replying to a post that is too old' do
     let(:mail) { file_from_fixtures("old_destination.eml", "emails").read }
-
+    fab!(:user) { Fabricate(:user, email: "discourse@bar.com") }
     it 'rejects the email with the right response' do
       SiteSetting.disallow_reply_by_email_after_days = 2
 

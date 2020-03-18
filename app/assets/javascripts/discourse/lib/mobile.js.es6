@@ -1,4 +1,5 @@
 import deprecated from "discourse-common/lib/deprecated";
+import ENV from "discourse-common/config/environment";
 
 let mobileForced = false;
 
@@ -12,7 +13,7 @@ const Mobile = {
     this.isMobileDevice = mobileForced || $html.hasClass("mobile-device");
     this.mobileView = mobileForced || $html.hasClass("mobile-view");
 
-    if (Ember.testing || mobileForced) {
+    if (ENV.environment === "test" || mobileForced) {
       return;
     }
 
@@ -22,6 +23,9 @@ const Mobile = {
       }
       if (window.location.search.match(/mobile_view=0/)) {
         localStorage.mobileView = false;
+      }
+      if (window.location.search.match(/mobile_view=auto/)) {
+        localStorage.removeItem("mobileView");
       }
       if (localStorage.mobileView) {
         var savedValue = localStorage.mobileView === "true";
@@ -33,18 +37,6 @@ const Mobile = {
       // localStorage may be disabled, just skip this
       // you get security errors if it is disabled
     }
-
-    // Sam: I tried this to disable zooming on iOS 10 but it is not consistent
-    //  you can still sometimes trigger zoom and be stuck in a horrible state
-    //
-    // let iOS = !!navigator.platform && /iPad|iPhone|iPod/.test(navigator.platform);
-    // if (iOS) {
-    //   document.documentElement.addEventListener('touchstart', function (event) {
-    //     if (event.touches.length > 1) {
-    //       event.preventDefault();
-    //     }
-    //   }, false);
-    // }
   },
 
   toggleMobileView() {

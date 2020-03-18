@@ -1,25 +1,27 @@
+import { alias } from "@ember/object/computed";
 import { NotificationLevels } from "discourse/lib/notification-levels";
+import { on } from "discourse-common/utils/decorators";
+import Mixin from "@ember/object/mixin";
+import Topic from "discourse/models/topic";
 
-export default Ember.Mixin.create({
+export default Mixin.create({
   bulkSelectEnabled: false,
   selected: null,
 
-  canBulkSelect: Ember.computed.alias("currentUser.staff"),
+  canBulkSelect: alias("currentUser.staff"),
 
-  resetSelected: function() {
+  @on("init")
+  resetSelected() {
     this.set("selected", []);
-  }.on("init"),
+  },
 
   actions: {
     toggleBulkSelect() {
       this.toggleProperty("bulkSelectEnabled");
-      this.get("selected").clear();
+      this.selected.clear();
     },
 
-    dismissRead(operationType) {
-      const self = this,
-        selected = this.get("selected");
-
+    dismissRead(operationType, categoryOptions) {
       let operation;
       if (operationType === "posts") {
         operation = { type: "dismiss_posts" };
@@ -31,25 +33,26 @@ export default Ember.Mixin.create({
       }
 
       let promise;
-      if (selected.length > 0) {
-        promise = Discourse.Topic.bulkOperation(selected, operation);
+      if (this.selected.length > 0) {
+        promise = Topic.bulkOperation(this.selected, operation);
       } else {
-        promise = Discourse.Topic.bulkOperationByFilter(
+        promise = Topic.bulkOperationByFilter(
           "unread",
           operation,
-          this.get("category.id")
+          this.get("category.id"),
+          categoryOptions
         );
       }
-      promise.then(function(result) {
+
+      promise.then(result => {
         if (result && result.topic_ids) {
-          const tracker = self.topicTrackingState;
-          result.topic_ids.forEach(function(t) {
-            tracker.removeTopic(t);
-          });
+          const tracker = this.topicTrackingState;
+          result.topic_ids.forEach(t => tracker.removeTopic(t));
           tracker.incrementMessageCount();
         }
-        self.send("closeModal");
-        self.send("refresh");
+
+        this.send("closeModal");
+        this.send("refresh");
       });
     }
   }

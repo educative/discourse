@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'benchmark/ips'
 require File.expand_path("../../config/environment", __FILE__)
 
@@ -18,6 +20,10 @@ Benchmark.ips do |b|
 
   b.report("pluck with limit") do
     User.limit(1).pluck(:name).first
+  end
+
+  b.report("pluck with pluck_first") do
+    User.pluck_first(:name)
   end
 
   b.report("raw") do

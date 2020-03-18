@@ -1,101 +1,80 @@
-import debounce from "discourse/lib/debounce";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
+import Controller from "@ember/controller";
+import discourseDebounce from "discourse/lib/debounce";
 import { i18n } from "discourse/lib/computed";
 import AdminUser from "admin/models/admin-user";
-import { observes } from "ember-addons/ember-computed-decorators";
 import CanCheckEmails from "discourse/mixins/can-check-emails";
 
-export default Ember.Controller.extend(CanCheckEmails, {
+export default Controller.extend(CanCheckEmails, {
+  model: null,
   query: null,
-  queryParams: ["order", "ascending"],
   order: null,
   ascending: null,
   showEmails: false,
   refreshing: false,
   listFilter: null,
   selectAll: false,
-
-  queryNew: Ember.computed.equal("query", "new"),
-  queryPending: Ember.computed.equal("query", "pending"),
-  queryHasApproval: Ember.computed.or("queryNew", "queryPending"),
-  showApproval: Ember.computed.and(
-    "siteSettings.must_approve_users",
-    "queryHasApproval"
-  ),
   searchHint: i18n("search_hint"),
-  hasSelection: Ember.computed.gt("selectedCount", 0),
 
-  selectedCount: function() {
-    var model = this.get("model");
-    if (!model || !model.length) return 0;
-    return model.filterBy("selected").length;
-  }.property("model.@each.selected"),
+  init() {
+    this._super(...arguments);
 
-  selectAllChanged: function() {
-    var val = this.get("selectAll");
-    this.get("model").forEach(function(user) {
-      if (user.get("can_approve")) {
-        user.set("selected", val);
-      }
-    });
-  }.observes("selectAll"),
+    this._page = 1;
+    this._results = [];
+    this._canLoadMore = true;
+  },
 
-  title: function() {
-    return I18n.t("admin.users.titles." + this.get("query"));
-  }.property("query"),
+  @discourseComputed("query")
+  title(query) {
+    return I18n.t("admin.users.titles." + query);
+  },
 
-  _filterUsers: debounce(function() {
+  @observes("listFilter")
+  _filterUsers: discourseDebounce(function() {
+    this.resetFilters();
+  }, 250),
+
+  resetFilters() {
+    this._page = 1;
+    this._results = [];
+    this._canLoadMore = true;
     this._refreshUsers();
-  }, 250).observes("listFilter"),
+  },
 
-  @observes("order", "ascending")
-  _refreshUsers: function() {
+  _refreshUsers() {
+    if (!this._canLoadMore) {
+      return;
+    }
+
     this.set("refreshing", true);
 
-    AdminUser.findAll(this.get("query"), {
-      filter: this.get("listFilter"),
-      show_emails: this.get("showEmails"),
-      order: this.get("order"),
-      ascending: this.get("ascending")
+    AdminUser.findAll(this.query, {
+      filter: this.listFilter,
+      show_emails: this.showEmails,
+      order: this.order,
+      ascending: this.ascending,
+      page: this._page
     })
       .then(result => {
-        this.set("model", result);
+        if (!result || result.length === 0) {
+          this._canLoadMore = false;
+        }
+
+        this._results = this._results.concat(result);
+        this.set("model", this._results);
       })
-      .finally(() => {
-        this.set("refreshing", false);
-      });
+      .finally(() => this.set("refreshing", false));
   },
 
   actions: {
-    approveUsers: function() {
-      AdminUser.bulkApprove(this.get("model").filterBy("selected"));
+    loadMore() {
+      this._page += 1;
       this._refreshUsers();
     },
 
-    rejectUsers: function() {
-      var maxPostAge = this.siteSettings.delete_user_max_post_age;
-      var controller = this;
-      AdminUser.bulkReject(this.get("model").filterBy("selected")).then(
-        function(result) {
-          var message = I18n.t("admin.users.reject_successful", {
-            count: result.success
-          });
-          if (result.failed > 0) {
-            message +=
-              " " +
-              I18n.t("admin.users.reject_failures", { count: result.failed });
-            message +=
-              " " +
-              I18n.t("admin.user.delete_forbidden", { count: maxPostAge });
-          }
-          bootbox.alert(message);
-          controller._refreshUsers();
-        }
-      );
-    },
-
-    showEmails: function() {
-      this.set("showEmails", true);
-      this._refreshUsers(true);
+    toggleEmailVisibility() {
+      this.toggleProperty("showEmails");
+      this.resetFilters();
     }
   }
 });

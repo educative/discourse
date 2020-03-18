@@ -1,41 +1,20 @@
-import NotificationOptionsComponent from "select-kit/components/notifications-button";
-import {
-  default as computed,
-  on
-} from "ember-addons/ember-computed-decorators";
+import NotificationsButtonComponent from "select-kit/components/notifications-button";
 import { topicLevels } from "discourse/lib/notification-levels";
+import { computed } from "@ember/object";
 
-export default NotificationOptionsComponent.extend({
+export default NotificationsButtonComponent.extend({
   pluginApiIdentifiers: ["topic-notifications-options"],
-  classNames: "topic-notifications-options",
+  classNames: ["topic-notifications-options"],
   content: topicLevels,
+
+  selectKitOptions: {
+    i18nPrefix: "i18nPrefix",
+    i18nPostfix: "i18nPostfix"
+  },
+
   i18nPrefix: "topic.notifications",
-  allowInitialValueMutation: false,
 
-  @computed("topic.archetype")
-  i18nPostfix(archetype) {
-    return archetype === "private_message" ? "_pm" : "";
-  },
-
-  @on("didInsertElement")
-  _bindGlobalLevelChanged() {
-    this.appEvents.on("topic-notifications-button:changed", msg => {
-      if (msg.type === "notification") {
-        if (this.get("computedValue") !== msg.id) {
-          this.get("topic.details").updateNotifications(msg.id);
-        }
-      }
-    });
-  },
-
-  @on("willDestroyElement")
-  _unbindGlobalLevelChanged() {
-    this.appEvents.off("topic-notifications-button:changed");
-  },
-
-  mutateValue(value) {
-    if (value !== this.get("value")) {
-      this.get("topic.details").updateNotifications(value);
-    }
-  }
+  i18nPostfix: computed("topic.archetype", function() {
+    return this.topic.archetype === "private_message" ? "_pm" : "";
+  })
 });

@@ -1,17 +1,15 @@
+# frozen_string_literal: true
+
 require 'csv'
-require_dependency 'system_message'
-require_dependency 'upload_creator'
 
 module Jobs
 
-  class ExportCsvFile < Jobs::Base
-    include ActionView::Helpers::NumberHelper
-
+  class ExportCsvFile < ::Jobs::Base
     sidekiq_options retry: false
 
     HEADER_ATTRS_FOR ||= HashWithIndifferentAccess.new(
-      user_archive: ['topic_title', 'category', 'sub_category', 'is_pm', 'post', 'like_count', 'reply_count', 'url', 'created_at'],
-      user_list: ['id', 'name', 'username', 'email', 'title', 'created_at', 'last_seen_at', 'last_posted_at', 'last_emailed_at', 'trust_level', 'approved', 'suspended_at', 'suspended_till', 'silenced_till', 'active', 'admin', 'moderator', 'ip_address', 'staged'],
+      user_archive: ['topic_title', 'categories', 'is_pm', 'post', 'like_count', 'reply_count', 'url', 'created_at'],
+      user_list: ['id', 'name', 'username', 'email', 'title', 'created_at', 'last_seen_at', 'last_posted_at', 'last_emailed_at', 'trust_level', 'approved', 'suspended_at', 'suspended_till', 'silenced_till', 'active', 'admin', 'moderator', 'ip_address', 'staged', 'secondary_emails'],
       user_stats: ['topics_entered', 'posts_read_count', 'time_read', 'topic_count', 'post_count', 'likes_given', 'likes_received'],
       user_profile: ['location', 'website', 'views'],
       user_sso: ['external_id', 'external_email', 'external_username', 'external_name', 'external_avatar_url'],
@@ -51,19 +49,19 @@ module Jobs
       # ensure directory exists
       FileUtils.mkdir_p(UserExport.base_directory) unless Dir.exists?(UserExport.base_directory)
 
-      # write to CSV file
-      CSV.open(absolute_path, "w") do |csv|
-        csv << get_header
-        send(export_method).each { |d| csv << d }
+      # Generate a compressed CSV file
+      begin
+        CSV.open(absolute_path, "w") do |csv|
+          csv << get_header if @entity != "report"
+          public_send(export_method).each { |d| csv << d }
+        end
+        compressed_file_path = Compression::Zip.new.compress(UserExport.base_directory, file_name)
+      ensure
+        File.delete(absolute_path)
       end
 
-      # compress CSV file
-      system('gzip', '-5', absolute_path)
-
       # create upload
-      download_link = nil
-      compressed_file_path = "#{absolute_path}.gz"
-      file_size = number_to_human_size(File.size(compressed_file_path))
+      upload = nil
 
       if File.exist?(compressed_file_path)
         File.open(compressed_file_path) do |file|
@@ -76,16 +74,21 @@ module Jobs
 
           if upload.persisted?
             user_export.update_columns(upload_id: upload.id)
-            download_link = upload.url
           else
-            Rails.logger.warn("Failed to upload the file #{Discourse.base_uri}/export_csv/#{file_name}.gz")
+            Rails.logger.warn("Failed to upload the file #{compressed_file_path}")
           end
         end
+
         File.delete(compressed_file_path)
       end
-
     ensure
-      notify_user(download_link, file_name, file_size, export_title)
+      post = notify_user(upload, export_title)
+
+      if user_export.present? && post.present?
+        topic = post.topic
+        user_export.update_columns(topic_id: topic.id)
+        topic.update_status('closed', true, Discourse.system_user)
+      end
     end
 
     def user_archive_export
@@ -104,7 +107,6 @@ module Jobs
     def user_list_export
       return enum_for(:user_list_export) unless block_given?
 
-      user_array = []
       user_field_ids = UserField.pluck(:id)
 
       condition = {}
@@ -114,7 +116,7 @@ module Jobs
 
       if SiteSetting.enable_sso
         # SSO enabled
-        User.where(condition).includes(:user_profile, :user_stat, :single_sign_on_record, :groups).find_each do |user|
+        User.where(condition).includes(:user_profile, :user_stat, :user_emails, :single_sign_on_record, :groups).find_each do |user|
           user_info_array = get_base_user_array(user)
           user_info_array = add_single_sign_on(user, user_info_array)
           user_info_array = add_custom_fields(user, user_info_array, user_field_ids)
@@ -123,7 +125,7 @@ module Jobs
         end
       else
         # SSO disabled
-        User.where(condition).includes(:user_profile, :user_stat, :groups).find_each do |user|
+        User.where(condition).includes(:user_profile, :user_stat, :user_emails, :groups).find_each do |user|
           user_info_array = get_base_user_array(user)
           user_info_array = add_custom_fields(user, user_info_array, user_field_ids)
           user_info_array = add_group_names(user, user_info_array)
@@ -181,14 +183,40 @@ module Jobs
       @extra[:category_id] = @extra[:category_id].present? ? @extra[:category_id].to_i : nil
       @extra[:group_id] = @extra[:group_id].present? ? @extra[:group_id].to_i : nil
 
-      report_hash = {}
-      Report.find(@extra[:name], @extra).data.each do |row|
-        report_hash[row[:x].to_s] = row[:y].to_s
+      report = Report.find(@extra[:name], @extra)
+
+      header = []
+      titles = {}
+
+      report.labels.each do |label|
+        if label[:type] == :user
+          titles[label[:properties][:username]] = label[:title]
+          header << label[:properties][:username]
+        else
+          titles[label[:property]] = label[:title]
+          header << label[:property]
+        end
       end
 
-      (@extra[:start_date].to_date..@extra[:end_date].to_date).each do |date|
-        yield [date.to_s(:db), report_hash.fetch(date.to_s, 0)]
+      if report.modes == [:stacked_chart]
+        header = [:x]
+        data = {}
+
+        report.data.map do |series|
+          header << series[:label]
+          series[:data].each do |datapoint|
+            data[datapoint[:x]] ||= { x: datapoint[:x] }
+            data[datapoint[:x]][series[:label]] = datapoint[:y]
+          end
+        end
+
+        data = data.values
+      else
+        data = report.data
       end
+
+      yield header.map { |k| titles[k] || k }
+      data.each { |row| yield row.values_at(*header).map(&:to_s) }
     end
 
     def get_header
@@ -212,16 +240,42 @@ module Jobs
     private
 
     def escape_comma(string)
-      if string && string =~ /,/
-        return "#{string}"
-      else
-        return string
-      end
+      string&.include?(",") ? %Q|"#{string}"| : string
     end
 
     def get_base_user_array(user)
-      user_array = []
-      user_array.push(user.id, escape_comma(user.name), user.username, user.email, escape_comma(user.title), user.created_at, user.last_seen_at, user.last_posted_at, user.last_emailed_at, user.trust_level, user.approved, user.suspended_at, user.suspended_till, user.silenced_till, user.active, user.admin, user.moderator, user.ip_address, user.staged, user.user_stat.topics_entered, user.user_stat.posts_read_count, user.user_stat.time_read, user.user_stat.topic_count, user.user_stat.post_count, user.user_stat.likes_given, user.user_stat.likes_received, escape_comma(user.user_profile.location), user.user_profile.website, user.user_profile.views)
+      [
+        user.id,
+        escape_comma(user.name),
+        user.username,
+        user.email,
+        escape_comma(user.title),
+        user.created_at,
+        user.last_seen_at,
+        user.last_posted_at,
+        user.last_emailed_at,
+        user.trust_level,
+        user.approved,
+        user.suspended_at,
+        user.suspended_till,
+        user.silenced_till,
+        user.active,
+        user.admin,
+        user.moderator,
+        user.ip_address,
+        user.staged,
+        user.secondary_emails.join(";"),
+        user.user_stat.topics_entered,
+        user.user_stat.posts_read_count,
+        user.user_stat.time_read,
+        user.user_stat.topic_count,
+        user.user_stat.post_count,
+        user.user_stat.likes_given,
+        user.user_stat.likes_received,
+        escape_comma(user.user_profile.location),
+        user.user_profile.website,
+        user.user_profile.views,
+      ]
     end
 
     def add_single_sign_on(user, user_info_array)
@@ -243,11 +297,8 @@ module Jobs
     end
 
     def add_group_names(user, user_info_array)
-      group_names = user.groups.each_with_object("") do |group, names|
-        names << "#{group.name};"
-      end
-      user_info_array << group_names[0..-2] unless group_names.blank?
-      group_names = nil
+      group_names = user.groups.map { |g| g.name }.join(";")
+      user_info_array << escape_comma(group_names) if group_names.present?
       user_info_array
     end
 
@@ -257,25 +308,22 @@ module Jobs
       user_archive = user_archive.as_json
       topic_data = Topic.with_deleted.find_by(id: user_archive['topic_id']) if topic_data.nil?
       return user_archive_array if topic_data.nil?
-      category = topic_data.category
-      sub_category_name = "-"
-      if category
-        category_name = category.name
-        if category.parent_category_id.present?
-          # sub category
-          if parent_category = Category.find_by(id: category.parent_category_id)
-            category_name = parent_category.name
-            sub_category_name = category.name
-          end
+
+      all_categories = Category.all.to_h { |category| [category.id, category] }
+
+      categories = "-"
+      if topic_data.category_id && category = all_categories[topic_data.category_id]
+        categories = [category.name]
+        while category.parent_category_id && category = all_categories[category.parent_category_id]
+          categories << category.name
         end
-      else
-        # PM
-        category_name = "-"
+        categories = categories.reverse.join("|")
       end
+
       is_pm = topic_data.archetype == "private_message" ? I18n.t("csv_export.boolean_yes") : I18n.t("csv_export.boolean_no")
       url = "#{Discourse.base_url}/t/#{topic_data.slug}/#{topic_data.id}/#{user_archive['post_number']}"
 
-      topic_hash = { "post" => user_archive['raw'], "topic_title" => topic_data.title, "category" => category_name, "sub_category" => sub_category_name, "is_pm" => is_pm, "url" => url }
+      topic_hash = { "post" => user_archive['raw'], "topic_title" => topic_data.title, "categories" => categories, "is_pm" => is_pm, "url" => url }
       user_archive.merge!(topic_hash)
 
       HEADER_ATTRS_FOR['user_archive'].each do |attr|
@@ -359,21 +407,23 @@ module Jobs
       screened_url_array
     end
 
-    def notify_user(download_link, file_name, file_size, export_title)
+    def notify_user(upload, export_title)
+      post = nil
+
       if @current_user
-        if download_link.present?
+        post = if upload
           SystemMessage.create_from_system_user(
             @current_user,
             :csv_export_succeeded,
-            download_link: download_link,
-            file_name: "#{file_name}.gz",
-            file_size: file_size,
+            download_link: UploadMarkdown.new(upload).attachment_markdown,
             export_title: export_title
           )
         else
           SystemMessage.create_from_system_user(@current_user, :csv_export_failed)
         end
       end
+
+      post
     end
   end
 end

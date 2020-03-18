@@ -1,10 +1,8 @@
 # frozen_string_literal: true
 
-require_dependency 'distributed_cache'
-
 class ColorScheme < ActiveRecord::Base
 
-  # rubocop:disable Layout/AlignHash
+  # rubocop:disable Layout/HashAlignment
 
   CUSTOM_SCHEMES = {
     'Dark': {
@@ -99,7 +97,9 @@ class ColorScheme < ActiveRecord::Base
     }
   }
 
-  # rubocop:enable Layout/AlignHash
+  # rubocop:enable Layout/HashAlignment
+
+  LIGHT_THEME_ID = 'Light'
 
   def self.base_color_scheme_colors
     base_with_hash = {}
@@ -109,7 +109,7 @@ class ColorScheme < ActiveRecord::Base
     end
 
     list = [
-      { id: 'Light', colors: base_with_hash }
+      { id: LIGHT_THEME_ID, colors: base_with_hash }
     ]
 
     CUSTOM_SCHEMES.each do |k, v|
@@ -138,19 +138,36 @@ class ColorScheme < ActiveRecord::Base
   validates_associated :color_scheme_colors
 
   BASE_COLORS_FILE = "#{Rails.root}/app/assets/stylesheets/common/foundation/colors.scss"
+  COLOR_TRANSFORMATION_FILE = "#{Rails.root}/app/assets/stylesheets/common/foundation/color_transformations.scss"
 
   @mutex = Mutex.new
 
   def self.base_colors
+    return @base_colors if @base_colors
     @mutex.synchronize do
       return @base_colors if @base_colors
-      @base_colors = {}
+      base_colors = {}
       File.readlines(BASE_COLORS_FILE).each do |line|
         matches = /\$([\w]+):\s*#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})(?:[;]|\s)/.match(line.strip)
-        @base_colors[matches[1]] = matches[2] if matches
+        base_colors[matches[1]] = matches[2] if matches
       end
+      @base_colors = base_colors
     end
     @base_colors
+  end
+
+  def self.color_transformation_variables
+    return @transformation_variables if @transformation_variables
+    @mutex.synchronize do
+      return @transformation_variables if @transformation_variables
+      transformation_variables = []
+      File.readlines(COLOR_TRANSFORMATION_FILE).each do |line|
+        matches = /\$([\w\-_]+):.*/.match(line.strip)
+        transformation_variables.append(matches[1]) if matches
+      end
+      @transformation_variables = transformation_variables
+    end
+    @transformation_variables
   end
 
   def self.base_color_schemes
@@ -168,6 +185,10 @@ class ColorScheme < ActiveRecord::Base
     @base_color_scheme.colors = base_colors.map { |name, hex| { name: name, hex: hex } }
     @base_color_scheme.is_base = true
     @base_color_scheme
+  end
+
+  def self.is_base?(scheme_name)
+    base_color_scheme_colors.map { |c| c[:id] }.include?(scheme_name)
   end
 
   # create_from_base will create a new ColorScheme that overrides Discourse's base color scheme with the given colors.

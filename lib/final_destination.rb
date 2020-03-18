@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'socket'
 require 'ipaddr'
 require 'excon'
@@ -9,17 +11,17 @@ class FinalDestination
 
   def self.clear_https_cache!(domain)
     key = redis_https_key(domain)
-    $redis.without_namespace.del(key)
+    Discourse.redis.without_namespace.del(key)
   end
 
   def self.cache_https_domain(domain)
     key = redis_https_key(domain)
-    $redis.without_namespace.setex(key, "1", 1.day.to_i).present?
+    Discourse.redis.without_namespace.setex(key, "1", 1.day.to_i).present?
   end
 
   def self.is_https_domain?(domain)
     key = redis_https_key(domain)
-    $redis.without_namespace.get(key).present?
+    Discourse.redis.without_namespace.get(key).present?
   end
 
   def self.redis_https_key(domain)
@@ -35,25 +37,28 @@ class FinalDestination
     @opts = opts || {}
     @force_get_hosts = @opts[:force_get_hosts] || []
     @preserve_fragment_url_hosts = @opts[:preserve_fragment_url_hosts] || []
+    @force_custom_user_agent_hosts = @opts[:force_custom_user_agent_hosts] || []
     @opts[:max_redirects] ||= 5
     @opts[:lookup_ip] ||= lambda { |host| FinalDestination.lookup_ip(host) }
 
     @ignored = @opts[:ignore_hostnames] || []
+    @limit = @opts[:max_redirects]
 
-    ignore_redirects = [Discourse.base_url_no_prefix]
+    if @limit > 0
+      ignore_redirects = [Discourse.base_url_no_prefix]
 
-    if @opts[:ignore_redirects]
-      ignore_redirects.concat(@opts[:ignore_redirects])
-    end
+      if @opts[:ignore_redirects]
+        ignore_redirects.concat(@opts[:ignore_redirects])
+      end
 
-    ignore_redirects.each do |ignore_redirect|
-      ignore_redirect = uri(ignore_redirect)
-      if ignore_redirect.present? && ignore_redirect.hostname
-        @ignored << ignore_redirect.hostname
+      ignore_redirects.each do |ignore_redirect|
+        ignore_redirect = uri(ignore_redirect)
+        if ignore_redirect.present? && ignore_redirect.hostname
+          @ignored << ignore_redirect.hostname
+        end
       end
     end
 
-    @limit = @opts[:max_redirects]
     @status = :ready
     @http_verb = @force_get_hosts.any? { |host| hostname_matches?(host) } ? :get : :head
     @cookie = nil
@@ -61,6 +66,8 @@ class FinalDestination
     @verbose = @opts[:verbose] || false
     @timeout = @opts[:timeout] || nil
     @preserve_fragment_url = @preserve_fragment_url_hosts.any? { |host| hostname_matches?(host) }
+    @validate_uri = @opts.fetch(:validate_uri) { true }
+    @user_agent = @force_custom_user_agent_hosts.any? { |host| hostname_matches?(host) } ? Onebox.options.user_agent : "Mozilla/5.0 (Windows NT 6.2; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
   end
 
   def self.connection_timeout
@@ -77,7 +84,7 @@ class FinalDestination
 
   def request_headers
     result = {
-      "User-Agent" => "Mozilla/5.0 (Windows NT 6.2; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
+      "User-Agent" => @user_agent,
       "Accept" => "*/*",
       "Host" => @uri.hostname
     }
@@ -87,16 +94,16 @@ class FinalDestination
     result
   end
 
-  def small_get(headers)
-    status_code, headers = nil
+  def small_get(request_headers)
+    status_code, response_headers = nil
 
     catch(:done) do
       Net::HTTP.start(@uri.host, @uri.port, use_ssl: @uri.is_a?(URI::HTTPS)) do |http|
         http.open_timeout = timeout
         http.read_timeout = timeout
-        http.request_get(@uri.request_uri, headers) do |resp|
+        http.request_get(@uri.request_uri, request_headers) do |resp|
           status_code = resp.code.to_i
-          headers = resp.to_hash
+          response_headers = resp.to_hash
 
           # see: https://bugs.ruby-lang.org/issues/15624
           # if we allow response to return then body will be read
@@ -106,7 +113,7 @@ class FinalDestination
       end
     end
 
-    [status_code, headers]
+    [status_code, response_headers]
   end
 
   # this is a new interface for simply getting
@@ -224,6 +231,12 @@ class FinalDestination
     end
 
     if location
+      redirect_uri = uri(location)
+      if @uri.host == redirect_uri.host && (redirect_uri.path =~ /\/login/ || redirect_uri.path =~ /\/session/)
+        @status = :resolved
+        return @uri
+      end
+
       old_port = @uri.port
       location = "#{location}##{@uri.fragment}" if @preserve_fragment_url && @uri.fragment.present?
       location = "#{@uri.scheme}://#{@uri.host}#{location}" if location[0] == "/"
@@ -250,7 +263,7 @@ class FinalDestination
   end
 
   def validate_uri
-    validate_uri_format && is_dest_valid?
+    !@validate_uri || (validate_uri_format && is_dest_valid?)
   end
 
   def validate_uri_format
@@ -302,10 +315,7 @@ class FinalDestination
   end
 
   def escape_url
-    UrlHelper.escape_uri(
-      CGI.unescapeHTML(@url),
-      Regexp.new("[^#{URI::PATTERN::UNRESERVED}#{URI::PATTERN::RESERVED}#]")
-    )
+    UrlHelper.escape_uri(@url)
   end
 
   def private_ranges

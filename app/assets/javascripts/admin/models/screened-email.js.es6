@@ -1,11 +1,15 @@
+import discourseComputed from "discourse-common/utils/decorators";
 import { ajax } from "discourse/lib/ajax";
-const ScreenedEmail = Discourse.Model.extend({
-  actionName: function() {
-    return I18n.t("admin.logs.screened_actions." + this.get("action"));
-  }.property("action"),
+import EmberObject from "@ember/object";
+
+const ScreenedEmail = EmberObject.extend({
+  @discourseComputed("action")
+  actionName(action) {
+    return I18n.t("admin.logs.screened_actions." + action);
+  },
 
   clearBlock: function() {
-    return ajax("/admin/logs/screened_emails/" + this.get("id"), {
+    return ajax("/admin/logs/screened_emails/" + this.id, {
       method: "DELETE"
     });
   }

@@ -1,9 +1,15 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import { inject } from "@ember/controller";
 import NavigationDefaultController from "discourse/controllers/navigation/default";
 
 export default NavigationDefaultController.extend({
-  discoveryCategories: Ember.inject.controller("discovery/categories"),
+  discoveryCategories: inject("discovery/categories"),
 
-  draft: function() {
+  @discourseComputed(
+    "discoveryCategories.model",
+    "discoveryCategories.model.draft"
+  )
+  draft() {
     return this.get("discoveryCategories.model.draft");
-  }.property("discoveryCategories.model", "discoveryCategories.model.draft")
+  }
 });

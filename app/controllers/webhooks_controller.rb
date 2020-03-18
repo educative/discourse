@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "openssl"
 
 class WebhooksController < ActionController::Base
@@ -24,7 +26,7 @@ class WebhooksController < ActionController::Base
       end
     end
 
-    render body: nil, status: 200
+    success
   end
 
   def mailjet
@@ -41,7 +43,7 @@ class WebhooksController < ActionController::Base
       end
     end
 
-    render body: nil, status: 200
+    success
   end
 
   def mandrill
@@ -58,7 +60,24 @@ class WebhooksController < ActionController::Base
       end
     end
 
-    render body: nil, status: 200
+    success
+  end
+
+  def postmark
+    # see https://postmarkapp.com/developer/webhooks/bounce-webhook#bounce-webhook-data
+    # and https://postmarkapp.com/developer/api/bounce-api#bounce-types
+
+    message_id = params["MessageID"]
+    to_address = params["Email"]
+    type = params["Type"]
+    case type
+    when "HardBounce", "SpamNotification", "SpamComplaint"
+      process_bounce(message_id, to_address, SiteSetting.hard_bounce_score)
+    when "SoftBounce"
+      process_bounce(message_id, to_address, SiteSetting.soft_bounce_score)
+    end
+
+    success
   end
 
   def sparkpost
@@ -84,7 +103,21 @@ class WebhooksController < ActionController::Base
       end
     end
 
-    render body: nil, status: 200
+    success
+  end
+
+  def aws
+    raw  = request.raw_post
+    json = JSON.parse(raw)
+
+    case json["Type"]
+    when "SubscriptionConfirmation"
+      Jobs.enqueue(:confirm_sns_subscription, raw: raw, json: json)
+    when "Notification"
+      Jobs.enqueue(:process_sns_notification, raw: raw, json: json)
+    end
+
+    success
   end
 
   private
@@ -93,7 +126,7 @@ class WebhooksController < ActionController::Base
     render body: nil, status: 406
   end
 
-  def mailgun_success
+  def success
     render body: nil, status: 200
   end
 
@@ -103,8 +136,8 @@ class WebhooksController < ActionController::Base
 
     # prevent replay attacks
     key = "mailgun_token_#{token}"
-    return false unless $redis.setnx(key, 1)
-    $redis.expire(key, 10.minutes)
+    return false unless Discourse.redis.setnx(key, 1)
+    Discourse.redis.expire(key, 10.minutes)
 
     # ensure timestamp isn't too far from current time
     return false if (Time.at(timestamp.to_i) - Time.now).abs > 12.hours.to_i
@@ -129,7 +162,7 @@ class WebhooksController < ActionController::Base
       process_bounce(message_id, to_address, SiteSetting.hard_bounce_score)
     end
 
-    mailgun_success
+    success
   end
 
   def handle_mailgun_new(params)
@@ -149,7 +182,7 @@ class WebhooksController < ActionController::Base
       end
     end
 
-    mailgun_success
+    success
   end
 
   def process_bounce(message_id, to_address, bounce_score)

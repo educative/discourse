@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe Hijack do
@@ -63,7 +65,6 @@ describe Hijack do
 
       expect(@calls).to eq(1)
       expect(@status).to eq(201)
-      expect(@status).to be > 0
     end
   end
 
@@ -107,7 +108,7 @@ describe Hijack do
 
     expected = {
       "Access-Control-Allow-Origin" => "www.rainbows.com",
-      "Access-Control-Allow-Headers" => "Content-Type, Cache-Control, X-Requested-With, X-CSRF-Token, Discourse-Visible, User-Api-Key, User-Api-Client-Id",
+      "Access-Control-Allow-Headers" => "Content-Type, Cache-Control, X-Requested-With, X-CSRF-Token, Discourse-Visible, User-Api-Key, User-Api-Client-Id, Authorization",
       "Access-Control-Allow-Credentials" => "true",
       "Access-Control-Allow-Methods" => "POST, PUT, GET, OPTIONS, DELETE"
     }

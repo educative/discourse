@@ -1,48 +1,45 @@
+import { gt } from "@ember/object/computed";
+import EmberObject from "@ember/object";
+import { scheduleOnce } from "@ember/runloop";
+import Controller from "@ember/controller";
 import { exportEntity } from "discourse/lib/export-csv";
 import { outputExportResult } from "discourse/lib/export-result";
-import StaffActionLog from "admin/models/staff-action-log";
+import discourseComputed, { on } from "discourse-common/utils/decorators";
 
-export default Ember.Controller.extend({
-  loading: false,
+export default Controller.extend({
+  model: null,
   filters: null,
-  userHistoryActions: [],
+  filtersExists: gt("filterCount", 0),
+  userHistoryActions: null,
 
-  filtersExists: Ember.computed.gt("filterCount", 0),
+  @discourseComputed("filters.action_name")
+  actionFilter(name) {
+    return name ? I18n.t("admin.logs.staff_actions.actions." + name) : null;
+  },
 
-  filterActionIdChanged: function() {
-    const filterActionId = this.get("filterActionId");
-    if (filterActionId) {
-      this._changeFilters({
-        action_name: this.get("userHistoryActions").findBy(
-          "id",
-          parseInt(filterActionId, 10)
-        ).name_raw,
-        action_id: filterActionId
-      });
-    }
-  }.observes("filterActionId"),
+  @on("init")
+  resetFilters() {
+    this.setProperties({
+      model: EmberObject.create({ loadingMore: true }),
+      filters: EmberObject.create()
+    });
+    this.scheduleRefresh();
+  },
 
-  actionFilter: function() {
-    var name = this.get("filters.action_name");
-    if (name) {
-      return I18n.t("admin.logs.staff_actions.actions." + name);
-    } else {
-      return null;
-    }
-  }.property("filters.action_name"),
-
-  showInstructions: Ember.computed.gt("model.length", 0),
+  _changeFilters(props) {
+    this.set("model", EmberObject.create({ loadingMore: true }));
+    this.filters.setProperties(props);
+    this.scheduleRefresh();
+  },
 
   _refresh() {
-    this.set("loading", true);
-
-    var filters = this.get("filters"),
-      params = {},
-      count = 0;
+    let filters = this.filters;
+    let params = {};
+    let count = 0;
 
     // Don't send null values
-    Object.keys(filters).forEach(function(k) {
-      var val = filters.get(k);
+    Object.keys(filters).forEach(k => {
+      let val = filters.get(k);
       if (val) {
         params[k] = val;
         count += 1;
@@ -50,43 +47,42 @@ export default Ember.Controller.extend({
     });
     this.set("filterCount", count);
 
-    StaffActionLog.findAll(params)
-      .then(result => {
-        this.set("model", result.staff_action_logs);
-        if (this.get("userHistoryActions").length === 0) {
-          let actionTypes = result.user_history_actions.map(pair => {
-            return {
-              id: pair.id,
-              name: I18n.t("admin.logs.staff_actions.actions." + pair.name),
-              name_raw: pair.name
-            };
-          });
-          actionTypes = _.sortBy(actionTypes, row => row.name);
-          this.set("userHistoryActions", actionTypes);
-        }
-      })
-      .finally(() => {
-        this.set("loading", false);
-      });
+    this.store.findAll("staff-action-log", params).then(result => {
+      this.set("model", result);
+
+      if (!this.userHistoryActions) {
+        this.set(
+          "userHistoryActions",
+          result.extras.user_history_actions
+            .map(action => ({
+              id: action.id,
+              action_id: action.action_id,
+              name: I18n.t("admin.logs.staff_actions.actions." + action.id),
+              name_raw: action.id
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+        );
+      }
+    });
   },
 
   scheduleRefresh() {
-    Ember.run.scheduleOnce("afterRender", this, this._refresh);
-  },
-
-  resetFilters: function() {
-    this.set("filters", Ember.Object.create());
-    this.scheduleRefresh();
-  }.on("init"),
-
-  _changeFilters: function(props) {
-    this.get("filters").setProperties(props);
-    this.scheduleRefresh();
+    scheduleOnce("afterRender", this, this._refresh);
   },
 
   actions: {
-    clearFilter: function(key) {
-      var changed = {};
+    filterActionIdChanged(filterActionId) {
+      if (filterActionId) {
+        this._changeFilters({
+          action_name: filterActionId,
+          action_id: this.userHistoryActions.findBy("id", filterActionId)
+            .action_id
+        });
+      }
+    },
+
+    clearFilter(key) {
+      let changed = {};
 
       // Special case, clear all action related stuff
       if (key === "actionFilter") {
@@ -105,7 +101,7 @@ export default Ember.Controller.extend({
       this.resetFilters();
     },
 
-    filterByAction: function(logItem) {
+    filterByAction(logItem) {
       this._changeFilters({
         action_name: logItem.get("action_name"),
         action_id: logItem.get("action"),
@@ -113,20 +109,24 @@ export default Ember.Controller.extend({
       });
     },
 
-    filterByStaffUser: function(acting_user) {
+    filterByStaffUser(acting_user) {
       this._changeFilters({ acting_user: acting_user.username });
     },
 
-    filterByTargetUser: function(target_user) {
+    filterByTargetUser(target_user) {
       this._changeFilters({ target_user: target_user.username });
     },
 
-    filterBySubject: function(subject) {
+    filterBySubject(subject) {
       this._changeFilters({ subject: subject });
     },
 
-    exportStaffActionLogs: function() {
+    exportStaffActionLogs() {
       exportEntity("staff_action").then(outputExportResult);
+    },
+
+    loadMore() {
+      this.model.loadMore();
     }
   }
 });

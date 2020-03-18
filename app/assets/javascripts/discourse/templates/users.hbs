@@ -4,17 +4,16 @@
       <div class='directory'>
         {{plugin-outlet name="users-top" connectorTagName='div' args=(hash model=model)}}
         <div class='clearfix'>
-          {{period-chooser period=period}}
+          {{period-chooser period=period onChange=(action (mut period))}}
           {{text-field value=nameInput placeholderKey="directory.filter_name" class="filter-name no-blur"}}
         </div>
 
         {{#conditional-loading-spinner condition=model.loading}}
           {{#if model.length}}
-            <div class='total-rows'>{{i18n "directory.total_rows" count=model.totalRows}}</div>
 
             <table>
               <thead>
-                <th>&nbsp;</th>
+                <th>{{i18n "directory.total_rows" count=model.totalRows}}</th>
                 {{directory-toggle field="likes_received" order=order asc=asc icon="heart"}}
                 {{directory-toggle field="likes_given" order=order asc=asc icon="heart"}}
                 {{directory-toggle field="topic_count" order=order asc=asc}}

@@ -1,91 +1,54 @@
+# frozen_string_literal: true
+
 class UploadRecovery
-  def initialize(dry_run: false)
+  def initialize(dry_run: false, stop_on_error: false)
     @dry_run = dry_run
+    @stop_on_error = stop_on_error
   end
 
   def recover(posts = Post)
-    posts.where("raw LIKE '%upload:\/\/%' OR raw LIKE '%href=%'").find_each do |post|
-      begin
-        analyzer = PostAnalyzer.new(post.raw, post.topic_id)
-
-        analyzer.cooked_stripped.css("img", "a").each do |media|
-          if media.name == "img"
-            if dom_class = media["class"]
-              if (Post.white_listed_image_classes & dom_class.split).count > 0
-                next
-              end
-            end
-
-            orig_src = media["data-orig-src"]
-
-            if orig_src
-              if @dry_run
-                puts "#{post.full_url} #{orig_src}"
-              else
-                recover_post_upload(post, Upload.sha1_from_short_url(orig_src))
-              end
-            end
-          elsif media.name == "a"
-            href = media["href"]
-
-            if href && data = Upload.extract_upload_url(href)
-              sha1 = data[2]
-
-              unless upload = Upload.get_from_url(href)
-                if @dry_run
-                  puts "#{post.full_url} #{href}"
-                else
-                  recover_post_upload(post, sha1)
-                end
-              end
-            end
-          end
-        end
-      rescue => e
-        raise e unless @dry_run
-        puts "#{post.full_url} #{e.class}: #{e.message}"
-      end
-    end
+    posts.have_uploads.find_each { |post| recover_post post }
   end
 
-  def recover_user_profile_backgrounds
-    UserProfile
-      .where("profile_background IS NOT NULL OR card_background IS NOT NULL")
-      .find_each do |user_profile|
+  def recover_post(post)
+    begin
+      analyzer = PostAnalyzer.new(post.raw, post.topic_id)
 
-      %i{card_background profile_background}.each do |column|
-        background = user_profile.public_send(column)
-
-        if background.present? && !Upload.exists?(url: background)
-          data = Upload.extract_upload_url(background)
-          next unless data
-          sha1 = data[2]
+      analyzer.cooked_stripped.css("img", "a").each do |media|
+        if media.name == "img" && orig_src = media["data-orig-src"]
+          if dom_class = media["class"]
+            if (Post.white_listed_image_classes & dom_class.split).count > 0
+              next
+            end
+          end
 
           if @dry_run
-            puts "#{background}"
+            puts "#{post.full_url} #{orig_src}"
           else
-            recover_user_profile_background(sha1, user_profile.user_id) do |upload|
-              user_profile.update!("#{column}" => upload.url) if upload.persisted?
+            recover_post_upload(post, Upload.sha1_from_short_url(orig_src))
+          end
+        elsif url = (media["href"] || media["src"])
+          data = Upload.extract_url(url)
+          next unless data
+
+          sha1 = data[2]
+
+          unless upload = Upload.get_from_url(url)
+            if @dry_run
+              puts "#{post.full_url} #{url}"
+            else
+              recover_post_upload(post, sha1)
             end
           end
         end
       end
+    rescue => e
+      raise e if @stop_on_error
+      puts "#{post.full_url} #{e.class}: #{e.message}"
     end
   end
 
   private
-
-  def recover_user_profile_background(sha1, user_id, &block)
-    return unless valid_sha1?(sha1)
-
-    attributes = { sha1: sha1, user_id: user_id }
-
-    if Discourse.store.external?
-      recover_from_s3(attributes, &block)
-    else
-      recover_from_local(attributes, &block)
-    end
-  end
 
   def recover_post_upload(post, sha1)
     return unless valid_sha1?(sha1)
@@ -102,15 +65,32 @@ class UploadRecovery
     end
   end
 
+  def ensure_upload!(post:, sha1:, upload:)
+    return if !upload.persisted?
+
+    if upload.sha1 != sha1
+      STDERR.puts "Warning #{post.url} had an incorrect #{sha1} should be #{upload.sha1} storing in custom field 'rake uploads:fix_relative_upload_links' can fix this"
+
+      sha_map = post.custom_fields["UPLOAD_SHA1_MAP"] || "{}"
+      sha_map = JSON.parse(sha_map)
+      sha_map[sha1] = upload.sha1
+
+      post.custom_fields["UPLOAD_SHA1_MAP"] = sha_map.to_json
+      post.save_custom_fields
+    end
+
+    post.rebake!
+  end
+
   def recover_post_upload_from_local(post:, sha1:)
     recover_from_local(sha1: sha1, user_id: post.user_id) do |upload|
-      post.rebake! if upload.persisted?
+      ensure_upload!(post: post, sha1: sha1, upload: upload)
     end
   end
 
   def recover_post_upload_from_s3(post:, sha1:)
     recover_from_s3(sha1: sha1, user_id: post.user_id) do |upload|
-      post.rebake! if upload.persisted?
+      ensure_upload!(post: post, sha1: sha1, upload: upload)
     end
   end
 
@@ -156,9 +136,16 @@ class UploadRecovery
     @object_keys ||= begin
       s3_helper = Discourse.store.s3_helper
 
-      s3_helper.list("original").map(&:key).concat(
-        s3_helper.list("#{FileStore::S3Store::TOMBSTONE_PREFIX}original").map(&:key)
-      )
+      if Rails.configuration.multisite
+        current_db = RailsMultisite::ConnectionManagement.current_db
+        s3_helper.list("uploads/#{current_db}/original").map(&:key).concat(
+          s3_helper.list("uploads/#{FileStore::S3Store::TOMBSTONE_PREFIX}#{current_db}/original").map(&:key)
+        )
+      else
+        s3_helper.list("original").map(&:key).concat(
+          s3_helper.list("#{FileStore::S3Store::TOMBSTONE_PREFIX}original").map(&:key)
+        )
+      end
     end
 
     @object_keys.each do |key|

@@ -1,29 +1,26 @@
-import { on, observes } from "ember-addons/ember-computed-decorators";
+import { inject as service } from "@ember/service";
+import Component from "@ember/component";
+import { on, observes } from "discourse-common/utils/decorators";
 import { findRawTemplate } from "discourse/lib/raw-templates";
 import { emojiUrlFor } from "discourse/lib/text";
-import KeyValueStore from "discourse/lib/key-value-store";
 import {
   extendedEmojiList,
   isSkinTonableEmoji,
   emojiSearch
 } from "pretty-text/emoji";
+import { safariHacksDisabled } from "discourse/lib/utilities";
+import ENV from "discourse-common/config/environment";
+
 const { run } = Ember;
 
-const keyValueStore = new KeyValueStore("discourse_emojis_");
-const EMOJI_USAGE = "emojiUsage";
-const EMOJI_SELECTED_DIVERSITY = "emojiSelectedDiversity";
 const PER_ROW = 11;
 const customEmojis = _.keys(extendedEmojiList()).map(code => {
   return { code, src: emojiUrlFor(code) };
 });
 
-export function resetCache() {
-  keyValueStore.setObject({ key: EMOJI_USAGE, value: [] });
-  keyValueStore.setObject({ key: EMOJI_SELECTED_DIVERSITY, value: 1 });
-}
-
-export default Ember.Component.extend({
+export default Component.extend({
   automaticPositioning: true,
+  emojiStore: service("emoji-store"),
 
   close() {
     this._unbindEvents();
@@ -45,11 +42,10 @@ export default Ember.Component.extend({
     this.$results = this.$picker.find(".results");
     this.$list = this.$picker.find(".list");
 
-    this.set(
-      "selectedDiversity",
-      keyValueStore.getObject(EMOJI_SELECTED_DIVERSITY) || 1
-    );
-    this.set("recentEmojis", keyValueStore.getObject(EMOJI_USAGE) || []);
+    this.setProperties({
+      selectedDiversity: this.emojiStore.diversity,
+      recentEmojis: this.emojiStore.favorites
+    });
 
     run.scheduleOnce("afterRender", this, function() {
       this._bindEvents();
@@ -58,6 +54,12 @@ export default Ember.Component.extend({
       this._scrollTo();
       this._updateSelectedDiversity();
       this._checkVisibleSection(true);
+
+      if (
+        (!this.site.isMobileDevice || this.isEditorFocused) &&
+        !safariHacksDisabled()
+      )
+        this.$filter.find("input[name='filter']").focus();
     });
   },
 
@@ -70,45 +72,35 @@ export default Ember.Component.extend({
 
   @on("willDestroyElement")
   _unbindGlobalEvents() {
-    this.appEvents.off("emoji-picker:close");
+    this.appEvents.off("emoji-picker:close", this, "_closeEmojiPicker");
+  },
+
+  _closeEmojiPicker() {
+    this.set("active", false);
   },
 
   @on("didInsertElement")
   _setup() {
-    this.$picker = this.$(".emoji-picker");
-    this.$modal = this.$(".emoji-picker-modal");
-
-    this.appEvents.on("emoji-picker:close", () => this.set("active", false));
-
-    if (!keyValueStore.getObject(EMOJI_USAGE)) {
-      keyValueStore.setObject({ key: EMOJI_USAGE, value: [] });
-    } else if (_.isPlainObject(keyValueStore.getObject(EMOJI_USAGE))) {
-      // handle legacy format
-      keyValueStore.setObject({
-        key: EMOJI_USAGE,
-        value: _.keys(keyValueStore.getObject(EMOJI_USAGE))
-      });
-    }
+    this.$picker = $(this.element.querySelector(".emoji-picker"));
+    this.$modal = $(this.element.querySelector(".emoji-picker-modal"));
+    this.appEvents.on("emoji-picker:close", this, "_closeEmojiPicker");
   },
 
   @on("didUpdateAttrs")
   _setState() {
-    this.get("active") ? this.show() : this.close();
+    this.active ? this.show() : this.close();
   },
 
   @observes("filter")
   filterChanged() {
-    this.$filter.find(".clear-filter").toggle(!_.isEmpty(this.get("filter")));
+    this.$filter.find(".clear-filter").toggle(!_.isEmpty(this.filter));
     const filterDelay = this.site.isMobileDevice ? 400 : 250;
     run.debounce(this, this._filterEmojisList, filterDelay);
   },
 
   @observes("selectedDiversity")
   selectedDiversityChanged() {
-    keyValueStore.setObject({
-      key: EMOJI_SELECTED_DIVERSITY,
-      value: this.get("selectedDiversity")
-    });
+    this.emojiStore.diversity = this.selectedDiversity;
 
     $.each(
       this.$list.find(".emoji[data-loaded='1'].diversity"),
@@ -119,7 +111,7 @@ export default Ember.Component.extend({
       }
     );
 
-    if (this.get("filter") !== "") {
+    if (this.filter !== "") {
       $.each(this.$results.find(".emoji.diversity"), (_, button) =>
         this._setButtonBackground(button, true)
       );
@@ -140,7 +132,7 @@ export default Ember.Component.extend({
     let persistScrollPosition = !$recentCategory.is(":visible") ? true : false;
 
     // we set height to 0 to avoid it being taken into account for scroll position
-    if (_.isEmpty(this.get("recentEmojis"))) {
+    if (_.isEmpty(this.recentEmojis)) {
       $recentCategory.hide();
       $recentSection.css("height", 0).hide();
     } else {
@@ -148,7 +140,7 @@ export default Ember.Component.extend({
       $recentSection.css("height", "auto").show();
     }
 
-    const recentEmojis = this.get("recentEmojis").map(code => {
+    const recentEmojis = this.recentEmojis.map(code => {
       return { code, src: emojiUrlFor(code) };
     });
     const template = findRawTemplate("emoji-picker-recent")({ recentEmojis });
@@ -166,7 +158,7 @@ export default Ember.Component.extend({
 
     $diversityPicker.find(".diversity-scale").removeClass("selected");
     $diversityPicker
-      .find(`.diversity-scale[data-level="${this.get("selectedDiversity")}"]`)
+      .find(`.diversity-scale[data-level="${this.selectedDiversity}"]`)
       .addClass("selected");
   },
 
@@ -217,20 +209,20 @@ export default Ember.Component.extend({
 
   @on("willDestroyElement")
   _unbindEvents() {
-    this.$().off();
-    this.$(window).off("resize");
+    $(this.element).off();
+    $(window).off("resize");
     clearInterval(this._refreshInterval);
     $("#reply-control").off("div-resizing");
     $("html").off("mouseup.emoji-picker");
   },
 
   _filterEmojisList() {
-    if (this.get("filter") === "") {
+    if (this.filter === "") {
       this.$filter.find("input[name='filter']").val("");
       this.$results.empty().hide();
       this.$list.css("visibility", "visible");
     } else {
-      const lowerCaseFilter = this.get("filter").toLowerCase();
+      const lowerCaseFilter = this.filter.toLowerCase();
       const filteredCodes = emojiSearch(lowerCaseFilter, { maxResults: 30 });
       this.$results
         .empty()
@@ -301,7 +293,7 @@ export default Ember.Component.extend({
   },
 
   _bindResizing() {
-    this.$(window).on("resize", () => {
+    $(window).on("resize", () => {
       run.throttle(this, this._positionPicker, 16);
     });
 
@@ -315,7 +307,7 @@ export default Ember.Component.extend({
       ".section[data-section='recent'] .clear-recent"
     );
     $recent.on("click", () => {
-      keyValueStore.setObject({ key: EMOJI_USAGE, value: [] });
+      this.emojiStore.favorites = [];
       this.set("recentEmojis", []);
       this._scrollTo(0);
       return false;
@@ -349,10 +341,15 @@ export default Ember.Component.extend({
         .off("touchstart")
         .on("touchstart", "button.emoji", touchStartEvent => {
           const $this = $(touchStartEvent.currentTarget);
+
           $this.on("touchend", touchEndEvent => {
+            touchEndEvent.preventDefault();
+            touchEndEvent.stopPropagation();
+
             handler.bind(self)(touchEndEvent);
             $this.off("touchend");
           });
+
           $this.on("touchmove", () => $this.off("touchend"));
         });
     } else {
@@ -394,7 +391,7 @@ export default Ember.Component.extend({
       return sectionTop + $section.height() > 0 && sectionTop < listHeight;
     });
 
-    if (!_.isEmpty(this.get("recentEmojis")) && this.scrollPosition === 0) {
+    if (!_.isEmpty(this.recentEmojis) && this.scrollPosition === 0) {
       $selectedSection = $(_.first(this.$visibleSections));
     } else {
       $selectedSection = $(_.last(this.$visibleSections));
@@ -445,14 +442,17 @@ export default Ember.Component.extend({
     );
     $diversityScales.on("click", event => {
       const $selectedDiversity = $(event.currentTarget);
-      this.set("selectedDiversity", parseInt($selectedDiversity.data("level")));
+      this.set(
+        "selectedDiversity",
+        parseInt($selectedDiversity.data("level"), 10)
+      );
       return false;
     });
   },
 
   _isReplyControlExpanded() {
     const verticalSpace =
-      this.$(window).height() -
+      $(window).height() -
       $(".d-header").height() -
       $("#reply-control").height();
 
@@ -460,11 +460,11 @@ export default Ember.Component.extend({
   },
 
   _positionPicker() {
-    if (!this.get("active")) {
+    if (!this.active) {
       return;
     }
 
-    let windowWidth = this.$(window).width();
+    let windowWidth = $(window).width();
 
     const desktopModalePositioning = options => {
       let attributes = {
@@ -498,6 +498,7 @@ export default Ember.Component.extend({
 
     const desktopPositioning = options => {
       let attributes = {
+        position: "fixed",
         width: windowWidth < 485 ? windowWidth - 12 : 400,
         marginLeft: "",
         marginTop: "",
@@ -512,7 +513,7 @@ export default Ember.Component.extend({
       this.$picker.css(_.merge(attributes, options));
     };
 
-    if (Ember.testing || !this.get("automaticPositioning")) {
+    if (ENV.environment === "test" || !this.automaticPositioning) {
       desktopPositioning();
       return;
     }
@@ -546,12 +547,30 @@ export default Ember.Component.extend({
         if (windowWidth < 485) {
           desktopModalePositioning();
         } else {
-          let previewInputOffset = $(".d-editor-input").offset();
-          let left = previewInputOffset.left;
-          desktopPositioning({
-            left,
-            bottom: $("#reply-control").height() - 45
-          });
+          const previewInputOffset = $(".d-editor-input").offset();
+
+          const pickerHeight = $(".d-editor .emoji-picker").height();
+          const editorHeight = $(".d-editor-input").height();
+          const windowBottom = $(window).scrollTop() + $(window).height();
+
+          if (
+            previewInputOffset.top + editorHeight + pickerHeight <
+            windowBottom
+          ) {
+            // position it below editor if there is enough space
+            desktopPositioning({
+              position: "absolute",
+              top: previewInputOffset.top + editorHeight,
+              left: previewInputOffset.left
+            });
+          } else {
+            // try positioning it above
+            desktopPositioning({
+              position: "absolute",
+              top: -pickerHeight,
+              left: previewInputOffset.left
+            });
+          }
         }
       }
     }
@@ -565,24 +584,20 @@ export default Ember.Component.extend({
   },
 
   _codeWithDiversity(code, diversity) {
-    if (diversity && this.get("selectedDiversity") !== 1) {
-      return `${code}:t${this.get("selectedDiversity")}`;
+    if (diversity && this.selectedDiversity !== 1) {
+      return `${code}:t${this.selectedDiversity}`;
     } else {
       return code;
     }
   },
 
   _trackEmojiUsage(code) {
-    let recent = keyValueStore.getObject(EMOJI_USAGE) || [];
-    recent = recent.filter(r => r !== code);
-    recent.unshift(code);
-    recent.length = Math.min(recent.length, PER_ROW);
-    keyValueStore.setObject({ key: EMOJI_USAGE, value: recent });
-    this.set("recentEmojis", recent);
+    this.emojiStore.track(code);
+    this.set("recentEmojis", this.emojiStore.favorites.slice(0, PER_ROW));
   },
 
   _scrollTo(y) {
-    const yPosition = _.isUndefined(y) ? this.scrollPosition : y;
+    const yPosition = typeof y === "undefined" ? this.scrollPosition : y;
 
     this.$list.scrollTop(yPosition);
 

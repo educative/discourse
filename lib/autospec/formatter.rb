@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require "rspec/core/formatters/base_text_formatter"
+require "parallel_tests/rspec/logger_base"
 
 module Autospec; end
 
@@ -11,10 +14,6 @@ class Autospec::Formatter < RSpec::Core::Formatters::BaseTextFormatter
   def initialize(output)
     super
     FileUtils.mkdir_p("tmp") unless Dir.exists?("tmp")
-  end
-
-  def start(example_count)
-    super
     File.delete(RSPEC_RESULT) if File.exists?(RSPEC_RESULT)
     @fail_file = File.open(RSPEC_RESULT, "w")
   end
@@ -29,7 +28,7 @@ class Autospec::Formatter < RSpec::Core::Formatters::BaseTextFormatter
 
   def example_failed(notification)
     output.print RSpec::Core::Formatters::ConsoleCodes.wrap('F', :failure)
-    @fail_file.puts(notification.example.metadata[:location] + " ")
+    @fail_file.puts(notification.example.location + " ")
     @fail_file.flush
   end
 

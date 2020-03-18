@@ -1,5 +1,6 @@
-class UserAction < ActiveRecord::Base
+# frozen_string_literal: true
 
+class UserAction < ActiveRecord::Base
   belongs_to :user
   belongs_to :target_post, class_name: "Post"
   belongs_to :target_topic, class_name: "Topic"
@@ -18,14 +19,12 @@ class UserAction < ActiveRecord::Base
   EDIT = 11
   NEW_PRIVATE_MESSAGE = 12
   GOT_PRIVATE_MESSAGE = 13
-  PENDING = 14
   SOLVED = 15
   ASSIGNED = 16
 
   ORDER = Hash[*[
     GOT_PRIVATE_MESSAGE,
     NEW_PRIVATE_MESSAGE,
-    PENDING,
     NEW_TOPIC,
     REPLY,
     RESPONSE,
@@ -42,7 +41,7 @@ class UserAction < ActiveRecord::Base
   def self.last_action_in_topic(user_id, topic_id)
     UserAction.where(user_id: user_id,
                      target_topic_id: topic_id,
-                     action_type: [RESPONSE, MENTION, QUOTE]).order('created_at DESC').pluck(:target_post_id).first
+                     action_type: [RESPONSE, MENTION, QUOTE]).order('created_at DESC').pluck_first(:target_post_id)
   end
 
   def self.stats(user_id, guardian)
@@ -149,48 +148,6 @@ class UserAction < ActiveRecord::Base
     topic_archived
   }.map! { |s|  "NULL as #{s}" }.join(", ")
 
-  def self.stream_queued(opts = nil)
-    opts ||= {}
-
-    offset = opts[:offset] || 0
-    limit = opts[:limit] || 60
-
-    # this is somewhat ugly, but the serializer wants all these columns
-    # it is more correct to have an object with all the fields needed
-    # cause then we can catch and change if we ever add columns
-    builder = DB.build <<~SQL
-      SELECT
-        a.id,
-        t.title,
-        a.action_type,
-        a.created_at,
-        t.id topic_id,
-        u.username,
-        u.name,
-        u.id AS user_id,
-        qp.raw,
-        t.category_id,
-        #{NULL_QUEUED_STREAM_COLS}
-      FROM user_actions as a
-      JOIN queued_posts AS qp ON qp.id = a.queued_post_id
-      LEFT OUTER JOIN topics t on t.id = qp.topic_id
-      JOIN users u on u.id = a.user_id
-      LEFT JOIN categories c on c.id = t.category_id
-      /*where*/
-      /*order_by*/
-      /*offset*/
-      /*limit*/
-    SQL
-
-    builder
-      .where('a.user_id = :user_id', user_id: opts[:user_id].to_i)
-      .where('action_type = :pending', pending: UserAction::PENDING)
-      .order_by("a.created_at desc")
-      .offset(offset.to_i)
-      .limit(limit.to_i)
-      .query
-  end
-
   def self.stream(opts = nil)
     opts ||= {}
 
@@ -281,12 +238,8 @@ class UserAction < ActiveRecord::Base
   def self.log_action!(hash)
     required_parameters = [:action_type, :user_id, :acting_user_id]
 
-    if hash[:action_type] == UserAction::PENDING
-      required_parameters << :queued_post_id
-    else
-      required_parameters << :target_post_id
-      required_parameters << :target_topic_id
-    end
+    required_parameters << :target_post_id
+    required_parameters << :target_topic_id
 
     require_parameters(hash, *required_parameters)
 
@@ -344,7 +297,7 @@ class UserAction < ActiveRecord::Base
     end
   end
 
-  def self.synchronize_target_topic_ids(post_ids = nil)
+  def self.synchronize_target_topic_ids(post_ids = nil, limit: nil)
 
     # nuke all dupes, using magic
     builder = DB.build <<~SQL
@@ -360,6 +313,16 @@ class UserAction < ActiveRecord::Base
       user_actions.target_post_id > 0 AND
       user_actions.id > ua2.id
     SQL
+
+    if limit
+      builder.where(<<~SQL, limit: limit)
+        user_actions.target_post_id IN (
+          SELECT target_post_id
+          FROM user_actions
+          WHERE created_at > :limit
+        )
+      SQL
+    end
 
     if post_ids
       builder.where("user_actions.target_post_id in (:post_ids)", post_ids: post_ids)
@@ -378,11 +341,21 @@ class UserAction < ActiveRecord::Base
       builder.where("target_post_id in (:post_ids)", post_ids: post_ids)
     end
 
+    if limit
+      builder.where(<<~SQL, limit: limit)
+        target_post_id IN (
+          SELECT target_post_id
+          FROM user_actions
+          WHERE created_at > :limit
+        )
+      SQL
+    end
+
     builder.exec
   end
 
-  def self.ensure_consistency!
-    self.synchronize_target_topic_ids
+  def self.ensure_consistency!(limit = nil)
+    self.synchronize_target_topic_ids(nil, limit: limit)
   end
 
   def self.update_like_count(user_id, action_type, delta)
@@ -415,7 +388,6 @@ class UserAction < ActiveRecord::Base
 
     unless guardian.can_see_notifications?(User.where(id: user_id).first)
       builder.where("a.action_type not in (#{BOOKMARK})")
-      builder.where('a.action_type <> :pending', pending: UserAction::PENDING)
     end
 
     if !guardian.can_see_private_messages?(user_id) || ignore_private_messages || !guardian.user
@@ -470,13 +442,14 @@ end
 #  acting_user_id  :integer
 #  created_at      :datetime         not null
 #  updated_at      :datetime         not null
-#  queued_post_id  :integer
 #
 # Indexes
 #
-#  idx_unique_rows                                (action_type,user_id,target_topic_id,target_post_id,acting_user_id) UNIQUE
-#  idx_user_actions_speed_up_user_all             (user_id,created_at,action_type)
-#  index_user_actions_on_acting_user_id           (acting_user_id)
-#  index_user_actions_on_target_post_id           (target_post_id)
-#  index_user_actions_on_user_id_and_action_type  (user_id,action_type)
+#  idx_unique_rows                                   (action_type,user_id,target_topic_id,target_post_id,acting_user_id) UNIQUE
+#  idx_user_actions_speed_up_user_all                (user_id,created_at,action_type)
+#  index_user_actions_on_acting_user_id              (acting_user_id)
+#  index_user_actions_on_action_type_and_created_at  (action_type,created_at)
+#  index_user_actions_on_target_post_id              (target_post_id)
+#  index_user_actions_on_target_user_id              (target_user_id) WHERE (target_user_id IS NOT NULL)
+#  index_user_actions_on_user_id_and_action_type     (user_id,action_type)
 #

@@ -2,13 +2,16 @@
 // and the admin application. Use this if you need front end code to access admin
 // modules. Inject it optionally, and if it exists go to town!
 
+import EmberObject from "@ember/object";
 import AdminUser from "admin/models/admin-user";
 import { iconHTML } from "discourse-common/lib/icon-library";
 import { ajax } from "discourse/lib/ajax";
 import showModal from "discourse/lib/show-modal";
 import { getOwner } from "discourse-common/lib/get-owner";
+import Service from "@ember/service";
+import { Promise } from "rsvp";
 
-export default Ember.Service.extend({
+export default Service.extend({
   init() {
     this._super(...arguments);
 
@@ -21,13 +24,9 @@ export default Ember.Service.extend({
       "controller:adminLogs.staffActionLogs"
     );
     target.transitionToRoute("adminLogs.staffActionLogs").then(() => {
-      controller.set("filters", Ember.Object.create());
+      controller.set("filters", EmberObject.create());
       controller._changeFilters(filters);
     });
-  },
-
-  showFlagsReceived(user) {
-    showModal(`admin-flags-received`, { admin: true, model: user });
   },
 
   checkSpammer(userId) {
@@ -53,15 +52,10 @@ export default Ember.Service.extend({
       admin: true,
       modalClass: `${type}-user-modal`
     });
-    if (opts.post) {
-      controller.setProperties({
-        post: opts.post,
-        postEdit: opts.post.get("raw")
-      });
-    }
+    controller.setProperties({ postId: opts.postId, postEdit: opts.postEdit });
 
     return (user.adminUserView
-      ? Ember.RSVP.resolve(user)
+      ? Promise.resolve(user)
       : AdminUser.find(user.get("id"))
     ).then(loadedUser => {
       controller.setProperties({
@@ -81,16 +75,11 @@ export default Ember.Service.extend({
     this._showControlModal("suspend", user, opts);
   },
 
-  showModerationHistory(target) {
-    let controller = showModal("admin-moderation-history", { admin: true });
-    controller.loadHistory(target);
-  },
-
   _deleteSpammer(adminUser) {
     // Try loading the email if the site supports it
-    let tryEmail = this.siteSettings.show_email_on_profile
+    let tryEmail = this.siteSettings.moderators_view_emails
       ? adminUser.checkEmail()
-      : Ember.RSVP.resolve();
+      : Promise.resolve();
 
     return tryEmail.then(() => {
       let message = I18n.messageFormat("flagging.delete_confirm_MF", {
@@ -104,7 +93,7 @@ export default Ember.Service.extend({
 
       let userId = adminUser.get("id");
 
-      return new Ember.RSVP.Promise((resolve, reject) => {
+      return new Promise((resolve, reject) => {
         const buttons = [
           {
             label: I18n.t("composer.cancel"),

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class MetadataController < ApplicationController
   layout false
   skip_before_action :preload_json, :check_xhr, :redirect_to_login_if_required
@@ -7,39 +9,43 @@ class MetadataController < ApplicationController
   end
 
   def opensearch
-    render file: "#{Rails.root}/app/views/metadata/opensearch.xml"
+    render template: "metadata/opensearch.xml"
+  end
+
+  def app_association_android
+    raise Discourse::NotFound unless SiteSetting.app_association_android.present?
+    render plain: SiteSetting.app_association_android, content_type: 'application/json'
+  end
+
+  def app_association_ios
+    raise Discourse::NotFound unless SiteSetting.app_association_ios.present?
+    render plain: SiteSetting.app_association_ios, content_type: 'application/json'
   end
 
   private
 
   def default_manifest
-    logo = SiteSetting.site_large_icon_url.presence ||
-      SiteSetting.site_logo_small_url.presence ||
-      SiteSetting.site_apple_touch_icon_url.presence
-
-    if !logo
-      logo = '/images/d-logo-sketch-small.png'
+    display = "standalone"
+    if request.user_agent
+      regex = Regexp.new(SiteSetting.pwa_display_browser_regex)
+      if regex.match(request.user_agent)
+        display = "browser"
+      end
     end
-
-    file_info = get_file_info(logo)
-
-    display = Regexp.new(SiteSetting.pwa_display_browser_regex).match(request.user_agent) ? 'browser' : 'standalone'
 
     manifest = {
       name: SiteSetting.title,
+      short_name: SiteSetting.short_title.presence || SiteSetting.title.truncate(12, separator: ' ', omission: ''),
       display: display,
       start_url: Discourse.base_uri.present? ? "#{Discourse.base_uri}/" : '.',
       background_color: "##{ColorScheme.hex_for_name('secondary', view_context.scheme_id)}",
       theme_color: "##{ColorScheme.hex_for_name('header_background', view_context.scheme_id)}",
       icons: [
-        {
-          src: UrlHelper.absolute(logo),
-          sizes: file_info[:size],
-          type: file_info[:type]
-        }
       ],
       share_target: {
         action: "/new-topic",
+        method: "GET",
+        enctype: "application/x-www-form-urlencoded",
         params: {
           title: "title",
           text: "body"
@@ -47,27 +53,31 @@ class MetadataController < ApplicationController
       }
     }
 
-    manifest[:short_name] = SiteSetting.short_title if SiteSetting.short_title.present?
+    logo = SiteSetting.site_manifest_icon_url
+    if logo
+      icon_entry = {
+        src: UrlHelper.absolute(logo),
+        sizes: "512x512",
+        type: MiniMime.lookup_by_filename(logo)&.content_type || "image/png"
+      }
+      manifest[:icons] << icon_entry.dup
+      icon_entry[:purpose] = "maskable"
+      manifest[:icons] << icon_entry
+    end
 
-    if SiteSetting.native_app_install_banner
+    if current_user && current_user.trust_level >= 1 && SiteSetting.native_app_install_banner_android
       manifest = manifest.merge(
         prefer_related_applications: true,
         related_applications: [
           {
             platform: "play",
-            id: "com.discourse"
+            id: SiteSetting.android_app_id
           }
         ]
       )
     end
 
     manifest
-  end
-
-  def get_file_info(filename)
-    type = MiniMime.lookup_by_filename(filename)&.content_type || "image/png"
-    upload = Upload.find_by_url(filename)
-    { size: "#{upload&.width || 512}x#{upload&.height || 512}", type: type }
   end
 
 end

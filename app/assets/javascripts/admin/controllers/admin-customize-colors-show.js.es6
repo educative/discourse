@@ -1,7 +1,9 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { later } from "@ember/runloop";
+import Controller from "@ember/controller";
 
-export default Ember.Controller.extend({
-  @computed("model.colors", "onlyOverridden")
+export default Controller.extend({
+  @discourseComputed("model.colors", "onlyOverridden")
   colors(allColors, onlyOverridden) {
     if (onlyOverridden) {
       return allColors.filter(color => color.get("overridden"));
@@ -23,7 +25,7 @@ export default Ember.Controller.extend({
       $(".table.colors").hide();
       let area = $("<textarea id='copy-range'></textarea>");
       $(".table.colors").after(area);
-      area.text(this.get("model").schemeJson());
+      area.text(this.model.schemeJson());
       let range = document.createRange();
       range.selectNode(area[0]);
       window.getSelection().addRange(range);
@@ -40,7 +42,7 @@ export default Ember.Controller.extend({
         );
       }
 
-      Ember.run.later(() => {
+      later(() => {
         this.set("model.savingStatus", null);
       }, 2000);
 
@@ -51,7 +53,7 @@ export default Ember.Controller.extend({
     },
 
     copy() {
-      var newColorScheme = Ember.copy(this.get("model"), true);
+      var newColorScheme = Ember.copy(this.model, true);
       newColorScheme.set(
         "name",
         I18n.t("admin.customize.colors.copy_name_prefix") +
@@ -59,17 +61,17 @@ export default Ember.Controller.extend({
           this.get("model.name")
       );
       newColorScheme.save().then(() => {
-        this.get("allColors").pushObject(newColorScheme);
+        this.allColors.pushObject(newColorScheme);
         this.replaceRoute("adminCustomize.colors.show", newColorScheme);
       });
     },
 
     save: function() {
-      this.get("model").save();
+      this.model.save();
     },
 
     destroy: function() {
-      const model = this.get("model");
+      const model = this.model;
       return bootbox.confirm(
         I18n.t("admin.customize.colors.delete_confirm"),
         I18n.t("no_value"),
@@ -77,7 +79,7 @@ export default Ember.Controller.extend({
         result => {
           if (result) {
             model.destroy().then(() => {
-              this.get("allColors").removeObject(model);
+              this.allColors.removeObject(model);
               this.replaceRoute("adminCustomize.colors");
             });
           }

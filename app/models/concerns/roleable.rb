@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Roleable
   extend ActiveSupport::Concern
 
@@ -18,6 +20,8 @@ module Roleable
 
   def grant_moderation!
     set_permission('moderator', true)
+    auto_approve_user
+    enqueue_staff_welcome_message(:moderator)
   end
 
   def revoke_moderation!
@@ -26,6 +30,8 @@ module Roleable
 
   def grant_admin!
     set_permission('admin', true)
+    auto_approve_user
+    enqueue_staff_welcome_message(:admin)
   end
 
   def revoke_admin!
@@ -40,8 +46,18 @@ module Roleable
   end
 
   def set_permission(permission_name, value)
-    self.send("#{permission_name}=", value)
+    self.public_send("#{permission_name}=", value)
     save_and_refresh_staff_groups!
   end
 
+  private
+
+  def auto_approve_user
+    if reviewable = ReviewableUser.find_by(target: self, status: Reviewable.statuses[:pending])
+      reviewable.perform(Discourse.system_user, :approve_user, send_email: false)
+    else
+      ReviewableUser.set_approved_fields!(self, Discourse.system_user)
+      self.save!
+    end
+  end
 end

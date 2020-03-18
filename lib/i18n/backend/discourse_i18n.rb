@@ -1,5 +1,6 @@
+# frozen_string_literal: true
+
 require 'i18n/backend/pluralization'
-require_dependency 'locale_site_setting'
 
 module I18n
   module Backend
@@ -23,20 +24,13 @@ module I18n
         end
       end
 
-      def fallbacks(locale)
-        I18n.fallbacks[locale]
-      end
-
-      def exists?(locale, key)
-        fallbacks(locale).each do |fallback|
-          begin
-            return true if super(fallback, key)
-          rescue I18n::InvalidLocale
-            # we do nothing when the locale is invalid, as this is a fallback anyways.
-          end
+      def pluralize(locale, entry, count)
+        begin
+          super
+        rescue I18n::InvalidPluralizationData => e
+          raise e if I18n.fallbacks[locale] == [locale]
+          throw(:exception, e)
         end
-
-        false
       end
 
       def self.create_search_regexp(query, as_string: false)
@@ -53,7 +47,7 @@ module I18n
         results = {}
         regexp = self.class.create_search_regexp(query)
 
-        fallbacks(locale).each do |fallback|
+        I18n.fallbacks[locale].each do |fallback|
           find_results(regexp, results, translations[fallback])
         end
 

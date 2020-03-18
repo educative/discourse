@@ -3,9 +3,7 @@
 //= require env
 //= require jquery.debug
 //= require jquery.ui.widget
-//= require handlebars
 //= require ember.debug
-//= require ember-template-compiler
 //= require message-bus
 //= require qunit/qunit/qunit
 //= require ember-qunit
@@ -16,7 +14,7 @@
 //= require preload-store
 
 //= require locales/i18n
-//= require locales/en
+//= require locales/en_US
 
 // Stuff we need to load first
 //= require vendor
@@ -24,16 +22,18 @@
 //= require pretty-text-bundle
 //= require markdown-it-bundle
 //= require application
-//= require plugin
-//= require htmlparser.js
 //= require admin
+
+// These are not loaded in prod or development
+// But we need them for testing handlebars templates in qunit
+//= require handlebars
+//= require ember-template-compiler
 
 //= require sinon/pkg/sinon
 
 //= require helpers/assertions
-//= require helpers/select-kit-helper
-//= require helpers/d-editor-helper
 
+//= require break_string
 //= require helpers/qunit-helpers
 //= require_tree ./fixtures
 //= require_tree ./lib
@@ -65,8 +65,6 @@ d.write(
   "<style>#ember-testing-container { position: absolute; background: white; bottom: 0; right: 0; width: 640px; height: 384px; overflow: auto; z-index: 9999; border: 1px solid #ccc; } #ember-testing { zoom: 50%; }</style>"
 );
 
-Ember.Test.adapter = window.QUnitAdapter.create();
-
 Discourse.rootElement = "#ember-testing";
 Discourse.setupForTesting();
 Discourse.injectTestHelpers();
@@ -79,8 +77,7 @@ if (window.Logster) {
   window.Logster = { enabled: false };
 }
 
-var origDebounce = Ember.run.debounce,
-  pretender = require("helpers/create-pretender", null, null, false),
+var pretender = require("helpers/create-pretender", null, null, false),
   fixtures = require("fixtures/site-fixtures", null, null, false).default,
   flushMap = require("discourse/models/store", null, null, false).flushMap,
   ScrollingDOMMethods = require("discourse/mixins/scrolling", null, null, false)
@@ -88,37 +85,48 @@ var origDebounce = Ember.run.debounce,
   _DiscourseURL = require("discourse/lib/url", null, null, false).default,
   applyPretender = require("helpers/qunit-helpers", null, null, false)
     .applyPretender,
-  server;
+  server,
+  acceptanceModulePrefix = "Acceptance: ";
 
 function dup(obj) {
   return jQuery.extend(true, {}, obj);
 }
 
 function resetSite(siteSettings, extras) {
-  var createStore = require("helpers/create-store").default;
-  var siteAttrs = $.extend({}, fixtures["site.json"].site, extras || {});
+  let createStore = require("helpers/create-store").default;
+  let siteAttrs = $.extend({}, fixtures["site.json"].site, extras || {});
+  let Site = require("discourse/models/site").default;
   siteAttrs.store = createStore();
   siteAttrs.siteSettings = siteSettings;
-  Discourse.Site.resetCurrent(Discourse.Site.create(siteAttrs));
+  Site.resetCurrent(Site.create(siteAttrs));
 }
 
 QUnit.testStart(function(ctx) {
   server = pretender.default();
 
-  var helper = {
-    parsePostData: pretender.parsePostData,
-    response: pretender.response,
-    success: pretender.success
-  };
+  if (ctx.module.startsWith(acceptanceModulePrefix)) {
+    var helper = {
+      parsePostData: pretender.parsePostData,
+      response: pretender.response,
+      success: pretender.success
+    };
 
-  applyPretender(server, helper);
+    applyPretender(
+      ctx.module.replace(acceptanceModulePrefix, ""),
+      server,
+      helper
+    );
+  }
 
   // Allow our tests to change site settings and have them reset before the next test
   Discourse.SiteSettings = dup(Discourse.SiteSettingsOriginal);
   Discourse.BaseUri = "";
-  Discourse.BaseUrl = "localhost";
-  Discourse.Session.resetCurrent();
-  Discourse.User.resetCurrent();
+  Discourse.BaseUrl = "http://localhost:3000";
+
+  let User = require("discourse/models/user").default;
+  let Session = require("discourse/models/session").default;
+  Session.resetCurrent();
+  User.resetCurrent();
   resetSite(Discourse.SiteSettings);
 
   _DiscourseURL.redirectedTo = null;
@@ -136,15 +144,9 @@ QUnit.testStart(function(ctx) {
 
   // Unless we ever need to test this, let's leave it off.
   $.fn.autocomplete = function() {};
-
-  // Don't debounce in test unless we're testing debouncing
-  if (ctx.module.indexOf("debounce") === -1) {
-    Ember.run.debounce = Ember.run;
-  }
 });
 
 QUnit.testDone(function() {
-  Ember.run.debounce = origDebounce;
   window.sandbox.restore();
 
   // Destroy any modals
@@ -152,15 +154,28 @@ QUnit.testDone(function() {
   flushMap();
 
   server.shutdown();
+
+  window.server = null;
+
+  // ensures any event not removed is not leaking between tests
+  // most likely in intialisers, other places (controller, component...)
+  // should be fixed in code
+  var appEvents = window.Discourse.__container__.lookup("service:app-events");
+  var events = appEvents.__proto__._events;
+  Object.keys(events).forEach(function(eventKey) {
+    var event = events[eventKey];
+    event.forEach(function(listener) {
+      if (appEvents.has(eventKey)) {
+        appEvents.off(eventKey, listener.target, listener.fn);
+      }
+    });
+  });
+
+  window.MessageBus.unsubscribe("*");
 });
 
 // Load ES6 tests
 var helpers = require("helpers/qunit-helpers");
-
-// TODO: Replace with proper imports rather than globals
-window.asyncTestDiscourse = helpers.asyncTestDiscourse;
-window.controllerFor = helpers.controllerFor;
-window.fixture = helpers.fixture;
 
 function getUrlParameter(name) {
   name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");

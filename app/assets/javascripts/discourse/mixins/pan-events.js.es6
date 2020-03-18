@@ -1,29 +1,31 @@
+import Mixin from "@ember/object/mixin";
 /**
    Pan events is a mixin that allows components to detect and respond to swipe gestures
    It fires callbacks for panStart, panEnd, panMove with the pan state, and the original event.
  **/
 export const SWIPE_VELOCITY = 40;
 export const SWIPE_DISTANCE_THRESHOLD = 50;
-export const SWIPE_VELOCITY_THRESHOLD = 0.1;
-export default Ember.Mixin.create({
+export const SWIPE_VELOCITY_THRESHOLD = 0.12;
+export const MINIMUM_SWIPE_DISTANCE = 5;
+export default Mixin.create({
   //velocity is pixels per ms
 
   _panState: null,
 
   didInsertElement() {
     this._super(...arguments);
-    this.addTouchListeners(this.$());
+    this.addTouchListeners($(this.element));
   },
 
   willDestroyElement() {
     this._super(...arguments);
-    this.removeTouchListeners(this.$());
+    this.removeTouchListeners($(this.element));
   },
 
   addTouchListeners($element) {
     if (this.site.mobileView) {
       $element
-        .on("touchstart", e => this._panStart(e.touches[0]))
+        .on("touchstart", e => e.touches && this._panStart(e.touches[0]))
         .on("touchmove", e => {
           const touchEvent = e.touches[0];
           touchEvent.type = "pointermove";
@@ -114,13 +116,13 @@ export default Ember.Mixin.create({
   },
 
   _panMove(e, originalEvent) {
-    if (!this.get("_panState")) {
+    if (!this._panState) {
       this._panStart(e);
       return;
     }
-    const previousState = this.get("_panState");
+    const previousState = this._panState;
     const newState = this._calculateNewPanState(previousState, e);
-    if (previousState.start && newState.distance < 5) {
+    if (previousState.start && newState.distance < MINIMUM_SWIPE_DISTANCE) {
       return;
     }
     this.set("_panState", newState);

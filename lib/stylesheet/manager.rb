@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_dependency 'distributed_cache'
 require_dependency 'stylesheet/compiler'
 
@@ -17,7 +19,15 @@ class Stylesheet::Manager
   end
 
   def self.clear_theme_cache!
-    cache.hash.keys.select { |k| k =~ /theme/ }.each { |k|cache.delete(k) }
+    cache.hash.keys.select { |k| k =~ /theme/ }.each { |k| cache.delete(k) }
+  end
+
+  def self.clear_core_cache!(targets)
+    cache.hash.keys.select { |k| k =~ /#{targets.join('|')}/ }.each { |k| cache.delete(k) }
+  end
+
+  def self.clear_plugin_cache!(plugin)
+    cache.hash.keys.select { |k| k =~ /#{plugin}/ }.each { |k| cache.delete(k) }
   end
 
   def self.stylesheet_data(target = :desktop, theme_ids = :missing)
@@ -166,15 +176,11 @@ class Stylesheet::Manager
          source_map_file: source_map_filename
       )
     rescue SassC::SyntaxError => e
-
-      # we do not need this reported as we will report it in the UI anyway
-      Rails.logger.info "Failed to compile #{@target} stylesheet: #{e.message}"
-
-      if %w{embedded_theme mobile_theme desktop_theme}.include?(@target.to_s)
+      if Stylesheet::Importer::THEME_TARGETS.include?(@target.to_s)
         # no special errors for theme, handled in theme editor
         ["", nil]
       else
-        [Stylesheet::Compiler.error_as_css(e, "#{@target} stylesheet"), nil]
+        raise Discourse::ScssError, e.message
       end
     end
 
@@ -280,15 +286,15 @@ class Stylesheet::Manager
     scss = ""
 
     if [:mobile_theme, :desktop_theme].include?(@target)
-      scss = theme.resolve_baked_field(:common, :scss)
-      scss += theme.resolve_baked_field(@target.to_s.sub("_theme", ""), :scss)
+      scss_digest = theme.resolve_baked_field(:common, :scss)
+      scss_digest += theme.resolve_baked_field(@target.to_s.sub("_theme", ""), :scss)
     elsif @target == :embedded_theme
-      scss = theme.resolve_baked_field(:common, :embedded_scss)
+      scss_digest = theme.resolve_baked_field(:common, :embedded_scss)
     else
       raise "attempting to look up theme digest for invalid field"
     end
 
-    Digest::SHA1.hexdigest(scss.to_s + color_scheme_digest.to_s + settings_digest + plugins_digest + uploads_digest)
+    Digest::SHA1.hexdigest(scss_digest.to_s + color_scheme_digest.to_s + settings_digest + plugins_digest + uploads_digest)
   end
 
   # this protects us from situations where new versions of a plugin removed a file
@@ -296,9 +302,9 @@ class Stylesheet::Manager
   # so we could end up poisoning the cache with a bad file that can not be removed
   def plugins_digest
     assets = []
-    assets += DiscoursePluginRegistry.stylesheets.to_a
-    assets += DiscoursePluginRegistry.mobile_stylesheets.to_a
-    assets += DiscoursePluginRegistry.desktop_stylesheets.to_a
+    DiscoursePluginRegistry.stylesheets.each { |_, paths| assets += paths.to_a }
+    DiscoursePluginRegistry.mobile_stylesheets.each { |_, paths| assets += paths.to_a }
+    DiscoursePluginRegistry.desktop_stylesheets.each { |_, paths| assets += paths.to_a }
     Digest::SHA1.hexdigest(assets.sort.join)
   end
 

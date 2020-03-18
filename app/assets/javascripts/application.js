@@ -1,26 +1,27 @@
 //= require_tree ./ember-addons/utils
+//= require_tree ./discourse-common
 //= require ./ember-addons/decorator-alias
 //= require ./ember-addons/macro-alias
-//= require ./ember-addons/ember-computed-decorators
 //= require ./ember-addons/fmt
 //= require ./polyfills
-//= require_tree ./discourse-common
 //= require_tree ./select-kit
 //= require ./discourse
 //= require ./deprecated
 
 // Stuff we need to load first
-//= require ./discourse/helpers/parse-html
 //= require ./discourse/lib/to-markdown
 //= require ./discourse/lib/utilities
 //= require ./discourse/lib/page-visible
 //= require ./discourse/lib/logout
+//= require ./discourse/mixins/singleton
+//= require ./discourse/models/rest
+//= require ./discourse/models/session
 //= require ./discourse/lib/ajax
 //= require ./discourse/lib/text
 //= require ./discourse/lib/hash
 //= require ./discourse/lib/load-script
 //= require ./discourse/lib/notification-levels
-//= require ./discourse/lib/app-events
+//= require ./discourse/services/app-events
 //= require ./discourse/lib/offset-calculator
 //= require ./discourse/lib/lock-on
 //= require ./discourse/lib/url
@@ -34,8 +35,6 @@
 //= require ./discourse/lib/show-modal
 //= require ./discourse/mixins/scrolling
 //= require ./discourse/lib/ajax-error
-//= require ./discourse/models/model
-//= require ./discourse/models/rest
 //= require ./discourse/models/result-set
 //= require ./discourse/models/store
 //= require ./discourse/models/action-summary
@@ -48,13 +47,12 @@
 //= require ./discourse/models/badge
 //= require ./discourse/models/permission-type
 //= require ./discourse/models/user-action-group
-//= require ./discourse/models/input-validation
+//= require ./discourse/models/trust-level
 //= require ./discourse/lib/search
 //= require ./discourse/lib/user-search
 //= require ./discourse/lib/export-csv
 //= require ./discourse/lib/autocomplete
 //= require ./discourse/lib/after-transition
-//= require ./discourse/lib/debounce
 //= require ./discourse/lib/safari-hacks
 //= require_tree ./discourse/adapters
 //= require ./discourse/models/post-action-type

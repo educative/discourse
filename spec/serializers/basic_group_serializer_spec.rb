@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe BasicGroupSerializer do
   let(:guardian) { Guardian.new }
-  let(:group) { Fabricate(:group) }
+  fab!(:group) { Fabricate(:group) }
   subject { described_class.new(group, scope: guardian, root: false) }
 
   describe '#display_name' do
@@ -15,7 +17,7 @@ describe BasicGroupSerializer do
     end
 
     describe 'normal group' do
-      let(:group) { Fabricate(:group) }
+      fab!(:group) { Fabricate(:group) }
 
       it 'should not include the display name' do
         expect(subject.display_name).to eq(nil)
@@ -24,27 +26,22 @@ describe BasicGroupSerializer do
   end
 
   describe '#bio_raw' do
-    let(:group) { Fabricate(:group, bio_raw: 'testing') }
+    fab!(:group) { Fabricate(:group, bio_raw: 'testing :slightly_smiling_face:') }
 
     subject do
       described_class.new(group, scope: guardian, root: false, owner_group_ids: [group.id])
     end
 
     describe 'group owner' do
-      let(:user) do
-        user = Fabricate(:user)
-        group.add_owner(user)
-        user
-      end
-
       it 'should include bio_raw' do
-        expect(subject.as_json[:bio_raw]).to eq('testing')
+        expect(subject.as_json[:bio_raw]).to eq('testing :slightly_smiling_face:')
+        expect(subject.as_json[:bio_excerpt]).to start_with('testing <img')
       end
     end
   end
 
   describe '#automatic_membership_email_domains' do
-    let(:group) { Fabricate(:group, automatic_membership_email_domains: 'ilovediscourse.com', automatic_membership_retroactive: true) }
+    fab!(:group) { Fabricate(:group, automatic_membership_email_domains: 'ilovediscourse.com', automatic_membership_retroactive: true) }
     let(:admin_guardian) { Guardian.new(Fabricate(:admin)) }
 
     it 'should include email domains for admin' do
@@ -62,7 +59,7 @@ describe BasicGroupSerializer do
   end
 
   describe '#has_messages' do
-    let(:group) { Fabricate(:group, has_messages: true) }
+    fab!(:group) { Fabricate(:group, has_messages: true) }
 
     describe 'for a staff user' do
       let(:guardian) { Guardian.new(Fabricate(:moderator)) }
@@ -73,7 +70,7 @@ describe BasicGroupSerializer do
     end
 
     describe 'for a group user' do
-      let(:user) { Fabricate(:user) }
+      fab!(:user) { Fabricate(:user) }
       let(:guardian) { Guardian.new(user) }
 
       before do
@@ -90,6 +87,31 @@ describe BasicGroupSerializer do
 
       it 'should not be present' do
         expect(subject.as_json[:has_messages]).to eq(nil)
+      end
+    end
+  end
+
+  describe '#can_see_members' do
+    fab!(:group) { Fabricate(:group, members_visibility_level: Group.visibility_levels[:members]) }
+
+    describe 'for a group user' do
+      fab!(:user) { Fabricate(:user) }
+      let(:guardian) { Guardian.new(user) }
+
+      before do
+        group.add(user)
+      end
+
+      it 'should be true' do
+        expect(subject.as_json[:can_see_members]).to eq(true)
+      end
+    end
+
+    describe 'for a normal user' do
+      let(:guardian) { Guardian.new(Fabricate(:user)) }
+
+      it 'should be false' do
+        expect(subject.as_json[:can_see_members]).to eq(false)
       end
     end
   end

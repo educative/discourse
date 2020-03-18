@@ -1,15 +1,20 @@
 import DropdownSelectBoxComponent from "select-kit/components/dropdown-select-box";
+import { computed } from "@ember/object";
+import { setting } from "discourse/lib/computed";
 
 export default DropdownSelectBoxComponent.extend({
   pluginApiIdentifiers: ["categories-admin-dropdown"],
-  classNames: "categories-admin-dropdown",
-  showFullTitle: false,
-  allowInitialValueMutation: false,
-  headerIcon: ["bars"],
+  classNames: ["categories-admin-dropdown"],
+  fixedCateoryPositions: setting("fixed_category_positions"),
 
-  autoHighlight() {},
+  selectKitOptions: {
+    icon: "bars",
+    showFullTitle: false,
+    autoFilterable: false,
+    filterable: false
+  },
 
-  computeContent() {
+  content: computed(function() {
     const items = [
       {
         id: "create",
@@ -19,8 +24,7 @@ export default DropdownSelectBoxComponent.extend({
       }
     ];
 
-    const includeReorder = this.get("siteSettings.fixed_category_positions");
-    if (includeReorder) {
+    if (this.fixedCateoryPositions) {
       items.push({
         id: "reorder",
         name: I18n.t("categories.reorder.title"),
@@ -30,9 +34,5 @@ export default DropdownSelectBoxComponent.extend({
     }
 
     return items;
-  },
-
-  mutateValue(value) {
-    this.get(value)();
-  }
+  })
 });

@@ -1,6 +1,4 @@
-require_dependency 'wizard'
-require_dependency 'wizard/builder'
-require_dependency 'wizard/step_updater'
+# frozen_string_literal: true
 
 class StepsController < ApplicationController
   requires_login

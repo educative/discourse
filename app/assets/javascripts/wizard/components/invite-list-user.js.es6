@@ -1,10 +1,11 @@
-import computed from "ember-addons/ember-computed-decorators";
+import Component from "@ember/component";
+import discourseComputed from "discourse-common/utils/decorators";
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNames: ["invite-list-user"],
 
-  @computed("user.role")
+  @discourseComputed("user.role")
   roleName(role) {
-    return this.get("roles").findBy("id", role).label;
+    return this.roles.findBy("id", role).label;
   }
 });

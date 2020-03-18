@@ -1,32 +1,34 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { alias } from "@ember/object/computed";
+import Component from "@ember/component";
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNames: ["hook-event"],
-  typeName: Ember.computed.alias("type.name"),
+  typeName: alias("type.name"),
 
-  @computed("typeName")
+  @discourseComputed("typeName")
   name(typeName) {
     return I18n.t(`admin.web_hooks.${typeName}_event.name`);
   },
 
-  @computed("typeName")
+  @discourseComputed("typeName")
   details(typeName) {
     return I18n.t(`admin.web_hooks.${typeName}_event.details`);
   },
 
-  @computed("model.[]", "typeName")
+  @discourseComputed("model.[]", "typeName")
   eventTypeExists(eventTypes, typeName) {
     return eventTypes.any(event => event.name === typeName);
   },
 
-  @computed("eventTypeExists")
+  @discourseComputed("eventTypeExists")
   enabled: {
     get(eventTypeExists) {
       return eventTypeExists;
     },
     set(value, eventTypeExists) {
-      const type = this.get("type");
-      const model = this.get("model");
+      const type = this.type;
+      const model = this.model;
       // add an association when not exists
       if (value !== eventTypeExists) {
         if (value) {

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class ThemeJavascriptCompiler
 
   module PrecompilerExtension
@@ -62,13 +64,15 @@ class ThemeJavascriptCompiler
       }
 
       function manipulateNode(node) {
-        // Magically add theme id as the first param for each of these helpers
+        // Magically add theme id as the first param for each of these helpers)
         if (node.path.parts && ["theme-i18n", "theme-prefix", "theme-setting"].includes(node.path.parts[0])) {
-          node.params.unshift({
-            type: "NumberLiteral",
-            value: #{@theme_id},
-            original: #{@theme_id}
-          })
+          if(node.params.length === 1){
+            node.params.unshift({
+              type: "NumberLiteral",
+              value: #{@theme_id},
+              original: #{@theme_id}
+            })
+          }
         }
 
         // Override old themeSetting syntax when it's in its own node
@@ -130,10 +134,16 @@ class ThemeJavascriptCompiler
 
     def discourse_extension
       <<~JS
-        Ember.HTMLBars.registerPlugin('ast', function(){
-          return { name: 'theme-template-manipulator',
-          visitor: { SubExpression: manipulateNode, MustacheStatement: manipulateNode, PathExpression: manipulatePath}
-        }});
+        Ember.HTMLBars.registerPlugin('ast', function() {
+          return {
+            name: 'theme-template-manipulator',
+            visitor: {
+              SubExpression: manipulateNode,
+              MustacheStatement: manipulateNode,
+              PathExpression: manipulatePath
+            }
+          }
+        });
       JS
     end
   end
@@ -143,9 +153,10 @@ class ThemeJavascriptCompiler
 
   attr_accessor :content
 
-  def initialize(theme_id)
+  def initialize(theme_id, theme_name)
     @theme_id = theme_id
-    @content = ""
+    @content = +""
+    @theme_name = theme_name
   end
 
   def prepend_settings(settings_hash)
@@ -176,7 +187,9 @@ class ThemeJavascriptCompiler
   end
 
   def append_raw_template(name, hbs_template)
-    name = name.sub(/\.raw$/, '').inspect
+    name = name.sub(/\.raw$/, '')
+    name = name.sub(/\.hbr$/, '.hbs')
+    name = name.inspect
     compiled = RawTemplatePrecompiler.new(@theme_id).compile(hbs_template)
     @content << <<~JS
       (function() {
@@ -197,23 +210,43 @@ class ThemeJavascriptCompiler
     @content << script + "\n"
   end
 
+  def append_module(script, name, include_variables: true)
+    script = "#{theme_variables}#{script}" if include_variables
+    template = Tilt::ES6ModuleTranspilerTemplate.new {}
+    @content << template.module_transpile(script, "", name)
+  rescue MiniRacer::RuntimeError => ex
+    raise CompileError.new ex.message
+  end
+
   def append_js_error(message)
     @content << "console.error('Theme Transpilation Error:', #{message.inspect});"
   end
 
   private
 
+  def theme_variables
+    <<~JS
+      const __theme_name__ = "#{@theme_name.gsub('"', "\\\"")}";
+      const settings = Discourse.__container__
+        .lookup("service:theme-settings")
+        .getObjectForTheme(#{@theme_id});
+      const themePrefix = (key) => `theme_translations.#{@theme_id}.${key}`;
+    JS
+  end
+
   def transpile(es6_source, version)
     template = Tilt::ES6ModuleTranspilerTemplate.new {}
     wrapped = <<~PLUGIN_API_JS
       (function() {
         if ('Discourse' in window && typeof Discourse._registerPluginCode === 'function') {
-          const settings = Discourse.__container__
-            .lookup("service:theme-settings")
-            .getObjectForTheme(#{@theme_id});
-          const themePrefix = (key) => `theme_translations.#{@theme_id}.${key}`;
+          #{theme_variables}
           Discourse._registerPluginCode('#{version}', api => {
+            try {
             #{es6_source}
+            } catch(err) {
+              const rescue = require("discourse/lib/utilities").rescueThemeError;
+              rescue(__theme_name__, err, api);
+            }
           });
         }
       })();

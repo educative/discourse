@@ -1,6 +1,4 @@
 # frozen_string_literal: true
-#
-require_dependency 'archetype'
 
 class PostTiming < ActiveRecord::Base
   belongs_to :topic
@@ -33,20 +31,14 @@ class PostTiming < ActiveRecord::Base
   end
 
   def self.record_new_timing(args)
-    begin
-      DB.exec("INSERT INTO post_timings (topic_id, user_id, post_number, msecs)
-                SELECT :topic_id, :user_id, :post_number, :msecs
-                WHERE NOT EXISTS(SELECT 1 FROM post_timings
-                                 WHERE topic_id = :topic_id
-                                  AND user_id = :user_id
-                                  AND post_number = :post_number)",
-             args)
-    rescue PG::UniqueViolation
-      # concurrency is hard, we are not running serialized so this can possibly
-      # still happen, if it happens we just don't care, its an invalid record anyway
-      return
-    end
+    row_count = DB.exec("INSERT INTO post_timings (topic_id, user_id, post_number, msecs)
+              SELECT :topic_id, :user_id, :post_number, :msecs
+              ON CONFLICT DO NOTHING",
+            args)
 
+    # concurrency is hard, we are not running serialized so this can possibly
+    # still happen, if it happens we just don't care, its an invalid record anyway
+    return if row_count == 0
     Post.where(['topic_id = :topic_id and post_number = :post_number', args]).update_all 'reads = reads + 1'
     UserStat.where(user_id: args[:user_id]).update_all 'posts_read_count = posts_read_count + 1'
   end
@@ -80,6 +72,12 @@ class PostTiming < ActiveRecord::Base
         highest_seen_post_number: last_read,
         last_read_post_number: last_read
       )
+
+      topic.posts.find_by(post_number: post_number).decrement!(:reads)
+
+      if !topic.private_message?
+        set_minimum_first_unread!(user_id: user.id, date: topic.updated_at)
+      end
     end
   end
 
@@ -92,7 +90,24 @@ class PostTiming < ActiveRecord::Base
       TopicUser
         .where('user_id = ? and topic_id in (?)', user_id, topic_ids)
         .delete_all
+
+      Post.where(topic_id: topic_ids).update_all('reads = reads - 1')
+
+      date = Topic.listable_topics.where(id: topic_ids).minimum(:updated_at)
+
+      if date
+        set_minimum_first_unread!(user_id: user_id, date: date)
+      end
     end
+  end
+
+  def self.set_minimum_first_unread!(user_id:, date:)
+    DB.exec(<<~SQL, date: date, user_id: user_id)
+      UPDATE user_stats
+      SET first_unread_at = :date
+      WHERE first_unread_at > :date AND
+            user_id = :user_id
+    SQL
   end
 
   MAX_READ_TIME_PER_BATCH = 60 * 1000.0
@@ -165,6 +180,7 @@ SQL
     topic_time = max_time_per_post if topic_time > max_time_per_post
 
     TopicUser.update_last_read(current_user, topic_id, highest_seen, new_posts_read, topic_time, opts)
+    TopicGroup.update_last_read(current_user, topic_id, highest_seen)
 
     if total_changed > 0
       current_user.reload

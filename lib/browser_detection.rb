@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 module BrowserDetection
 
   def self.browser(user_agent)
     case user_agent
-    when /Edge/i
+    when /Edg/i
       :edge
     when /Opera/i, /OPR/i
       :opera
@@ -14,6 +16,8 @@ module BrowserDetection
       :safari
     when /MSIE/i, /Trident/i
       :ie
+    when /Discourse/i
+      :discoursehub
     else
       :unknown
     end
@@ -23,6 +27,8 @@ module BrowserDetection
     case user_agent
     when /Android/i
       :android
+    when /CrOS/i
+      :chromebook
     when /iPad/i
       :ipad
     when /iPhone/i
@@ -46,7 +52,9 @@ module BrowserDetection
     case user_agent
     when /Android/i
       :android
-    when /iPhone|iPad|iPod/i
+    when /CrOS/i
+      :chromeos
+    when /iPhone|iPad|iPod|Darwin/i
       :ios
     when /Macintosh/i
       :macos

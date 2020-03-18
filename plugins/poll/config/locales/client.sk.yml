@@ -22,17 +22,17 @@ sk:
       multiple:
         help:
           at_least_min_options:
-            one: "Vyberte aspoň <strong>1</strong> možnosť"
+            one: "Vyberte aspoň <strong>%{count}</strong> možnosť"
             few: "Vyberte aspoň <strong>%{count}</strong> možnosti"
             many: "Vyberte aspoň <strong>%{count}</strong> možností"
             other: "Vyberte aspoň <strong>%{count}</strong> možností"
           up_to_max_options:
-            one: "Vyberte najviac <strong>1</strong> možnosť"
+            one: "Vyberte najviac <strong>%{count}</strong> možnosť"
             few: "Vyberte najviac <strong>%{count}</strong> možnosti"
             many: "Vyberte najviac <strong>%{count}</strong> možností"
             other: "Vyberte najviac <strong>%{count}</strong> možností"
           x_options:
-            one: "Vyberte <strong>1</strong> možnosť"
+            one: "Vyberte <strong>%{count}</strong> možnosť"
             few: "Vyberte <strong>%{count}</strong> možnosti"
             many: "Vyberte <strong>%{count}</strong> možností"
             other: "Vyberte <strong>%{count}</strong> možností"
@@ -45,7 +45,8 @@ sk:
         label: "Zobraz výsledky"
       hide-results:
         title: "Návrat na odovzdané hlasy"
-        label: "Skryť výsledky"
+      export-results:
+        label: "Export"
       open:
         title: "Zahájiť hlasovanie"
         label: "Zahájiť"
@@ -54,9 +55,6 @@ sk:
         title: "Uzavrieť hlasovanie"
         label: "Zavrieť"
         confirm: "Ste si istý, že chcete uzavrieť toto hlasovanie?"
-      automatic_close:
-        closes_in: "uzavrie sa za"
-        age: "uzavreté"
       error_while_toggling_status: "Ľutujeme, nastala chyba pri prepínaní stavu tohto hlasovania."
       error_while_casting_votes: "Ľutujeme, nastala chyba pri prideľovaní Vašich hlasov."
       error_while_fetching_voters: "Ľutujeme, nastala chyba pri zobrazení účastníkov."
@@ -64,7 +62,6 @@ sk:
         title: Vytvoriť hlasovanie
         insert: Vložiť hlasovanie
         help:
-          options_count: Zadajte aspoň 2 možnosti
           invalid_values: Minimálna hodnota musí byť menšia ako maximálna hodnota.
           min_step_value: Minimálna hodnota pre krok je 1
         poll_type:
@@ -72,6 +69,8 @@ sk:
           regular: Jedna možnosť
           multiple: Viacero možností
           number: Číselné hodnotenie
+        poll_result:
+          label: Výsledky
         poll_config:
           max: Max
           min: Min

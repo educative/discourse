@@ -1,14 +1,13 @@
+import { and, alias, or } from "@ember/object/computed";
 import { propertyEqual, setting } from "discourse/lib/computed";
+import Mixin from "@ember/object/mixin";
 
-export default Ember.Mixin.create({
+export default Mixin.create({
   isCurrentUser: propertyEqual("model.id", "currentUser.id"),
-  showEmailOnProfile: setting("show_email_on_profile"),
-  canStaffCheckEmails: Ember.computed.and(
-    "showEmailOnProfile",
-    "currentUser.staff"
-  ),
-  canAdminCheckEmails: Ember.computed.alias("currentUser.admin"),
-  canCheckEmails: Ember.computed.or(
+  showEmailOnProfile: setting("moderators_view_emails"),
+  canStaffCheckEmails: and("showEmailOnProfile", "currentUser.staff"),
+  canAdminCheckEmails: alias("currentUser.admin"),
+  canCheckEmails: or(
     "isCurrentUser",
     "canStaffCheckEmails",
     "canAdminCheckEmails"

@@ -1,11 +1,13 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe UserBadgesController do
-  let(:user) { Fabricate(:user) }
-  let(:badge) { Fabricate(:badge) }
+  fab!(:user) { Fabricate(:user) }
+  fab!(:badge) { Fabricate(:badge) }
 
   context 'index' do
-    let(:badge) { Fabricate(:badge, target_posts: true, show_posts: false) }
+    fab!(:badge) { Fabricate(:badge, target_posts: true, show_posts: false) }
     it 'does not leak private info' do
       p = create_post
       UserBadge.create!(badge: badge, user: user, post_id: p.id, granted_by_id: -1, granted_at: Time.now)
@@ -109,10 +111,10 @@ describe UserBadgesController do
     end
 
     it 'does not grant badges from regular api calls' do
-      Fabricate(:api_key, user: user)
+      api_key = Fabricate(:api_key, user: user)
 
       post "/user_badges.json", params: {
-        badge_id: badge.id, username: user.username, api_key: user.api_key.key
+        badge_id: badge.id, username: user.username, api_key: api_key.key
       }
 
       expect(response.status).to eq(403)
@@ -190,16 +192,9 @@ describe UserBadgesController do
     end
 
     describe 'with relative_url_root' do
-      before do
-        @orig_relative_url_root = ActionController::Base.config.relative_url_root
-        ActionController::Base.config.relative_url_root = "/discuss"
-      end
-
-      after do
-        ActionController::Base.config.relative_url_root = @orig_relative_url_root
-      end
-
       it 'grants badge when valid post/topic link is given in reason' do
+        set_subfolder "/discuss"
+
         admin = Fabricate(:admin)
         post = create_post
 

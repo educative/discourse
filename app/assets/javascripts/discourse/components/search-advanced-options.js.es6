@@ -1,7 +1,11 @@
-import { observes } from "ember-addons/ember-computed-decorators";
+import { debounce } from "@ember/runloop";
+import { scheduleOnce } from "@ember/runloop";
+import Component from "@ember/component";
+import { observes } from "discourse-common/utils/decorators";
 import { escapeExpression } from "discourse/lib/utilities";
 import Group from "discourse/models/group";
 import Badge from "discourse/models/badge";
+import Category from "discourse/models/category";
 
 const REGEXP_BLOCKS = /(([^" \t\n\x0B\f\r]+)?(("[^"]+")?))/g;
 
@@ -16,10 +20,10 @@ const REGEXP_MIN_POST_COUNT_PREFIX = /^min_post_count:/gi;
 const REGEXP_POST_TIME_PREFIX = /^(before|after):/gi;
 const REGEXP_TAGS_REPLACE = /(^(tags?:|#(?=[a-z0-9\-]+::tag))|::tag\s?$)/gi;
 
-const REGEXP_IN_MATCH = /^(in|with):(posted|watching|tracking|bookmarks|first|pinned|unpinned|wiki|unseen|image)/gi;
+const REGEXP_IN_MATCH = /^(in|with):(posted|created|watching|tracking|bookmarks|first|pinned|unpinned|wiki|unseen|image)/gi;
 const REGEXP_SPECIAL_IN_LIKES_MATCH = /^in:likes/gi;
 const REGEXP_SPECIAL_IN_TITLE_MATCH = /^in:title/gi;
-const REGEXP_SPECIAL_IN_PRIVATE_MATCH = /^in:private/gi;
+const REGEXP_SPECIAL_IN_PERSONAL_MATCH = /^in:personal/gi;
 const REGEXP_SPECIAL_IN_SEEN_MATCH = /^in:seen/gi;
 
 const REGEXP_CATEGORY_SLUG = /^(\#[a-zA-Z0-9\-:]+)/gi;
@@ -28,53 +32,58 @@ const REGEXP_POST_TIME_WHEN = /^(before|after)/gi;
 
 const IN_OPTIONS_MAPPING = { images: "with" };
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNames: ["search-advanced-options"],
-
-  inOptionsForUsers: [
-    { name: I18n.t("search.advanced.filters.unseen"), value: "unseen" },
-    { name: I18n.t("search.advanced.filters.posted"), value: "posted" },
-    { name: I18n.t("search.advanced.filters.watching"), value: "watching" },
-    { name: I18n.t("search.advanced.filters.tracking"), value: "tracking" },
-    { name: I18n.t("search.advanced.filters.bookmarks"), value: "bookmarks" }
-  ],
-
-  inOptionsForAll: [
-    { name: I18n.t("search.advanced.filters.first"), value: "first" },
-    { name: I18n.t("search.advanced.filters.pinned"), value: "pinned" },
-    { name: I18n.t("search.advanced.filters.unpinned"), value: "unpinned" },
-    { name: I18n.t("search.advanced.filters.wiki"), value: "wiki" },
-    { name: I18n.t("search.advanced.filters.images"), value: "images" }
-  ],
-
-  statusOptions: [
-    { name: I18n.t("search.advanced.statuses.open"), value: "open" },
-    { name: I18n.t("search.advanced.statuses.closed"), value: "closed" },
-    { name: I18n.t("search.advanced.statuses.archived"), value: "archived" },
-    { name: I18n.t("search.advanced.statuses.noreplies"), value: "noreplies" },
-    {
-      name: I18n.t("search.advanced.statuses.single_user"),
-      value: "single_user"
-    }
-  ],
-
-  postTimeOptions: [
-    { name: I18n.t("search.advanced.post.time.before"), value: "before" },
-    { name: I18n.t("search.advanced.post.time.after"), value: "after" }
-  ],
 
   init() {
     this._super(...arguments);
+
+    this.inOptionsForUsers = [
+      { name: I18n.t("search.advanced.filters.unseen"), value: "unseen" },
+      { name: I18n.t("search.advanced.filters.posted"), value: "posted" },
+      { name: I18n.t("search.advanced.filters.created"), value: "created" },
+      { name: I18n.t("search.advanced.filters.watching"), value: "watching" },
+      { name: I18n.t("search.advanced.filters.tracking"), value: "tracking" },
+      { name: I18n.t("search.advanced.filters.bookmarks"), value: "bookmarks" }
+    ];
+
+    this.inOptionsForAll = [
+      { name: I18n.t("search.advanced.filters.first"), value: "first" },
+      { name: I18n.t("search.advanced.filters.pinned"), value: "pinned" },
+      { name: I18n.t("search.advanced.filters.unpinned"), value: "unpinned" },
+      { name: I18n.t("search.advanced.filters.wiki"), value: "wiki" },
+      { name: I18n.t("search.advanced.filters.images"), value: "images" }
+    ];
+
+    this.statusOptions = [
+      { name: I18n.t("search.advanced.statuses.open"), value: "open" },
+      { name: I18n.t("search.advanced.statuses.closed"), value: "closed" },
+      { name: I18n.t("search.advanced.statuses.public"), value: "public" },
+      { name: I18n.t("search.advanced.statuses.archived"), value: "archived" },
+      {
+        name: I18n.t("search.advanced.statuses.noreplies"),
+        value: "noreplies"
+      },
+      {
+        name: I18n.t("search.advanced.statuses.single_user"),
+        value: "single_user"
+      }
+    ];
+
+    this.postTimeOptions = [
+      { name: I18n.t("search.advanced.post.time.before"), value: "before" },
+      { name: I18n.t("search.advanced.post.time.after"), value: "after" }
+    ];
+
     this._init();
-    Ember.run.scheduleOnce("afterRender", () => {
-      this._update();
-    });
+
+    scheduleOnce("afterRender", () => this._update());
   },
 
   @observes("searchTerm")
   _updateOptions() {
     this._update();
-    Ember.run.debounce(this, this._update, 250);
+    debounce(this, this._update, 250);
   },
 
   _init() {
@@ -90,7 +99,7 @@ export default Ember.Component.extend({
           in: {
             title: false,
             likes: false,
-            private: false,
+            personal: false,
             seen: false
           },
           all_tags: false
@@ -109,7 +118,7 @@ export default Ember.Component.extend({
   },
 
   _update() {
-    if (!this.get("searchTerm")) {
+    if (!this.searchTerm) {
       this._init();
       return;
     }
@@ -137,8 +146,8 @@ export default Ember.Component.extend({
     );
 
     this.setSearchedTermSpecialInValue(
-      "searchedTerms.special.in.private",
-      REGEXP_SPECIAL_IN_PRIVATE_MATCH
+      "searchedTerms.special.in.personal",
+      REGEXP_SPECIAL_IN_PERSONAL_MATCH
     );
 
     this.setSearchedTermSpecialInValue(
@@ -156,7 +165,7 @@ export default Ember.Component.extend({
   },
 
   findSearchTerms() {
-    const searchTerm = escapeExpression(this.get("searchTerm"));
+    const searchTerm = escapeExpression(this.searchTerm);
     if (!searchTerm) return [];
 
     const blocks = searchTerm.match(REGEXP_BLOCKS);
@@ -218,7 +227,7 @@ export default Ember.Component.extend({
         .replace(REGEXP_CATEGORY_PREFIX, "")
         .split(":");
       if (subcategories.length > 1) {
-        const userInput = Discourse.Category.findBySlug(
+        const userInput = Category.findBySlug(
           subcategories[1],
           subcategories[0]
         );
@@ -228,14 +237,14 @@ export default Ember.Component.extend({
         )
           this.set("searchedTerms.category", userInput);
       } else if (isNaN(subcategories)) {
-        const userInput = Discourse.Category.findSingleBySlug(subcategories[0]);
+        const userInput = Category.findSingleBySlug(subcategories[0]);
         if (
           (!existingInput && userInput) ||
           (existingInput && userInput && existingInput.id !== userInput.id)
         )
           this.set("searchedTerms.category", userInput);
       } else {
-        const userInput = Discourse.Category.findById(subcategories[0]);
+        const userInput = Category.findById(subcategories[0]);
         if (
           (!existingInput && userInput) ||
           (existingInput && userInput && existingInput.id !== userInput.id)
@@ -334,7 +343,7 @@ export default Ember.Component.extend({
   updateSearchTermForUsername() {
     const match = this.filterBlocks(REGEXP_USERNAME_PREFIX);
     const userFilter = this.get("searchedTerms.username");
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     if (userFilter && userFilter.length !== 0) {
       if (match.length !== 0) {
@@ -354,7 +363,7 @@ export default Ember.Component.extend({
   updateSearchTermForCategory() {
     const match = this.filterBlocks(REGEXP_CATEGORY_PREFIX);
     const categoryFilter = this.get("searchedTerms.category");
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     const slugCategoryMatches =
       match.length !== 0 ? match[0].match(REGEXP_CATEGORY_SLUG) : null;
@@ -404,7 +413,7 @@ export default Ember.Component.extend({
   updateSearchTermForGroup() {
     const match = this.filterBlocks(REGEXP_GROUP_PREFIX);
     const groupFilter = this.get("searchedTerms.group");
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     if (groupFilter && groupFilter.length !== 0) {
       if (match.length !== 0) {
@@ -424,7 +433,7 @@ export default Ember.Component.extend({
   updateSearchTermForBadge() {
     const match = this.filterBlocks(REGEXP_BADGE_PREFIX);
     const badgeFilter = this.get("searchedTerms.badge");
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     if (badgeFilter && badgeFilter.length !== 0) {
       if (match.length !== 0) {
@@ -444,7 +453,7 @@ export default Ember.Component.extend({
   updateSearchTermForTags() {
     const match = this.filterBlocks(REGEXP_TAGS_PREFIX);
     const tagFilter = this.get("searchedTerms.tags");
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
     const contain_all_tags = this.get("searchedTerms.special.all_tags");
 
     if (tagFilter && tagFilter.length !== 0) {
@@ -472,7 +481,7 @@ export default Ember.Component.extend({
     if (inFilter in IN_OPTIONS_MAPPING) {
       keyword = IN_OPTIONS_MAPPING[inFilter];
     }
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     if (inFilter) {
       if (match.length !== 0) {
@@ -491,7 +500,7 @@ export default Ember.Component.extend({
   updateInRegex(regex, filter) {
     const match = this.filterBlocks(regex);
     const inFilter = this.get("searchedTerms.special.in." + filter);
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     if (inFilter) {
       if (match.length === 0) {
@@ -509,9 +518,9 @@ export default Ember.Component.extend({
     this.updateInRegex(REGEXP_SPECIAL_IN_LIKES_MATCH, "likes");
   },
 
-  @observes("searchedTerms.special.in.private")
-  updateSearchTermForSpecialInPrivate() {
-    this.updateInRegex(REGEXP_SPECIAL_IN_PRIVATE_MATCH, "private");
+  @observes("searchedTerms.special.in.personal")
+  updateSearchTermForSpecialInPersonal() {
+    this.updateInRegex(REGEXP_SPECIAL_IN_PERSONAL_MATCH, "personal");
   },
 
   @observes("searchedTerms.special.in.seen")
@@ -528,7 +537,7 @@ export default Ember.Component.extend({
   updateSearchTermForStatus() {
     const match = this.filterBlocks(REGEXP_STATUS_PREFIX);
     const statusFilter = this.get("searchedTerms.status");
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     if (statusFilter) {
       if (match.length !== 0) {
@@ -544,11 +553,10 @@ export default Ember.Component.extend({
     }
   },
 
-  @observes("searchedTerms.time.when", "searchedTerms.time.days")
   updateSearchTermForPostTime() {
     const match = this.filterBlocks(REGEXP_POST_TIME_PREFIX);
     const timeDaysFilter = this.get("searchedTerms.time.days");
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     if (timeDaysFilter) {
       const when = this.get("searchedTerms.time.when");
@@ -569,7 +577,7 @@ export default Ember.Component.extend({
   updateSearchTermForMinPostCount() {
     const match = this.filterBlocks(REGEXP_MIN_POST_COUNT_PREFIX);
     const postsCountFilter = this.get("searchedTerms.min_post_count");
-    let searchTerm = this.get("searchTerm") || "";
+    let searchTerm = this.searchTerm || "";
 
     if (postsCountFilter) {
       if (match.length !== 0) {
@@ -594,5 +602,28 @@ export default Ember.Component.extend({
 
   badgeFinder(term) {
     return Badge.findAll({ search: term });
+  },
+
+  actions: {
+    onChangeWhenTime(time) {
+      if (time) {
+        this.set("searchedTerms.time.when", time);
+        this.updateSearchTermForPostTime();
+      }
+    },
+    onChangeWhenDate(date) {
+      if (date) {
+        this.set("searchedTerms.time.days", moment(date).format("YYYY-MM-DD"));
+        this.updateSearchTermForPostTime();
+      }
+    },
+
+    onChangeCategory(categoryId) {
+      if (categoryId) {
+        this.set("searchedTerms.category", Category.findById(categoryId));
+      } else {
+        this.set("searchedTerms.category", null);
+      }
+    }
   }
 });

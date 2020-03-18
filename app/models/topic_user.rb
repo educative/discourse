@@ -1,4 +1,4 @@
-require_dependency 'notification_levels'
+# frozen_string_literal: true
 
 class TopicUser < ActiveRecord::Base
   belongs_to :user
@@ -7,11 +7,19 @@ class TopicUser < ActiveRecord::Base
   # used for serialization
   attr_accessor :post_action_data
 
-  scope :tracking, lambda { |topic_id|
+  scope :level, lambda { |topic_id, level|
     where(topic_id: topic_id)
-      .where("COALESCE(topic_users.notification_level, :regular) >= :tracking",
+      .where("COALESCE(topic_users.notification_level, :regular) >= :level",
      regular: TopicUser.notification_levels[:regular],
-     tracking: TopicUser.notification_levels[:tracking])
+     level: TopicUser.notification_levels[level])
+  }
+
+  scope :tracking, lambda { |topic_id|
+    level(topic_id, :tracking)
+  }
+
+  scope :watching, lambda { |topic_id|
+    level(topic_id, :watching)
   }
 
   # Class methods
@@ -207,7 +215,7 @@ class TopicUser < ActiveRecord::Base
             attrs[:notification_level] = notification_levels[:watching]
           end
         else
-          auto_track_after = UserOption.where(user_id: user_id).pluck(:auto_track_topics_after_msecs).first
+          auto_track_after = UserOption.where(user_id: user_id).pluck_first(:auto_track_topics_after_msecs)
           auto_track_after ||= SiteSetting.default_other_auto_track_topics_after_msecs
 
           if auto_track_after >= 0 && auto_track_after <= (attrs[:total_msecs_viewed].to_i || 0)

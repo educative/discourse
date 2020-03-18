@@ -1,4 +1,8 @@
-export default Ember.Route.extend({
+import Route from "@ember/routing/route";
+import showModal from "discourse/lib/show-modal";
+import { getProperties } from "@ember/object";
+
+export default Route.extend({
   queryParams: {
     q: { replace: true },
     overridden: { replace: true }
@@ -7,11 +11,17 @@ export default Ember.Route.extend({
   model(params) {
     return this.store.find(
       "site-text",
-      Ember.getProperties(params, "q", "overridden")
+      getProperties(params, "q", "overridden")
     );
   },
 
   setupController(controller, model) {
     controller.set("siteTexts", model);
+  },
+
+  actions: {
+    showReseedModal() {
+      showModal("admin-reseed", { admin: true });
+    }
   }
 });

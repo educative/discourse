@@ -1,87 +1,26 @@
-class UserSerializer < BasicUserSerializer
+# frozen_string_literal: true
 
-  attr_accessor :omit_stats,
-                :topic_post_count
+class UserSerializer < UserCardSerializer
 
-  def self.staff_attributes(*attrs)
-    attributes(*attrs)
-    attrs.each do |attr|
-      define_method "include_#{attr}?" do
-        scope.is_staff?
-      end
-    end
-  end
-
-  def self.private_attributes(*attrs)
-    attributes(*attrs)
-    attrs.each do |attr|
-      define_method "include_#{attr}?" do
-        can_edit
-      end
-    end
-  end
-
-  # attributes that are hidden for TL0 users when seen by anonymous
-  def self.untrusted_attributes(*attrs)
-    attrs.each do |attr|
-      method_name = "include_#{attr}?"
-      define_method(method_name) do
-        return false if scope.restrict_user_fields?(object)
-        send(attr).present?
-      end
-    end
-  end
-
-  attributes :name,
-             :email,
-             :last_posted_at,
-             :last_seen_at,
-             :bio_raw,
+  attributes :bio_raw,
              :bio_cooked,
-             :created_at,
-             :website,
-             :website_name,
-             :profile_background,
-             :card_background,
-             :location,
              :can_edit,
              :can_edit_username,
              :can_edit_email,
              :can_edit_name,
-             :stats,
-             :can_send_private_messages,
-             :can_send_private_message_to_user,
-             :bio_excerpt,
-             :trust_level,
-             :moderator,
-             :admin,
-             :title,
-             :suspend_reason,
-             :suspended_till,
              :uploaded_avatar_id,
-             :badge_count,
              :has_title_badges,
-             :custom_fields,
-             :user_fields,
-             :topic_post_count,
              :pending_count,
              :profile_view_count,
-             :time_read,
-             :recent_time_read,
-             :primary_group_name,
-             :primary_group_flair_url,
-             :primary_group_flair_bg_color,
-             :primary_group_flair_color,
-             :staged,
              :second_factor_enabled,
              :second_factor_backup_enabled,
              :second_factor_remaining_backup_codes,
-             :associated_accounts
+             :associated_accounts,
+             :profile_background_upload_url
 
   has_one :invited_by, embed: :object, serializer: BasicUserSerializer
   has_many :groups, embed: :object, serializer: BasicGroupSerializer
   has_many :group_users, embed: :object, serializer: BasicGroupUserSerializer
-  has_many :featured_user_badges, embed: :ids, serializer: UserBadgeSerializer, root: :user_badges
   has_one :user_option, embed: :object, serializer: UserOptionSerializer
 
   def include_user_option?
@@ -101,7 +40,6 @@ class UserSerializer < BasicUserSerializer
                      :tracked_category_ids,
                      :watched_category_ids,
                      :watched_first_post_category_ids,
-                     :private_messages_stats,
                      :system_avatar_upload_id,
                      :system_avatar_template,
                      :gravatar_avatar_upload_id,
@@ -110,20 +48,15 @@ class UserSerializer < BasicUserSerializer
                      :custom_avatar_template,
                      :has_title_badges,
                      :muted_usernames,
+                     :ignored_usernames,
                      :mailing_list_posts_per_day,
                      :can_change_bio,
                      :user_api_keys,
-                     :user_auth_tokens,
-                     :user_auth_token_logs
+                     :user_auth_tokens
 
   untrusted_attributes :bio_raw,
                        :bio_cooked,
-                       :bio_excerpt,
-                       :location,
-                       :website,
-                       :website_name,
-                       :profile_background,
-                       :card_background
+                       :profile_background_upload_url,
 
   ###
   ### ATTRIBUTES
@@ -136,16 +69,11 @@ class UserSerializer < BasicUserSerializer
 
   def groups
     object.groups.order(:id)
-      .visible_groups(scope.user)
+      .visible_groups(scope.user).members_visible_groups(scope.user)
   end
 
   def group_users
     object.group_users.order(:group_id)
-  end
-
-  def include_email?
-    (object.id && object.id == scope.user.try(:id)) ||
-      (scope.is_staff? && object.staged?)
   end
 
   def include_associated_accounts?
@@ -157,7 +85,7 @@ class UserSerializer < BasicUserSerializer
   end
 
   def second_factor_enabled
-    object.totp_enabled?
+    object.totp_enabled? || object.security_keys_enabled?
   end
 
   def include_second_factor_backup_enabled?
@@ -203,51 +131,12 @@ class UserSerializer < BasicUserSerializer
     )
   end
 
-  def user_auth_token_logs
-    ActiveModel::ArraySerializer.new(
-      object.user_auth_token_logs.where(
-        action: UserAuthToken::USER_ACTIONS
-      ).order(:created_at).reverse_order,
-      each_serializer: UserAuthTokenLogSerializer
-    )
-  end
-
   def bio_raw
     object.user_profile.bio_raw
   end
 
   def bio_cooked
     object.user_profile.bio_processed
-  end
-
-  def website
-    object.user_profile.website
-  end
-
-  def website_name
-    uri = begin
-      URI(website.to_s)
-    rescue URI::Error
-    end
-
-    return if uri.nil? || uri.host.nil?
-    uri.host.sub(/^www\./, '') + uri.path
-  end
-
-  def include_website_name
-    website.present?
-  end
-
-  def profile_background
-    object.user_profile.profile_background
-  end
-
-  def card_background
-    object.user_profile.card_background
-  end
-
-  def location
-    object.user_profile.location
   end
 
   def can_edit
@@ -264,52 +153,6 @@ class UserSerializer < BasicUserSerializer
 
   def can_edit_name
     scope.can_edit_name?(object)
-  end
-
-  def include_stats?
-    !omit_stats == true
-  end
-
-  def stats
-    UserAction.stats(object.id, scope)
-  end
-
-  # Needed because 'send_private_message_to_user' will always return false
-  # when the current user is being serialized
-  def can_send_private_messages
-    scope.can_send_private_message?(Discourse.system_user)
-  end
-
-  def can_send_private_message_to_user
-    scope.can_send_private_message?(object) && scope.current_user != object
-  end
-
-  def bio_excerpt
-    object.user_profile.bio_excerpt(350 , keep_newlines: true, keep_emoji_images: true)
-  end
-
-  def include_suspend_reason?
-    scope.can_see_suspension_reason?(object) && object.suspended?
-  end
-
-  def include_suspended_till?
-    object.suspended?
-  end
-
-  def primary_group_name
-    object.primary_group.try(:name)
-  end
-
-  def primary_group_flair_url
-    object.try(:primary_group).try(:flair_url)
-  end
-
-  def primary_group_flair_bg_color
-    object.try(:primary_group).try(:flair_bg_color)
-  end
-
-  def primary_group_flair_color
-    object.try(:primary_group).try(:flair_color)
   end
 
   ###
@@ -367,12 +210,8 @@ class UserSerializer < BasicUserSerializer
     MutedUser.where(user_id: object.id).joins(:muted_user).pluck(:username)
   end
 
-  def include_private_messages_stats?
-    can_edit && !(omit_stats == true)
-  end
-
-  def private_messages_stats
-    UserAction.private_messages_stats(object.id, scope)
+  def ignored_usernames
+    IgnoredUser.where(user_id: object.id).joins(:ignored_user).pluck(:username)
   end
 
   def system_avatar_upload_id
@@ -419,33 +258,6 @@ class UserSerializer < BasicUserSerializer
     object.badges.where(allow_title: true).exists?
   end
 
-  def user_fields
-    allowed_keys = scope.allowed_user_field_ids(object).map(&:to_s)
-    object.user_fields&.select { |k, v| allowed_keys.include?(k) }
-  end
-
-  def include_user_fields?
-    user_fields.present?
-  end
-
-  def include_topic_post_count?
-    topic_post_count.present?
-  end
-
-  def custom_fields
-    fields = User.whitelisted_user_custom_fields(scope)
-
-    if scope.can_edit?(object)
-      fields += DiscoursePluginRegistry.serialized_current_user_fields.to_a
-    end
-
-    if fields.present?
-      User.custom_fields_for_ids([object.id], fields)[object.id] || {}
-    else
-      {}
-    end
-  end
-
   def pending_count
     0
   end
@@ -454,16 +266,8 @@ class UserSerializer < BasicUserSerializer
     object.user_profile.views
   end
 
-  def time_read
-    object.user_stat&.time_read
-  end
-
-  def recent_time_read
-    time = object.recent_time_read
-  end
-
-  def include_staged?
-    scope.is_staff?
+  def profile_background_upload_url
+    object.profile_background_upload&.url
   end
 
 end

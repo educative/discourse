@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'nokogiri'
 require 'optparse'
 require File.expand_path(File.dirname(__FILE__) + "/base")
@@ -194,7 +196,7 @@ class DisqusSAX < Nokogiri::XML::SAX::Document
   end
 
   def inside?(*params)
-    return !params.find { |p| !@inside[p] }
+    !params.find { |p| !@inside[p] }
   end
 
   def normalize

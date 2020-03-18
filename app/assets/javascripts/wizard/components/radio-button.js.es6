@@ -1,17 +1,21 @@
-import { observes, on } from "ember-addons/ember-computed-decorators";
+import { next } from "@ember/runloop";
+import Component from "@ember/component";
+import { observes, on } from "discourse-common/utils/decorators";
 
-export default Ember.Component.extend({
+export default Component.extend({
   tagName: "label",
 
   click(e) {
     e.preventDefault();
-    this.onChange(this.get("radioValue"));
+    this.onChange(this.radioValue);
   },
 
   @observes("value")
   @on("init")
   updateVal() {
-    const checked = this.get("value") === this.get("radioValue");
-    Ember.run.next(() => this.$("input[type=radio]").prop("checked", checked));
+    const checked = this.value === this.radioValue;
+    next(
+      () => (this.element.querySelector("input[type=radio]").checked = checked)
+    );
   }
 });

@@ -1,9 +1,9 @@
-require_dependency 'email/sender'
+# frozen_string_literal: true
 
 module Jobs
 
   # Asynchronously send an email
-  class InvitePasswordInstructionsEmail < Jobs::Base
+  class InvitePasswordInstructionsEmail < ::Jobs::Base
 
     def execute(args)
       raise Discourse::InvalidParameters.new(:username) unless args[:username].present?

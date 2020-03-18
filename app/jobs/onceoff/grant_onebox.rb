@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class GrantOnebox < Jobs::Onceoff
+  class GrantOnebox < ::Jobs::Onceoff
     sidekiq_options queue: 'low'
 
     def execute_onceoff(args)

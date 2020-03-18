@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class CleanUpUnmatchedIPs < Jobs::Scheduled
+  class CleanUpUnmatchedIPs < ::Jobs::Scheduled
     every 1.day
 
     def execute(args)

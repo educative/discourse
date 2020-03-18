@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module FileStore
 
   class BaseStore
@@ -7,7 +9,7 @@ module FileStore
       store_file(file, path)
     end
 
-    def store_optimized_image(file, optimized_image)
+    def store_optimized_image(file, optimized_image, content_type = nil, secure: false)
       path = get_path_for_optimized_image(optimized_image)
       store_file(file, path)
     end
@@ -29,7 +31,11 @@ module FileStore
     end
 
     def upload_path
-      File.join("uploads", RailsMultisite::ConnectionManagement.current_db)
+      path = File.join("uploads", RailsMultisite::ConnectionManagement.current_db)
+      return path unless Discourse.is_parallel_test?
+
+      n = ENV['TEST_ENV_NUMBER'].presence || '1'
+      File.join(path, n)
     end
 
     def has_been_uploaded?(url)
@@ -49,6 +55,10 @@ module FileStore
     end
 
     def relative_base_url
+      not_implemented
+    end
+
+    def s3_upload_host
       not_implemented
     end
 
@@ -75,7 +85,12 @@ module FileStore
 
         if !file
           max_file_size_kb = [SiteSetting.max_image_size_kb, SiteSetting.max_attachment_size_kb].max.kilobytes
-          url = SiteSetting.scheme + ":" + upload.url
+
+          url = upload.secure? ?
+            Discourse.store.signed_url_for_path(upload.url) :
+            Discourse.store.cdn_url(upload.url)
+
+          url = SiteSetting.scheme + ":" + url if url =~ /^\/\//
           file = FileHelper.download(
             url,
             max_file_size: max_file_size_kb,
@@ -83,6 +98,7 @@ module FileStore
             follow_redirect: true
           )
           cache_file(file, filename)
+          file = get_from_cache(filename)
         end
 
         file
@@ -90,10 +106,6 @@ module FileStore
     end
 
     def purge_tombstone(grace_period)
-    end
-
-    def get_depth_for(id)
-      [0, Math.log(id / 1_000.0, 16).ceil].max
     end
 
     def get_path_for(type, id, sha, extension)
@@ -138,14 +150,35 @@ module FileStore
       dir = File.dirname(path)
       FileUtils.mkdir_p(dir) unless Dir.exist?(dir)
       FileUtils.cp(file.path, path)
-      # keep latest 500 files
-      `ls -tr #{CACHE_DIR} | head -n -#{CACHE_MAXIMUM_SIZE} | awk '$0="#{CACHE_DIR}"$0' | xargs rm -f`
+
+      # Keep latest 500 files
+      processes = Open3.pipeline(
+        ["ls -t #{CACHE_DIR}", err: "/dev/null"],
+        "tail -n +#{CACHE_MAXIMUM_SIZE + 1}",
+        "awk '$0=\"#{CACHE_DIR}\"$0'",
+        "xargs rm -f"
+      )
+
+      ls = processes.shift
+
+      # Exit status `1` in `ls` occurs when e.g. "listing a directory
+      # in which entries are actively being removed or renamed".
+      # It's safe to ignore it here.
+      if ![0, 1].include?(ls.exitstatus) || !processes.all?(&:success?)
+        raise "Error clearing old cache"
+      end
     end
 
     private
 
     def not_implemented
       raise "Not implemented."
+    end
+
+    def get_depth_for(id)
+      depths = [0]
+      depths << Math.log(id / 1_000.0, 16).ceil if id.positive?
+      depths.max
     end
 
   end

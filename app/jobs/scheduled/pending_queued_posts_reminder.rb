@@ -1,5 +1,7 @@
+# frozen_string_literal: true
+
 module Jobs
-  class PendingQueuedPostReminder < Jobs::Scheduled
+  class PendingQueuedPostsReminder < ::Jobs::Scheduled
 
     every 1.hour
 
@@ -25,15 +27,17 @@ module Jobs
     end
 
     def should_notify_ids
-      QueuedPost.new_posts.visible.where('created_at < ?', SiteSetting.notify_about_queued_posts_after.hours.ago).pluck(:id)
+      ReviewableQueuedPost.where(status: Reviewable.statuses[:pending]).where(
+        'created_at < ?', SiteSetting.notify_about_queued_posts_after.hours.ago
+      ).pluck(:id)
     end
 
     def last_notified_id
-      (i = $redis.get(self.class.last_notified_key)) && i.to_i
+      (i = Discourse.redis.get(self.class.last_notified_key)) && i.to_i
     end
 
     def last_notified_id=(arg)
-      $redis.set(self.class.last_notified_key, arg)
+      Discourse.redis.set(self.class.last_notified_key, arg)
     end
 
     def self.last_notified_key

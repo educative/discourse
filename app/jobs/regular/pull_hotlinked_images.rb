@@ -1,10 +1,8 @@
-require_dependency 'url_helper'
-require_dependency 'file_helper'
-require_dependency 'upload_creator'
+# frozen_string_literal: true
 
 module Jobs
 
-  class PullHotlinkedImages < Jobs::Base
+  class PullHotlinkedImages < ::Jobs::Base
     sidekiq_options queue: 'low'
 
     def initialize
@@ -35,8 +33,6 @@ module Jobs
     end
 
     def execute(args)
-      return unless SiteSetting.download_remote_images_to_local?
-
       post_id = args[:post_id]
       raise Discourse::InvalidParameters.new(:post_id) unless post_id.present?
 
@@ -56,21 +52,27 @@ module Jobs
       has_new_broken_image = false
       has_downloaded_image = false
 
-      extract_images_from(post.cooked).each do |image|
-        src = original_src = image['src']
+      extract_images_from(post.cooked).each do |node|
+        src = original_src = node['src'] || node['href']
         src = "#{SiteSetting.force_https ? "https" : "http"}:#{src}" if src.start_with?("//")
 
-        if is_valid_image_url(src)
+        if should_download_image?(src, post)
           begin
             # have we already downloaded that file?
             schemeless_src = remove_scheme(original_src)
 
             unless downloaded_images.include?(schemeless_src) || large_images.include?(schemeless_src) || broken_images.include?(schemeless_src)
+
+              # secure-media-uploads endpoint prevents anonymous downloads, so we
+              # need the presigned S3 URL here
+              src = Upload.signed_url_from_secure_media_url(src) if Upload.secure_media_url?(src)
+
               if hotlinked = download(src)
                 if File.size(hotlinked.path) <= @max_size
                   filename = File.basename(URI.parse(src).path)
                   filename << File.extname(hotlinked.path) unless filename["."]
                   upload = UploadCreator.new(hotlinked, filename, origin: src).create_for(post.user_id)
+
                   if upload.persisted?
                     downloaded_urls[src] = upload.url
                     downloaded_images[remove_scheme(src)] = upload.id
@@ -87,30 +89,50 @@ module Jobs
                 has_new_broken_image = true
               end
             end
+
             # have we successfully downloaded that file?
             if downloaded_urls[src].present?
-              url = downloaded_urls[src]
               escaped_src = Regexp.escape(original_src)
+
+              replace_raw = ->(match, match_src, replacement, _index) {
+                if src.include?(match_src)
+
+                  replacement =
+                    if replacement.include?(InlineUploads::PLACEHOLDER)
+                      replacement.sub(InlineUploads::PLACEHOLDER, upload.short_url)
+                    elsif replacement.include?(InlineUploads::PATH_PLACEHOLDER)
+                      replacement.sub(InlineUploads::PATH_PLACEHOLDER, upload.short_path)
+                    end
+
+                  raw = raw.gsub(
+                    match,
+                    replacement
+                  )
+                end
+              }
+
               # there are 6 ways to insert an image in a post
               # HTML tag - <img src="http://...">
-              raw.gsub!(/src=["']#{escaped_src}["']/i, "src='#{url}'")
+              InlineUploads.match_img(raw, external_src: true, &replace_raw)
+
               # BBCode tag - [img]http://...[/img]
-              raw.gsub!(/\[img\]#{escaped_src}\[\/img\]/i, "[img]#{url}[/img]")
+              InlineUploads.match_bbcode_img(raw, external_src: true, &replace_raw)
+
               # Markdown linked image - [![alt](http://...)](http://...)
-              raw.gsub!(/\[!\[([^\]]*)\]\(#{escaped_src}\)\]/) { "[<img src='#{url}' alt='#{$1}'>]" }
               # Markdown inline - ![alt](http://...)
-              raw.gsub!(/!\[([^\]]*)\]\(#{escaped_src}\)/) { "![#{$1}](#{url})" }
               # Markdown inline - ![](http://... "image title")
-              raw.gsub!(/!\[\]\(#{escaped_src} "([^\]]*)"\)/) { "![](#{url})" }
               # Markdown inline - ![alt](http://... "image title")
-              raw.gsub!(/!\[([^\]]*)\]\(#{escaped_src} "([^\]]*)"\)/) { "![](#{url})" }
-              # Markdown reference - [x]: http://
-              raw.gsub!(/\[([^\]]+)\]:\s?#{escaped_src}/) { "[#{$1}]: #{url}" }
+              InlineUploads.match_md_inline_img(raw, external_src: true, &replace_raw)
+
               # Direct link
-              raw.gsub!(/^#{escaped_src}(\s?)$/) { "<img src='#{url}'>#{$1}" }
+              raw.gsub!(/^#{escaped_src}(\s?)$/) { "![](#{upload.short_url})#{$1}" }
             end
           rescue => e
-            log(:error, "Failed to pull hotlinked image (#{src}) post: #{post_id}\n" + e.message + "\n" + e.backtrace.join("\n"))
+            if Rails.env.test?
+              raise e
+            else
+              log(:error, "Failed to pull hotlinked image (#{src}) post: #{post_id}\n" + e.message + "\n" + e.backtrace.join("\n"))
+            end
           end
         end
       end
@@ -128,7 +150,7 @@ module Jobs
 
       if start_raw == post.raw && raw != post.raw
         changes = { raw: raw, edit_reason: I18n.t("upload.edit_reason") }
-        post.revise(Discourse.system_user, changes, bypass_bump: true)
+        post.revise(Discourse.system_user, changes, bypass_bump: true, skip_staff_log: true)
       elsif has_downloaded_image || has_new_large_image || has_new_broken_image
         post.trigger_post_process(bypass_bump: true)
       end
@@ -136,16 +158,36 @@ module Jobs
 
     def extract_images_from(html)
       doc = Nokogiri::HTML::fragment(html)
-      doc.css("img[src]") - doc.css("img.avatar")
+
+      doc.css("img[src], a.lightbox[href]") -
+        doc.css("img.avatar") -
+        doc.css(".lightbox img[src]")
     end
 
-    def is_valid_image_url(src)
+    def should_download_image?(src, post = nil)
       # make sure we actually have a url
       return false unless src.present?
-      # we don't want to pull uploaded images
-      return false if Discourse.store.has_been_uploaded?(src)
-      # we don't want to pull relative images
-      return false if src =~ /\A\/[^\/]/i
+
+      # If file is on the forum or CDN domain or already has the
+      # secure media url
+      if Discourse.store.has_been_uploaded?(src) || src =~ /\A\/[^\/]/i || Upload.secure_media_url?(src)
+        return false if src =~ /\/images\/emoji\//
+
+        # Someone could hotlink a file from a different site on the same CDN,
+        # so check whether we have it in this database
+        #
+        # if the upload already exists and is attached to a different post,
+        # or the original_sha1 is missing meaning it was created before secure
+        # media was enabled, then we definitely want to redownload again otherwise
+        # we end up reusing existing uploads which may be linked to many posts
+        # already.
+        upload = Upload.consider_for_reuse(Upload.get_from_url(src), post)
+
+        return !upload.present?
+      end
+
+      # Don't download non-local images unless site setting enabled
+      return false unless SiteSetting.download_remote_images_to_local?
 
       # parse the src
       begin
@@ -157,11 +199,6 @@ module Jobs
       hostname = uri.hostname
       return false unless hostname
 
-      # we don't want to pull images hosted on the CDN (if we use one)
-      return false if Discourse.asset_host.present? && URI.parse(Discourse.asset_host).hostname == hostname
-      return false if SiteSetting.Upload.s3_cdn_url.present? && URI.parse(SiteSetting.Upload.s3_cdn_url).hostname == hostname
-      # we don't want to pull images hosted on the main domain
-      return false if URI.parse(Discourse.base_url_no_prefix).hostname == hostname
       # check the domains blacklist
       SiteSetting.should_download_images?(src)
     end

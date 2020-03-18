@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "autospec/rspec_runner"
 
 module Autospec
@@ -8,16 +10,29 @@ module Autospec
     end
 
     def run(specs)
-      puts "Running Rspec: " << specs
+      puts "Running Rspec: #{specs}"
       # kill previous rspec instance
       @mutex.synchronize do
         self.abort
       end
       # we use our custom rspec formatter
-      args = ["-r", "#{File.dirname(__FILE__)}/formatter.rb",
-              "-f", "Autospec::Formatter", specs.split].flatten.join(" ")
+      args = [
+        "-r", "#{File.dirname(__FILE__)}/formatter.rb",
+        "-f", "Autospec::Formatter"
+      ]
+
+      command = begin
+        if ENV["PARALLEL_SPEC"] == '1' &&
+              !specs.split.any? { |s| puts s; s =~ /\:/ } # Parallel spec can't run specific groups
+
+          "bin/turbo_rspec #{args.join(" ")} #{specs.split.join(" ")}"
+        else
+          "bin/rspec #{args.join(" ")} #{specs.split.join(" ")}"
+        end
+      end
+
       # launch rspec
-      Dir.chdir(Rails.root) do
+      Dir.chdir(Rails.root) do # rubocop:disable DiscourseCops/NoChdir because this is not part of the app
         env = { "RAILS_ENV" => "test" }
         if specs.split(' ').any? { |s| s =~ /^(.\/)?plugins/ }
           env["LOAD_PLUGINS"] = "1"
@@ -25,7 +40,7 @@ module Autospec
         end
         pid =
           @mutex.synchronize do
-            @pid = Process.spawn(env, "bin/rspec #{args}")
+            @pid = Process.spawn(env, command)
           end
 
         _, status = Process.wait2(pid)

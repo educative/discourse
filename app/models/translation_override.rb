@@ -1,4 +1,5 @@
-require 'js_locale_helper'
+# frozen_string_literal: true
+
 require "i18n/i18n_interpolation_keys_finder"
 
 class TranslationOverride < ActiveRecord::Base
@@ -21,7 +22,7 @@ class TranslationOverride < ActiveRecord::Base
 
     data = { value: value }
     if key.end_with?('_MF')
-      _, filename = JsLocaleHelper.find_message_format_locale([locale], false)
+      _, filename = JsLocaleHelper.find_message_format_locale([locale], fallback_to_english: false)
       data[:compiled_js] = JsLocaleHelper.compile_message_format(filename, locale, value)
     end
 
@@ -38,6 +39,7 @@ class TranslationOverride < ActiveRecord::Base
 
   def self.i18n_changed(keys)
     I18n.reload!
+    ExtraLocalesController.clear_cache!
     MessageBus.publish('/i18n-flush', refresh: true)
 
     keys.flatten.each do |key|
@@ -64,8 +66,10 @@ class TranslationOverride < ActiveRecord::Base
   private
 
   def check_interpolation_keys
+    transformed_key = transform_pluralized_key(translation_key)
+
     original_text = I18n.overrides_disabled do
-      I18n.backend.send(:lookup, self.locale, self.translation_key)
+      I18n.t(transformed_key, locale: :en)
     end
 
     if original_text
@@ -75,7 +79,7 @@ class TranslationOverride < ActiveRecord::Base
       custom_interpolation_keys = []
 
       CUSTOM_INTERPOLATION_KEYS_WHITELIST.select do |key, value|
-        if self.translation_key.start_with?(key)
+        if transformed_key.start_with?(key)
           custom_interpolation_keys = value
         end
       end
@@ -90,11 +94,15 @@ class TranslationOverride < ActiveRecord::Base
           keys: invalid_keys.join(', ')
         ))
 
-        return false
+        false
       end
     end
   end
 
+  def transform_pluralized_key(key)
+    match = key.match(/(.*)\.(zero|two|few|many)$/)
+    match ? match.to_a.second + '.other' : key
+  end
 end
 
 # == Schema Information

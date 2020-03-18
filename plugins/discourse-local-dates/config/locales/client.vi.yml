@@ -5,4 +5,11 @@
 # To work with us on translations, join this project:
 # https://www.transifex.com/projects/p/discourse-org/
 
-vi: {}
+vi:
+  js:
+    discourse_local_dates:
+      create:
+        form:
+          date_title: ày
+          time_title: Thời gian
+          timezone: Múi giờ

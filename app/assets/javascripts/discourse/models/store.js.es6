@@ -1,7 +1,12 @@
+import EmberObject from "@ember/object";
 import { ajax } from "discourse/lib/ajax";
 import RestModel from "discourse/models/rest";
 import ResultSet from "discourse/models/result-set";
 import { getRegister } from "discourse-common/lib/get-owner";
+import { underscore } from "@ember/string";
+import { set } from "@ember/object";
+import Category from "discourse/models/category";
+import { Promise } from "rsvp";
 
 let _identityMap;
 
@@ -44,11 +49,12 @@ function findAndRemoveMap(type, id) {
 
 flushMap();
 
-export default Ember.Object.extend({
+export default EmberObject.extend({
   _plurals: {
+    category: "categories",
     "post-reply": "post-replies",
     "post-reply-history": "post_reply_histories",
-    "moderation-history": "moderation_history"
+    reviewable_history: "reviewable_histories"
   },
 
   init() {
@@ -92,7 +98,8 @@ export default Ember.Object.extend({
     if (typeof findArgs === "object") {
       return this._resultSet(type, result, findArgs);
     } else {
-      return this._hydrate(type, result[Ember.String.underscore(type)], result);
+      const apiName = this.adapterFor(type).apiNameFor(type);
+      return this._hydrate(type, result[underscore(apiName)], result);
     }
   },
 
@@ -146,8 +153,9 @@ export default Ember.Object.extend({
   },
 
   refreshResults(resultSet, type, url) {
+    const adapter = this.adapterFor(type);
     return ajax(url).then(result => {
-      const typeName = Ember.String.underscore(this.pluralize(type));
+      const typeName = underscore(this.pluralize(adapter.apiNameFor(type)));
       const content = result[typeName].map(obj =>
         this._hydrate(type, obj, result)
       );
@@ -156,8 +164,9 @@ export default Ember.Object.extend({
   },
 
   appendResults(resultSet, type, url) {
+    const adapter = this.adapterFor(type);
     return ajax(url).then(result => {
-      let typeName = Ember.String.underscore(this.pluralize(type));
+      const typeName = underscore(this.pluralize(adapter.apiNameFor(type)));
 
       let pageTarget = result.meta || result;
       let totalRows =
@@ -198,7 +207,7 @@ export default Ember.Object.extend({
     // If the record is new, don't perform an Ajax call
     if (record.get("isNew")) {
       removeMap(type, record.get("id"));
-      return Ember.RSVP.Promise.resolve(true);
+      return Promise.resolve(true);
     }
 
     return this.adapterFor(type)
@@ -210,7 +219,15 @@ export default Ember.Object.extend({
   },
 
   _resultSet(type, result, findArgs) {
-    const typeName = Ember.String.underscore(this.pluralize(type));
+    const adapter = this.adapterFor(type);
+    const typeName = underscore(this.pluralize(adapter.apiNameFor(type)));
+
+    if (!result[typeName]) {
+      // eslint-disable-next-line no-console
+      console.error(`JSON response is missing \`${typeName}\` key`, result);
+      return;
+    }
+
     const content = result[typeName].map(obj =>
       this._hydrate(type, obj, result)
     );
@@ -223,6 +240,7 @@ export default Ember.Object.extend({
       totalRows: pageTarget["total_rows_" + typeName] || content.length,
       loadMoreUrl: pageTarget["load_more_" + typeName],
       refreshUrl: pageTarget["refresh_" + typeName],
+      resultSetMeta: result.meta,
       store: this,
       __type: type
     };
@@ -264,7 +282,7 @@ export default Ember.Object.extend({
     // to category. That should either respect this or be
     // removed.
     if (subType === "category" && type !== "topic") {
-      return Discourse.Category.findById(id);
+      return Category.findById(id);
     }
 
     if (root.meta && root.meta.types) {
@@ -310,6 +328,8 @@ export default Ember.Object.extend({
           if (hydrated) {
             obj[subType] = hydrated;
             delete obj[k];
+          } else {
+            set(obj, subType, null);
           }
         }
       }
@@ -328,8 +348,6 @@ export default Ember.Object.extend({
 
     root = root || obj;
 
-    // Experimental: If serialized with a certain option we'll wire up embedded objects
-    // automatically.
     if (root.__rest_serializer === "1") {
       this._hydrateEmbedded(type, obj, root);
     }

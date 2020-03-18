@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # CommonPasswords will check a given password against a list of the most commonly used passwords.
 # The list comes from https://github.com/danielmiessler/SecLists/tree/master/Passwords
 # specifically the list of 10 million passwords, top 100k, filtered by length
@@ -7,7 +9,7 @@
 # If the password file is changed, you need to add a migration that deletes the list from redis
 # so it gets re-populated:
 #
-#   $redis.without_namespace.del CommonPasswords::LIST_KEY
+#   Discourse.redis.without_namespace.del CommonPasswords::LIST_KEY
 
 class CommonPasswords
 
@@ -37,7 +39,7 @@ class CommonPasswords
   end
 
   def self.redis
-    $redis.without_namespace
+    Discourse.redis.without_namespace
   end
 
   def self.load_passwords

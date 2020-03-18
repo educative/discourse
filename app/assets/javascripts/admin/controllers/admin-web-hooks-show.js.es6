@@ -1,20 +1,24 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import { isEmpty } from "@ember/utils";
+import { alias } from "@ember/object/computed";
+import { inject } from "@ember/controller";
+import Controller from "@ember/controller";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 import { extractDomainFromUrl } from "discourse/lib/utilities";
-import computed from "ember-addons/ember-computed-decorators";
-import InputValidation from "discourse/models/input-validation";
+import EmberObject from "@ember/object";
 
-export default Ember.Controller.extend({
-  adminWebHooks: Ember.inject.controller(),
-  eventTypes: Ember.computed.alias("adminWebHooks.eventTypes"),
-  defaultEventTypes: Ember.computed.alias("adminWebHooks.defaultEventTypes"),
-  contentTypes: Ember.computed.alias("adminWebHooks.contentTypes"),
+export default Controller.extend({
+  adminWebHooks: inject(),
+  eventTypes: alias("adminWebHooks.eventTypes"),
+  defaultEventTypes: alias("adminWebHooks.defaultEventTypes"),
+  contentTypes: alias("adminWebHooks.contentTypes"),
 
-  @computed
+  @discourseComputed
   showTagsFilter() {
     return this.siteSettings.tagging_enabled;
   },
 
-  @computed("model.isSaving", "saved", "saveButtonDisabled")
+  @discourseComputed("model.isSaving", "saved", "saveButtonDisabled")
   savingStatus(isSaving, saved, saveButtonDisabled) {
     if (isSaving) {
       return I18n.t("saving");
@@ -26,25 +30,25 @@ export default Ember.Controller.extend({
     return "";
   },
 
-  @computed("model.isNew")
+  @discourseComputed("model.isNew")
   saveButtonText(isNew) {
     return isNew
       ? I18n.t("admin.web_hooks.create")
       : I18n.t("admin.web_hooks.save");
   },
 
-  @computed("model.secret")
+  @discourseComputed("model.secret")
   secretValidation(secret) {
-    if (!Ember.isEmpty(secret)) {
+    if (!isEmpty(secret)) {
       if (secret.indexOf(" ") !== -1) {
-        return InputValidation.create({
+        return EmberObject.create({
           failed: true,
           reason: I18n.t("admin.web_hooks.secret_invalid")
         });
       }
 
       if (secret.length < 12) {
-        return InputValidation.create({
+        return EmberObject.create({
           failed: true,
           reason: I18n.t("admin.web_hooks.secret_too_short")
         });
@@ -52,17 +56,17 @@ export default Ember.Controller.extend({
     }
   },
 
-  @computed("model.wildcard_web_hook", "model.web_hook_event_types.[]")
+  @discourseComputed("model.wildcard_web_hook", "model.web_hook_event_types.[]")
   eventTypeValidation(isWildcard, eventTypes) {
-    if (!isWildcard && Ember.isEmpty(eventTypes)) {
-      return InputValidation.create({
+    if (!isWildcard && isEmpty(eventTypes)) {
+      return EmberObject.create({
         failed: true,
         reason: I18n.t("admin.web_hooks.event_type_missing")
       });
     }
   },
 
-  @computed(
+  @discourseComputed(
     "model.isSaving",
     "secretValidation",
     "eventTypeValidation",
@@ -76,14 +80,15 @@ export default Ember.Controller.extend({
   ) {
     return isSaving
       ? false
-      : secretValidation || eventTypeValidation || Ember.isEmpty(payloadUrl);
+      : secretValidation || eventTypeValidation || isEmpty(payloadUrl);
   },
 
   actions: {
     save() {
       this.set("saved", false);
-      const url = extractDomainFromUrl(this.get("model.payload_url"));
-      const model = this.get("model");
+      const url = this.get("model.payload_url");
+      const domain = extractDomainFromUrl(url);
+      const model = this.model;
       const isNew = model.get("isNew");
 
       const saveWebHook = () => {
@@ -91,9 +96,7 @@ export default Ember.Controller.extend({
           .save()
           .then(() => {
             this.set("saved", true);
-            this.get("adminWebHooks")
-              .get("model")
-              .addObject(model);
+            this.adminWebHooks.get("model").addObject(model);
 
             if (isNew) {
               this.transitionToRoute("adminWebHooks.show", model.get("id"));
@@ -103,10 +106,10 @@ export default Ember.Controller.extend({
       };
 
       if (
-        url === "localhost" ||
-        url.match(/192\.168\.\d+\.\d+/) ||
-        url.match(/127\.\d+\.\d+\.\d+/) ||
-        url === Discourse.BaseUrl
+        domain === "localhost" ||
+        domain.match(/192\.168\.\d+\.\d+/) ||
+        domain.match(/127\.\d+\.\d+\.\d+/) ||
+        url.startsWith(Discourse.BaseUrl)
       ) {
         return bootbox.confirm(
           I18n.t("admin.web_hooks.warn_local_payload_url"),
@@ -130,13 +133,11 @@ export default Ember.Controller.extend({
         I18n.t("yes_value"),
         result => {
           if (result) {
-            const model = this.get("model");
+            const model = this.model;
             model
               .destroyRecord()
               .then(() => {
-                this.get("adminWebHooks")
-                  .get("model")
-                  .removeObject(model);
+                this.adminWebHooks.get("model").removeObject(model);
                 this.transitionToRoute("adminWebHooks");
               })
               .catch(popupAjaxError);

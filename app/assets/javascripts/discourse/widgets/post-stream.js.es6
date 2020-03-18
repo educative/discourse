@@ -1,3 +1,4 @@
+import { debounce } from "@ember/runloop";
 import { createWidget } from "discourse/widgets/widget";
 import transformPost from "discourse/lib/transform-post";
 import { Placeholder } from "discourse/lib/posts-with-placeholders";
@@ -34,12 +35,12 @@ export function cloak(post, component) {
     return;
   }
 
-  const $post = $(`#post_${post.post_number}`);
+  const $post = $(`#post_${post.post_number}`).parent();
   _cloaked[post.id] = true;
   _heights[post.id] = $post.outerHeight();
 
   component.dirtyKeys.keyDirty(`post-${post.id}`);
-  Ember.run.debounce(component, "queueRerender", 1000);
+  debounce(component, "queueRerender", 1000);
 }
 
 export function uncloak(post, component) {
@@ -136,6 +137,7 @@ export default createWidget("post-stream", {
           this.attach("post-small-action", transformed, { model: post })
         );
       } else {
+        transformed.showReadIndicator = attrs.showReadIndicator;
         result.push(this.attach("post", transformed, { model: post }));
       }
 

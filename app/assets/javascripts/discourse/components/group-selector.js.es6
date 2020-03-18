@@ -1,35 +1,37 @@
-import {
+import { isEmpty } from "@ember/utils";
+import Component from "@ember/component";
+import discourseComputed, {
   on,
-  observes,
-  default as computed
-} from "ember-addons/ember-computed-decorators";
+  observes
+} from "discourse-common/utils/decorators";
 import { findRawTemplate } from "discourse/lib/raw-templates";
 
-export default Ember.Component.extend({
-  @computed("placeholderKey")
+export default Component.extend({
+  @discourseComputed("placeholderKey")
   placeholder(placeholderKey) {
     return placeholderKey ? I18n.t(placeholderKey) : "";
   },
 
   @observes("groupNames")
   _update() {
-    if (this.get("canReceiveUpdates") === "true")
+    if (this.canReceiveUpdates === "true")
       this._initializeAutocomplete({ updateData: true });
   },
 
   @on("didInsertElement")
   _initializeAutocomplete(opts) {
     let selectedGroups;
-    let groupNames = this.get("groupNames");
+    let groupNames = this.groupNames;
 
-    this.$("input").autocomplete({
+    $(this.element.querySelector("input")).autocomplete({
       allowAny: false,
       items: _.isArray(groupNames)
         ? groupNames
-        : Ember.isEmpty(groupNames)
+        : isEmpty(groupNames)
         ? []
         : [groupNames],
-      single: this.get("single"),
+      single: this.single,
+      fullWidthWrap: this.fullWidthWrap,
       updateData: opts && opts.updateData ? opts.updateData : false,
       onChangeItems: items => {
         selectedGroups = items;
@@ -39,7 +41,7 @@ export default Ember.Component.extend({
         return g.name;
       },
       dataSource: term => {
-        return this.get("groupFinder")(term).then(groups => {
+        return this.groupFinder(term).then(groups => {
           if (!selectedGroups) return groups;
 
           return groups.filter(group => {

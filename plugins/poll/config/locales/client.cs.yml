@@ -22,17 +22,17 @@ cs:
       multiple:
         help:
           at_least_min_options:
-            one: "Zvolte alespoň <strong>1</strong> možnost."
+            one: "Zvolte alespoň <strong>%{count}</strong> možnost."
             few: "Zvolte alespoň <strong>%{count}</strong> možnosti."
             many: "Zvolte alespoň <strong>%{count}</strong> možností."
             other: "Zvolte alespoň <strong>%{count}</strong> možností."
           up_to_max_options:
-            one: "Zvolte maximálně <strong>1</strong> možnost."
+            one: "Zvolte maximálně <strong>%{count}</strong> možnost."
             few: "Zvolte maximálně <strong>%{count}</strong> možnosti."
             many: "Zvolte maximálně <strong>%{count}</strong> možností"
             other: "Zvolte maximálně <strong>%{count}</strong> možností"
           x_options:
-            one: "Zvolte <strong>1</strong> možnost."
+            one: "Zvolte <strong>%{count}</strong> možnost."
             few: "Zvolte <strong>%{count}</strong> možnosti."
             many: "Zvolte <strong>%{count}</strong> možností"
             other: "Zvolte <strong>%{count}</strong> možností"
@@ -45,7 +45,8 @@ cs:
         label: "Ukaž výsledky"
       hide-results:
         title: "Zpět k hlasování"
-        label: "Skrýt výsledky"
+      export-results:
+        label: "Export"
       open:
         title: "Otevřít hlasování"
         label: "Otevřít"
@@ -61,7 +62,6 @@ cs:
         title: Vytvořit hlasování
         insert: Vložit hlasování
         help:
-          options_count: Zadejte alespoň 2 možnosti
           invalid_values: Minimální hodnota musí být menší než maximální hodnota.
           min_step_value: Minimální hodnota kroku je 1
         poll_type:

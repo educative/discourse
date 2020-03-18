@@ -1,33 +1,38 @@
+import EmberObject from "@ember/object";
+import Controller from "@ember/controller";
 import showModal from "discourse/lib/show-modal";
+import discourseComputed from "discourse-common/utils/decorators";
 
-export default Ember.Controller.extend({
-  baseColorScheme: function() {
-    return this.get("model").findBy("is_base", true);
-  }.property("model.@each.id"),
+export default Controller.extend({
+  @discourseComputed("model.@each.id")
+  baseColorScheme() {
+    return this.model.findBy("is_base", true);
+  },
 
-  baseColorSchemes: function() {
-    return this.get("model").filterBy("is_base", true);
-  }.property("model.@each.id"),
+  @discourseComputed("model.@each.id")
+  baseColorSchemes() {
+    return this.model.filterBy("is_base", true);
+  },
 
-  baseColors: function() {
-    var baseColorsHash = Ember.Object.create({});
-    this.get("baseColorScheme.colors").forEach(color => {
+  @discourseComputed("baseColorScheme")
+  baseColors(baseColorScheme) {
+    const baseColorsHash = EmberObject.create({});
+    baseColorScheme.get("colors").forEach(color => {
       baseColorsHash.set(color.get("name"), color);
     });
     return baseColorsHash;
-  }.property("baseColorScheme"),
+  },
 
   actions: {
     newColorSchemeWithBase(baseKey) {
-      const base = this.get("baseColorSchemes").findBy(
-        "base_scheme_id",
-        baseKey
-      );
+      const base = this.baseColorSchemes.findBy("base_scheme_id", baseKey);
       const newColorScheme = Ember.copy(base, true);
-      newColorScheme.set("name", I18n.t("admin.customize.colors.new_name"));
-      newColorScheme.set("base_scheme_id", base.get("base_scheme_id"));
+      newColorScheme.setProperties({
+        name: I18n.t("admin.customize.colors.new_name"),
+        base_scheme_id: base.get("base_scheme_id")
+      });
       newColorScheme.save().then(() => {
-        this.get("model").pushObject(newColorScheme);
+        this.model.pushObject(newColorScheme);
         newColorScheme.set("savingStatus", null);
         this.replaceRoute("adminCustomize.colors.show", newColorScheme);
       });
@@ -35,7 +40,7 @@ export default Ember.Controller.extend({
 
     newColorScheme() {
       showModal("admin-color-scheme-select-base", {
-        model: this.get("baseColorSchemes"),
+        model: this.baseColorSchemes,
         admin: true
       });
     }

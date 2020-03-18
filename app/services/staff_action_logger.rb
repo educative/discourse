@@ -1,4 +1,4 @@
-require_dependency 'staff_message_format'
+# frozen_string_literal: true
 
 # Responsible for logging the actions of admins and moderators.
 class StaffActionLogger
@@ -16,7 +16,11 @@ class StaffActionLogger
 
   def log_user_deletion(deleted_user, opts = {})
     raise Discourse::InvalidParameters.new(:deleted_user) unless deleted_user && deleted_user.is_a?(User)
-    details = USER_FIELDS.map { |x| "#{x}: #{deleted_user.send(x)}" }.join("\n")
+
+    details = USER_FIELDS.map do |x|
+      "#{x}: #{deleted_user.public_send(x)}"
+    end.join("\n")
+
     UserHistory.create!(params(opts).merge(
       action: UserHistory.actions[:delete_user],
       ip_address: deleted_user.ip_address.to_s,
@@ -117,6 +121,16 @@ class StaffActionLogger
     )
   end
 
+  def log_topic_timestamps_changed(topic, new_timestamp, previous_timestamp, opts = {})
+    raise Discourse::InvalidParameters.new(:topic) unless topic && topic.is_a?(Topic)
+    UserHistory.create!(params(opts).merge(
+      action: UserHistory.actions[:topic_timestamps_changed],
+      topic_id: topic.id,
+      new_value: new_timestamp,
+      previous_value: previous_timestamp)
+    )
+  end
+
   def log_post_lock(post, opts = {})
     raise Discourse::InvalidParameters.new(:post) unless post && post.is_a?(Post)
     UserHistory.create!(params(opts).merge(
@@ -190,6 +204,34 @@ class StaffActionLogger
     ))
   end
 
+  def log_theme_component_disabled(component)
+    UserHistory.create!(params.merge(
+      action: UserHistory.actions[:disable_theme_component],
+      subject: component.name,
+      context: component.id
+    ))
+  end
+
+  def log_theme_component_enabled(component)
+    UserHistory.create!(params.merge(
+      action: UserHistory.actions[:enable_theme_component],
+      subject: component.name,
+      context: component.id
+    ))
+  end
+
+  def log_theme_setting_change(setting_name, previous_value, new_value, theme, opts = {})
+    raise Discourse::InvalidParameters.new(:theme) unless theme
+    raise Discourse::InvalidParameters.new(:setting_name) unless theme.included_settings.has_key?(setting_name)
+
+    UserHistory.create!(params(opts).merge(
+      action: UserHistory.actions[:change_theme_setting],
+      subject: "#{theme.name}: #{setting_name.to_s}",
+      previous_value: previous_value,
+      new_value: new_value
+    ))
+  end
+
   def log_site_text_change(subject, new_text = nil, old_text = nil, opts = {})
     raise Discourse::InvalidParameters.new(:subject) unless subject.present?
     UserHistory.create!(params(opts).merge(
@@ -258,7 +300,11 @@ class StaffActionLogger
 
   def log_badge_creation(badge)
     raise Discourse::InvalidParameters.new(:badge) unless badge
-    details = BADGE_FIELDS.map { |f| [f, badge.send(f)] }.select { |f, v| v.present? }.map { |f, v| "#{f}: #{v}" }
+
+    details = BADGE_FIELDS.map do |f|
+      [f, badge.public_send(f)]
+    end.select { |f, v| v.present? }.map { |f, v| "#{f}: #{v}" }
+
     UserHistory.create!(params.merge(
       action: UserHistory.actions[:create_badge],
       details: details.join("\n")
@@ -277,7 +323,11 @@ class StaffActionLogger
 
   def log_badge_deletion(badge)
     raise Discourse::InvalidParameters.new(:badge) unless badge
-    details = BADGE_FIELDS.map { |f| [f, badge.send(f)] }.select { |f, v| v.present? }.map { |f, v| "#{f}: #{v}" }
+
+    details = BADGE_FIELDS.map do |f|
+      [f, badge.public_send(f)]
+    end.select { |f, v| v.present? }.map { |f, v| "#{f}: #{v}" }
+
     UserHistory.create!(params.merge(
       action: UserHistory.actions[:delete_badge],
       details: details.join("\n")
@@ -299,6 +349,38 @@ class StaffActionLogger
       action: UserHistory.actions[:revoke_badge],
       target_user_id: user_badge.user_id,
       details: user_badge.badge.name
+    ))
+  end
+
+  def log_title_revoke(user, opts = {})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create!(params(opts).merge(
+      action: UserHistory.actions[:revoke_title],
+      target_user_id: user.id,
+      details: opts[:revoke_reason],
+      previous_value: opts[:previous_value]
+    ))
+  end
+
+  def log_title_change(user, opts = {})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create!(params(opts).merge(
+      action: UserHistory.actions[:change_title],
+      target_user_id: user.id,
+      details: opts[:details],
+      new_value: opts[:new_value],
+      previous_value: opts[:previous_value]
+    ))
+  end
+
+  def log_change_upload_secure_status(opts = {})
+    UserHistory.create!(params(opts).merge(
+      action: UserHistory.actions[:override_upload_secure_status],
+      details: [
+        "upload_id: #{opts[:upload_id]}",
+        "reason: #{I18n.t("uploads.marked_insecure_from_theme_component_reason")}"
+      ].join("\n"),
+      new_value: opts[:new_value]
     ))
   end
 
@@ -493,6 +575,13 @@ class StaffActionLogger
     ))
   end
 
+  def log_user_approve(user, opts = {})
+    UserHistory.create!(params(opts).merge(
+      action: UserHistory.actions[:approve_user],
+      target_user_id: user.id
+    ))
+  end
+
   def log_user_deactivate(user, reason, opts = {})
     raise Discourse::InvalidParameters.new(:user) unless user
     UserHistory.create!(params(opts).merge(
@@ -537,27 +626,27 @@ class StaffActionLogger
   end
 
   def log_post_approved(post, opts = {})
-    raise Discourse::InvalidParameters.new(:post) unless post && post.is_a?(Post)
+    raise Discourse::InvalidParameters.new(:post) unless post.is_a?(Post)
     UserHistory.create!(params(opts).merge(
       action: UserHistory.actions[:post_approved],
       post_id: post.id
     ))
   end
 
-  def log_post_rejected(rejected_post, opts = {})
-    raise Discourse::InvalidParameters.new(:rejected_post) unless rejected_post && rejected_post.is_a?(QueuedPost)
+  def log_post_rejected(reviewable, rejected_at, opts = {})
+    raise Discourse::InvalidParameters.new(:rejected_post) unless reviewable.is_a?(Reviewable)
 
-    topic = rejected_post.topic || Topic.with_deleted.find_by(id: rejected_post.topic_id)
+    topic = reviewable.topic || Topic.with_deleted.find_by(id: reviewable.topic_id)
     topic_title = topic&.title || I18n.t('staff_action_logs.not_found')
-    username = rejected_post.user&.username || I18n.t('staff_action_logs.unknown')
-    name = rejected_post.user&.name || I18n.t('staff_action_logs.unknown')
+    username = reviewable.created_by&.username || I18n.t('staff_action_logs.unknown')
+    name = reviewable.created_by&.name || I18n.t('staff_action_logs.unknown')
 
     details = [
-      "created_at: #{rejected_post.created_at}",
-      "rejected_at: #{rejected_post.rejected_at}",
+      "created_at: #{reviewable.created_at}",
+      "rejected_at: #{rejected_at}",
       "user: #{username} (#{name})",
       "topic: #{topic_title}",
-      "raw: #{rejected_post.raw}",
+      "raw: #{reviewable.payload['raw']}",
     ]
 
     UserHistory.create!(params(opts).merge(
@@ -566,7 +655,94 @@ class StaffActionLogger
     ))
   end
 
+  def log_web_hook(web_hook, action, opts = {})
+    details = [
+      "webhook_id: #{web_hook.id}",
+      "payload_url: #{web_hook.payload_url}"
+    ]
+
+    old_values, new_values = get_changes(opts[:changes])
+
+    UserHistory.create!(params(opts).merge(
+      action: action,
+      context: details.join(", "),
+      previous_value: old_values&.join(", "),
+      new_value: new_values&.join(", ")
+    ))
+  end
+
+  def log_web_hook_deactivate(web_hook, response_http_status, opts = {})
+    context = [
+      "webhook_id: #{web_hook.id}",
+      "webhook_response_status: #{response_http_status}"
+    ]
+
+    UserHistory.create!(params.merge(
+      action: UserHistory.actions[:web_hook_deactivate],
+      context: context,
+      details: I18n.t('staff_action_logs.webhook_deactivation_reason', status: response_http_status)
+    ))
+  end
+
+  def log_embeddable_host(embeddable_host, action, opts = {})
+    old_values, new_values = get_changes(opts[:changes])
+
+    UserHistory.create!(params(opts).merge(
+      action: action,
+      context: "host: #{embeddable_host.host}",
+      previous_value: old_values&.join(", "),
+      new_value: new_values&.join(", ")
+    ))
+  end
+
+  def log_api_key(api_key, action, opts = {})
+    opts[:changes]&.delete("key") # Do not log the full key
+
+    history_params = params(opts).merge(
+      action: action,
+      subject: api_key.truncated_key
+    )
+
+    if opts[:changes]
+      old_values, new_values = get_changes(opts[:changes])
+      history_params[:previous_value] = old_values&.join(", ") unless opts[:changes].keys.include?("id")
+      history_params[:new_value] = new_values&.join(", ")
+    end
+
+    UserHistory.create!(history_params)
+  end
+
+  def log_api_key_revoke(api_key)
+    UserHistory.create!(params.merge(
+      subject: api_key.truncated_key,
+      action: UserHistory.actions[:api_key_update],
+      details: I18n.t("staff_action_logs.api_key.revoked")
+    ))
+  end
+
+  def log_api_key_restore(api_key)
+    UserHistory.create!(params.merge(
+      subject: api_key.truncated_key,
+      action: UserHistory.actions[:api_key_update],
+      details: I18n.t("staff_action_logs.api_key.restored")
+    ))
+  end
+
   private
+
+  def get_changes(changes)
+    return unless changes
+
+    changes.delete("updated_at")
+    old_values = []
+    new_values = []
+    changes.each do |k, v|
+      old_values << "#{k}: #{v[0]}"
+      new_values << "#{k}: #{v[1]}"
+    end
+
+    [old_values, new_values]
+  end
 
   def params(opts = nil)
     opts ||= {}

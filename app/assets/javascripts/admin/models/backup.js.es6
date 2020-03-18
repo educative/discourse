@@ -1,12 +1,14 @@
 import { ajax } from "discourse/lib/ajax";
+import { extractError } from "discourse/lib/ajax-error";
+import EmberObject from "@ember/object";
 
-const Backup = Discourse.Model.extend({
+const Backup = EmberObject.extend({
   destroy() {
-    return ajax("/admin/backups/" + this.get("filename"), { type: "DELETE" });
+    return ajax("/admin/backups/" + this.filename, { type: "DELETE" });
   },
 
   restore() {
-    return ajax("/admin/backups/" + this.get("filename") + "/restore", {
+    return ajax("/admin/backups/" + this.filename + "/restore", {
       type: "POST",
       data: { client_id: window.MessageBus.clientId }
     });
@@ -15,9 +17,16 @@ const Backup = Discourse.Model.extend({
 
 Backup.reopenClass({
   find() {
-    return ajax("/admin/backups.json").then(backups =>
-      backups.map(backup => Backup.create(backup))
-    );
+    return ajax("/admin/backups.json")
+      .then(backups => backups.map(backup => Backup.create(backup)))
+      .catch(error => {
+        bootbox.alert(
+          I18n.t("admin.backups.backup_storage_error", {
+            error_message: extractError(error)
+          })
+        );
+        return [];
+      });
   },
 
   start(withUploads) {
@@ -55,7 +64,7 @@ Backup.reopenClass({
         bootbox.alert(result.message);
       } else {
         // redirect to homepage (session might be lost)
-        window.location.pathname = Discourse.getURL("/");
+        window.location = Discourse.getURL("/");
       }
     });
   }

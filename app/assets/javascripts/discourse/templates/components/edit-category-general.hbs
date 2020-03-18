@@ -1,23 +1,34 @@
+{{#if category.isUncategorizedCategory}}
+  <p class="warning">
+    {{d-icon "exclamation-triangle"}}
+    {{{i18n 'category.uncategorized_general_warning' settingLink=uncategorizedSiteSettingLink customizeLink=customizeTextContentLink}}}
+  </p>
+{{/if}}
+
 <form>
   {{category-name-fields category=category tagName=""}}
 
   {{#if canSelectParentCategory}}
     <section class='field'>
-      {{#if subCategories}}
-        <label>{{i18n 'categories.subcategories'}}</label>
-        {{#each subCategories as |s|}}
-          {{category-badge s hideParent="true"}}
-        {{/each}}
-      {{else}}
-        <label>{{i18n 'category.parent'}}</label>
-        {{category-chooser
-          none="category.none"
-          value=category.parent_category_id
-          excludeCategoryId=category.id
-          categories=parentCategories
-          allowSubCategories=false
-          allowUncategorized=false}}
-      {{/if}}
+      <label>{{i18n 'category.parent'}}</label>
+      {{category-chooser
+        rootNone=true
+        value=category.parent_category_id
+        excludeCategoryId=category.id
+        categories=parentCategories
+        allowSubCategories=true
+        allowUncategorized=false
+        onChange=(action (mut category.parent_category_id))
+      }}
+    </section>
+  {{/if}}
+
+  {{#if subCategories}}
+    <section class='field'>
+      <label>{{i18n 'categories.subcategories'}}</label>
+      {{#each subCategories as |s|}}
+        {{category-badge s hideParent="true"}}
+      {{/each}}
     </section>
   {{/if}}
 
@@ -31,7 +42,7 @@
       {{/if}}
       {{#if category.topic_url}}
         <br>
-        {{d-button class="btn-default" action=(action "showCategoryTopic") icon="pencil-alt" label="category.change_in_category_topic"}}
+        {{d-button class="btn-default edit-category-description" action=(action "showCategoryTopic") icon="pencil-alt" label="category.change_in_category_topic"}}
       {{/if}}
     </section>
   {{/if}}

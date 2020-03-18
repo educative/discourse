@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 def public_js
   "#{Rails.root}/public/javascripts"
 end
@@ -19,7 +21,10 @@ task 'javascript:update' do
 
   dependencies = [
     {
-      source: 'ace-builds/src-min',
+      source: 'bootstrap/js/modal.js',
+      destination: 'bootstrap-modal.js'
+    }, {
+      source: 'ace-builds/src-min-noconflict/.',
       destination: 'ace',
       public: true
     }, {
@@ -48,14 +53,12 @@ task 'javascript:update' do
       source: 'highlight.js/build/.',
       destination: 'highlightjs'
     }, {
-      source: 'htmlparser/lib/htmlparser.js'
-    }, {
       source: 'jquery-resize/jquery.ba-resize.js'
     }, {
       source: 'jquery.autoellipsis/src/jquery.autoellipsis.js',
       destination: 'jquery.autoellipsis-1.0.10.js'
     }, {
-      source: 'jquery-color/jquery.color.js'
+      source: 'jquery-color/dist/jquery.color.js'
     }, {
       source: 'jquery.cookie/jquery.cookie.js'
     }, {
@@ -67,10 +70,48 @@ task 'javascript:update' do
     }, {
       source: 'mousetrap/mousetrap.js'
     }, {
+      source: 'moment/moment.js'
+    }, {
+      source: 'moment/locale/.',
+      destination: 'moment-locale',
+    }, {
+      source: 'moment-timezone/builds/moment-timezone-with-data-10-year-range.js',
+      destination: 'moment-timezone-with-data.js'
+    }, {
+      source: 'lodash.js',
+      destination: 'lodash.js'
+    }, {
+      source: 'moment-timezone-names-translations/locales/.',
+      destination: 'moment-timezone-names-locale'
+    }, {
+      source: 'mousetrap/plugins/global-bind/mousetrap-global-bind.js'
+    }, {
       source: 'resumablejs/resumable.js'
     }, {
       # TODO: drop when we eventually drop IE11, this will land in iOS in version 13
       source: 'intersection-observer/intersection-observer.js'
+    }, {
+      source: 'workbox-sw/build/.',
+      destination: 'workbox',
+      public: true
+    }, {
+      source: 'workbox-routing/build/.',
+      destination: 'workbox',
+      public: true
+    }, {
+      source: 'workbox-core/build/.',
+      destination: 'workbox',
+      public: true
+    }, {
+      source: 'workbox-strategies/build/.',
+      destination: 'workbox',
+      public: true
+    }, {
+      source: 'workbox-expiration/build/.',
+      destination: 'workbox',
+      public: true
+    }, {
+      source: '@popperjs/core/dist/umd/popper.js'
     }
   ]
 
@@ -97,10 +138,21 @@ task 'javascript:update' do
       system("rm -rf node_modules/highlight.js/build/styles")
     end
 
+    if src.include? "ace-builds"
+      puts "Cleanup unused snippets folder for ACE"
+      system("rm -rf node_modules/ace-builds/src-min-noconflict/snippets")
+    end
+
     if f[:public]
       dest = "#{public_js}/#{filename}"
     else
       dest = "#{vendor_js}/#{filename}"
+    end
+
+    # lodash.js needs building
+    if src.include? "lodash.js"
+      puts "Building custom lodash.js build"
+      system('yarn run lodash include="each,filter,map,range,first,isEmpty,chain,extend,every,omit,merge,union,sortBy,uniq,intersection,reject,compact,reduce,debounce,throttle,values,pick,keys,flatten,min,max,isArray,delay,isString,isEqual,without,invoke,clone,findIndex,find,groupBy" minus="template" -d -o "node_modules/lodash.js"')
     end
 
     unless File.exists?(dest)

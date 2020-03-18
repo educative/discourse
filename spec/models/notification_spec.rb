@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe Notification do
@@ -87,7 +89,7 @@ describe Notification do
 
   describe 'unread counts' do
 
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
 
     context 'a regular notification' do
       it 'increases unread_notifications' do
@@ -120,10 +122,30 @@ describe Notification do
   end
 
   describe 'message bus' do
+    fab!(:user) { Fabricate(:user) }
 
     it 'updates the notification count on create' do
       Notification.any_instance.expects(:refresh_notification_count).returns(nil)
       Fabricate(:notification)
+    end
+
+    it 'works' do
+      messages = MessageBus.track_publish do
+        user.notifications.create!(notification_type: Notification.types[:mentioned], data: '{}')
+        user.notifications.create!(notification_type: Notification.types[:mentioned], data: '{}')
+      end
+
+      expect(messages.size).to eq(2)
+      expect(messages[0].channel).to eq("/notification/#{user.id}")
+      expect(messages[0].data[:unread_notifications]).to eq(1)
+      expect(messages[1].channel).to eq("/notification/#{user.id}")
+      expect(messages[1].data[:unread_notifications]).to eq(2)
+    end
+
+    it 'works for partial model instances' do
+      NotificationEmailer.disable
+      partial_user = User.select(:id).find_by(id: user.id)
+      partial_user.notifications.create!(notification_type: Notification.types[:mentioned], data: '{}')
     end
 
     context 'destroy' do
@@ -250,17 +272,17 @@ describe Notification do
     end
   end
 
-  describe '.filter_by_display_username_and_type' do
+  describe '.filter_by_consolidation_data' do
     let(:post) { Fabricate(:post) }
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
 
     before do
       PostActionNotifier.enable
     end
 
     it 'should return the right notifications' do
-      expect(Notification.filter_by_display_username_and_type(
-        user.username_lower, Notification.types[:liked]
+      expect(Notification.filter_by_consolidation_data(
+        Notification.types[:liked], display_username: user.username_lower
       )).to eq([])
 
       expect do
@@ -269,11 +291,11 @@ describe Notification do
           topic: post.topic
         ))
 
-        PostAction.act(user, post, PostActionType.types[:like])
+        PostActionCreator.like(user, post)
       end.to change { Notification.count }.by(2)
 
-      expect(Notification.filter_by_display_username_and_type(
-        user.username_lower, Notification.types[:liked]
+      expect(Notification.filter_by_consolidation_data(
+        Notification.types[:liked], display_username: user.username_lower
       )).to contain_exactly(
         Notification.find_by(notification_type: Notification.types[:liked])
       )
@@ -285,7 +307,7 @@ end
 # pulling this out cause I don't want an observer
 describe Notification do
   describe '#recent_report' do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
     let(:post) { Fabricate(:post) }
 
     def fab(type, read)
@@ -346,6 +368,72 @@ describe Notification do
 
         expect(Notification.recent_report(user)).to contain_exactly(notification)
       end
+    end
+
+    describe '#consolidate_membership_requests' do
+      fab!(:group) { Fabricate(:group, name: "XXsssssddd") }
+      fab!(:user) { Fabricate(:user) }
+      fab!(:post) { Fabricate(:post) }
+
+      def create_membership_request_notification
+        Notification.create(
+          notification_type: Notification.types[:private_message],
+          user_id: user.id,
+          data: {
+            topic_title: I18n.t('groups.request_membership_pm.title', group_name: group.name),
+            original_post_id: post.id
+          }.to_json,
+          updated_at: Time.zone.now,
+          created_at: Time.zone.now
+        )
+      end
+
+      before do
+        PostCustomField.create!(post_id: post.id, name: "requested_group_id", value: group.id)
+        2.times { create_membership_request_notification }
+      end
+
+      it 'should consolidate membership requests to a new notification' do
+        notification = create_membership_request_notification
+        notification.reload
+
+        notification = create_membership_request_notification
+        expect { notification.reload }.to raise_error(ActiveRecord::RecordNotFound)
+
+        notification = Notification.last
+        expect(notification.notification_type).to eq(Notification.types[:membership_request_consolidated])
+
+        data = notification.data_hash
+        expect(data[:group_name]).to eq(group.name)
+        expect(data[:count]).to eq(4)
+
+        notification = create_membership_request_notification
+        expect { notification.reload }.to raise_error(ActiveRecord::RecordNotFound)
+
+        expect(Notification.last.data_hash[:count]).to eq(5)
+      end
+    end
+  end
+
+  describe "purge_old!" do
+    fab!(:user) { Fabricate(:user) }
+    fab!(:notification1) { Fabricate(:notification, user: user) }
+    fab!(:notification2) { Fabricate(:notification, user: user) }
+    fab!(:notification3) { Fabricate(:notification, user: user) }
+    fab!(:notification4) { Fabricate(:notification, user: user) }
+
+    it "does nothing if set to 0" do
+      SiteSetting.max_notifications_per_user = 0
+      Notification.purge_old!
+
+      expect(Notification.where(user_id: user.id).count).to eq(4)
+    end
+
+    it "correctly limits" do
+      SiteSetting.max_notifications_per_user = 2
+      Notification.purge_old!
+
+      expect(Notification.where(user_id: user.id).pluck(:id)).to contain_exactly(notification4.id, notification3.id)
     end
   end
 end

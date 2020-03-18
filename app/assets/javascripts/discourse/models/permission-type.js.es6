@@ -1,8 +1,12 @@
-const PermissionType = Discourse.Model.extend({
-  description: function() {
+import discourseComputed from "discourse-common/utils/decorators";
+import EmberObject from "@ember/object";
+
+const PermissionType = EmberObject.extend({
+  @discourseComputed("id")
+  description(id) {
     var key = "";
 
-    switch (this.get("id")) {
+    switch (id) {
       case 1:
         key = "full";
         break;
@@ -14,7 +18,7 @@ const PermissionType = Discourse.Model.extend({
         break;
     }
     return I18n.t("permission_types." + key);
-  }.property("id")
+  }
 });
 
 PermissionType.FULL = 1;

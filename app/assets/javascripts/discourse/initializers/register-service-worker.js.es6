@@ -9,7 +9,8 @@ export default {
     const isSupported = isSecured && "serviceWorker" in navigator;
 
     if (isSupported) {
-      const isApple = !!navigator.platform.match(/(Mac|iPhone|iPod|iPad)/i);
+      const caps = Discourse.__container__.lookup("capabilities:main");
+      const isApple = caps.isSafari || caps.isIOS || caps.isIpadOS;
 
       if (Discourse.ServiceWorkerURL && !isApple) {
         navigator.serviceWorker.getRegistrations().then(registrations => {
@@ -20,7 +21,7 @@ export default {
                 Discourse.ServiceWorkerURL
               )
             ) {
-              registration.unregister();
+              this.unregister(registration);
             }
           }
         });
@@ -34,10 +35,16 @@ export default {
       } else {
         navigator.serviceWorker.getRegistrations().then(registrations => {
           for (let registration of registrations) {
-            registration.unregister();
+            this.unregister(registration);
           }
         });
       }
+    }
+  },
+
+  unregister(registration) {
+    if (registration.scope.startsWith(Discourse.BaseUrl)) {
+      registration.unregister();
     }
   }
 };

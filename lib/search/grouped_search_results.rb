@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'sanitize'
 
 class Search
@@ -15,13 +17,15 @@ class Search
       :categories,
       :users,
       :tags,
+      :groups,
       :more_posts,
       :more_categories,
       :more_users,
       :term,
       :search_context,
       :include_blurbs,
-      :more_full_page_results
+      :more_full_page_results,
+      :error
     )
 
     attr_accessor :search_log_id
@@ -36,6 +40,12 @@ class Search
       @categories = []
       @users = []
       @tags = []
+      @groups = []
+      @error = nil
+    end
+
+    def error=(error)
+      @error = error
     end
 
     def find_user_data(guardian)
@@ -53,12 +63,12 @@ class Search
     def add(object)
       type = object.class.to_s.downcase.pluralize
 
-      if @type_filter.present? && send(type).length == Search.per_filter
+      if @type_filter.present? && public_send(type).length == Search.per_filter
         @more_full_page_results = true
-      elsif !@type_filter.present? && send(type).length == Search.per_facet
+      elsif !@type_filter.present? && public_send(type).length == Search.per_facet
         instance_variable_set("@more_#{type}".to_sym, true)
       else
-        (send type) << object
+        (self.public_send(type)) << object
       end
     end
 
@@ -66,12 +76,34 @@ class Search
       blurb = nil
       cooked = SearchIndexer.scrub_html_for_search(cooked)
 
-      if term
-        terms = term.split(/\s+/)
-        blurb = TextHelper.excerpt(cooked, terms.first, radius: blurb_length / 2, seperator: " ")
+      urls = Set.new
+      cooked.scan(URI.regexp(%w{http https})) { urls << $& }
+      urls.each do |url|
+        begin
+          case File.extname(URI(url).path || "")
+          when Oneboxer::VIDEO_REGEX
+            cooked.gsub!(url, I18n.t("search.video"))
+          when Oneboxer::AUDIO_REGEX
+            cooked.gsub!(url, I18n.t("search.audio"))
+          end
+        rescue URI::InvalidURIError
+        end
       end
 
-      blurb = TextHelper.truncate(cooked, length: blurb_length, seperator: " ") if blurb.blank?
+      if term
+        terms = term.split(/\s+/)
+        phrase = terms.first
+
+        if phrase =~ Regexp.new(Search::PHRASE_MATCH_REGEXP_PATTERN)
+          phrase = Regexp.last_match[1]
+        end
+
+        blurb = TextHelper.excerpt(cooked, phrase,
+          radius: blurb_length / 2
+        )
+      end
+
+      blurb = TextHelper.truncate(cooked, length: blurb_length) if blurb.blank?
       Sanitize.clean(blurb)
     end
   end

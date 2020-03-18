@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 require 'final_destination'
 
@@ -148,6 +150,19 @@ describe FinalDestination do
         expect(final.resolve).to be_nil
         expect(final.redirected?).to eq(true)
         expect(final.status).to eq(:invalid_address)
+      end
+    end
+
+    context "with a redirect to login path" do
+      before do
+        redirect_response("https://eviltrout.com/t/xyz/1", "https://eviltrout.com/login")
+      end
+
+      it "does not follow redirect" do
+        final = FinalDestination.new('https://eviltrout.com/t/xyz/1', opts)
+        expect(final.resolve.to_s).to eq('https://eviltrout.com/t/xyz/1')
+        expect(final.redirected?).to eq(false)
+        expect(final.status).to eq(:resolved)
       end
     end
 

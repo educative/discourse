@@ -1,11 +1,17 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 require 'topic_view'
 
 describe TopicView do
 
-  let(:topic) { create_topic }
-  let(:evil_trout) { Fabricate(:evil_trout) }
-  let(:first_poster) { topic.user }
+  fab!(:user) { Fabricate(:user) }
+  fab!(:moderator) { Fabricate(:moderator) }
+  fab!(:admin) { Fabricate(:admin) }
+  fab!(:topic) { Fabricate(:topic) }
+  fab!(:evil_trout) { Fabricate(:evil_trout) }
+  fab!(:first_poster) { topic.user }
+  fab!(:anonymous) { Fabricate(:anonymous) }
 
   let(:topic_view) { TopicView.new(topic.id, evil_trout) }
 
@@ -25,10 +31,66 @@ describe TopicView do
   end
 
   it "handles deleted topics" do
-    admin = Fabricate(:admin)
     topic.trash!(admin)
-    expect { TopicView.new(topic.id, Fabricate(:user)) }.to raise_error(Discourse::InvalidAccess)
+    expect { TopicView.new(topic.id, user) }.to raise_error(Discourse::InvalidAccess)
     expect { TopicView.new(topic.id, admin) }.not_to raise_error
+  end
+
+  context "setup_filtered_posts" do
+    describe "filters posts with ignored users" do
+      fab!(:ignored_user) { Fabricate(:ignored_user, user: evil_trout, ignored_user: user) }
+      let!(:post) { Fabricate(:post, topic: topic, user: first_poster) }
+      let!(:post2) { Fabricate(:post, topic: topic, user: evil_trout) }
+      let!(:post3) { Fabricate(:post, topic: topic, user: user) }
+
+      it "filters out ignored user posts" do
+        tv = TopicView.new(topic.id, evil_trout)
+        expect(tv.filtered_post_ids).to eq([post.id, post2.id])
+      end
+
+      it "returns nil for next_page" do
+        tv = TopicView.new(topic.id, evil_trout)
+        expect(tv.next_page).to eq(nil)
+      end
+
+      describe "when an ignored user made the original post" do
+        let!(:post) { Fabricate(:post, topic: topic, user: user) }
+
+        it "filters out ignored user posts only" do
+          tv = TopicView.new(topic.id, evil_trout)
+          expect(tv.filtered_post_ids).to eq([post.id, post2.id])
+        end
+      end
+
+      describe "when an anonymous user made a post" do
+        let!(:post4) { Fabricate(:post, topic: topic, user: anonymous) }
+
+        it "filters out ignored user posts only" do
+          tv = TopicView.new(topic.id, evil_trout)
+          expect(tv.filtered_post_ids).to eq([post.id, post2.id, post4.id])
+        end
+      end
+
+      describe "when an anonymous (non signed-in) user is viewing a Topic" do
+        let!(:post4) { Fabricate(:post, topic: topic, user: anonymous) }
+
+        it "filters out ignored user posts only" do
+          tv = TopicView.new(topic.id, nil)
+          expect(tv.filtered_post_ids).to eq([post.id, post2.id, post3.id, post4.id])
+        end
+      end
+
+      describe "when a staff user is ignored" do
+        let!(:admin) { Fabricate(:user, admin: true) }
+        let!(:admin_ignored_user) { Fabricate(:ignored_user, user: evil_trout, ignored_user: admin) }
+        let!(:post4) { Fabricate(:post, topic: topic, user: admin) }
+
+        it "filters out ignored user excluding the staff user" do
+          tv = TopicView.new(topic.id, evil_trout)
+          expect(tv.filtered_post_ids).to eq([post.id, post2.id, post4.id])
+        end
+      end
+    end
   end
 
   context "chunk_size" do
@@ -43,12 +105,9 @@ describe TopicView do
   end
 
   context "with a few sample posts" do
-    let!(:p1) { Fabricate(:post, topic: topic, user: first_poster, percent_rank: 1) }
-    let!(:p2) { Fabricate(:post, topic: topic, user: evil_trout, percent_rank: 0.5) }
-    let!(:p3) { Fabricate(:post, topic: topic, user: first_poster, percent_rank: 0) }
-
-    let(:moderator) { Fabricate(:moderator) }
-    let(:admin) { Fabricate(:admin) }
+    fab!(:p1) { Fabricate(:post, topic: topic, user: first_poster, percent_rank: 1) }
+    fab!(:p2) { Fabricate(:post, topic: topic, user: evil_trout, percent_rank: 0.5) }
+    fab!(:p3) { Fabricate(:post, topic: topic, user: first_poster, percent_rank: 0) }
 
     it "it can find the best responses" do
 
@@ -57,7 +116,7 @@ describe TopicView do
       expect(best2.posts[0].id).to eq(p2.id)
       expect(best2.posts[1].id).to eq(p3.id)
 
-      topic.update_status('closed', true, Fabricate(:admin))
+      topic.update_status('closed', true, admin)
       expect(topic.posts.count).to eq(4)
 
       # should not get the status post
@@ -93,12 +152,12 @@ describe TopicView do
       expect(best.posts.count).to eq(0)
 
       # It doesn't count likes from admins
-      PostAction.act(admin, p3, PostActionType.types[:like])
+      PostActionCreator.like(admin, p3)
       best = TopicView.new(topic.id, nil, best: 99, only_moderator_liked: true)
       expect(best.posts.count).to eq(0)
 
       # It should find the post liked by the moderator
-      PostAction.act(moderator, p2, PostActionType.types[:like])
+      PostActionCreator.like(moderator, p2)
       best = TopicView.new(topic.id, nil, best: 99, only_moderator_liked: true)
       expect(best.posts.count).to eq(1)
 
@@ -110,8 +169,8 @@ describe TopicView do
     end
 
     context 'log_check_personal_message is enabled' do
-      let(:group) { Fabricate(:group) }
-      let(:private_message) { Fabricate(:private_message_topic, allowed_groups: [group]) }
+      fab!(:group) { Fabricate(:group) }
+      fab!(:private_message) { Fabricate(:private_message_topic, allowed_groups: [group]) }
 
       before do
         SiteSetting.log_personal_messages_views = true
@@ -140,7 +199,7 @@ describe TopicView do
       end
 
       it "does not log personal message view if user can't see the message" do
-        expect { TopicView.new(private_message.id, Fabricate(:user)) }.to raise_error(Discourse::InvalidAccess)
+        expect { TopicView.new(private_message.id, user) }.to raise_error(Discourse::InvalidAccess)
         expect(UserHistory.where(action: UserHistory.actions[:check_personal_message]).count).to eq(0)
       end
 
@@ -160,12 +219,8 @@ describe TopicView do
     end
 
     context 'subfolder' do
-      before do
-        GlobalSetting.stubs(:relative_url_root).returns('/forum')
-        Discourse.stubs(:base_uri).returns("/forum")
-      end
-
       it "provides the correct absolute url" do
+        set_subfolder "/forum"
         expect(topic_view.absolute_url).to eq("http://test.localhost/forum/t/#{topic.slug}/#{topic.id}")
       end
     end
@@ -175,8 +230,7 @@ describe TopicView do
     end
 
     describe "#get_canonical_path" do
-      let(:user) { Fabricate(:user) }
-      let(:topic) { Fabricate(:topic) }
+      fab!(:topic) { Fabricate(:topic) }
       let(:path) { "/1234" }
 
       before do
@@ -196,23 +250,16 @@ describe TopicView do
     end
 
     describe "#next_page" do
-      let(:p2) { stub(post_number: 2) }
-      let(:topic) do
-        topic = create_topic
-        topic.stubs(:highest_post_number).returns(5)
-        topic
-      end
-      let(:user) { Fabricate(:user) }
+      let!(:post) { Fabricate(:post, topic: topic, user: user) }
+      let!(:post2) { Fabricate(:post, topic: topic, user: user) }
+      let!(:post3) { Fabricate(:post, topic: topic, user: user) }
 
       before do
-        TopicView.any_instance.expects(:find_topic).with(1234).returns(topic)
-        TopicView.any_instance.stubs(:filter_posts)
-        TopicView.any_instance.stubs(:last_post).returns(p2)
         TopicView.stubs(:chunk_size).returns(2)
       end
 
       it "should return the next page" do
-        expect(TopicView.new(1234, user).next_page).to eql(2)
+        expect(TopicView.new(topic.id, user).next_page).to eql(2)
       end
     end
 
@@ -245,30 +292,8 @@ describe TopicView do
       end
 
       it 'returns the like' do
-        PostAction.act(evil_trout, p1, PostActionType.types[:like])
+        PostActionCreator.like(evil_trout, p1)
         expect(topic_view.all_post_actions[p1.id][PostActionType.types[:like]]).to be_present
-      end
-    end
-
-    context '.all_active_flags' do
-      it 'is blank at first' do
-        expect(topic_view.all_active_flags).to be_blank
-      end
-
-      it 'returns the active flags' do
-        PostAction.act(moderator, p1, PostActionType.types[:off_topic])
-        PostAction.act(evil_trout, p1, PostActionType.types[:off_topic])
-
-        expect(topic_view.all_active_flags[p1.id][PostActionType.types[:off_topic]].count).to eq(2)
-      end
-
-      it 'returns only the active flags' do
-        PostAction.act(moderator, p1, PostActionType.types[:off_topic])
-        PostAction.act(evil_trout, p1, PostActionType.types[:off_topic])
-
-        PostAction.defer_flags!(p1, moderator)
-
-        expect(topic_view.all_active_flags[p1.id]).to eq(nil)
       end
     end
 
@@ -329,7 +354,7 @@ describe TopicView do
       anon_posts = TopicView.new(topic.id).posts
       expect(anon_posts.map(&:id)).to eq([p1.id, p3.id])
 
-      admin_posts = TopicView.new(topic.id, Fabricate(:moderator)).posts
+      admin_posts = TopicView.new(topic.id, moderator).posts
       expect(admin_posts.map(&:id)).to eq([p1.id, p2.id, p3.id])
     end
   end
@@ -339,7 +364,7 @@ describe TopicView do
     # Create the posts in a different order than the sort_order
     let!(:p5) { Fabricate(:post, topic: topic, user: evil_trout) }
     let!(:p2) { Fabricate(:post, topic: topic, user: evil_trout) }
-    let!(:p6) { Fabricate(:post, topic: topic, user: Fabricate(:user), deleted_at: Time.now) }
+    let!(:p6) { Fabricate(:post, topic: topic, user: user, deleted_at: Time.now) }
     let!(:p4) { Fabricate(:post, topic: topic, user: evil_trout, deleted_at: Time.now) }
     let!(:p1) { Fabricate(:post, topic: topic, user: first_poster) }
     let!(:p7) { Fabricate(:post, topic: topic, user: evil_trout, deleted_at: Time.now) }
@@ -539,8 +564,8 @@ describe TopicView do
   end
 
   context "page_title" do
-    let(:tag1) { Fabricate(:tag) }
-    let(:tag2) { Fabricate(:tag, topic_count: 2) }
+    fab!(:tag1) { Fabricate(:tag) }
+    fab!(:tag2) { Fabricate(:tag, topic_count: 2) }
 
     subject { TopicView.new(topic.id, evil_trout).page_title }
 
@@ -579,7 +604,7 @@ describe TopicView do
     context "categorized topic" do
       let(:category) { Fabricate(:category) }
 
-      before { topic.update_attributes(category_id: category.id) }
+      before { topic.update(category_id: category.id) }
 
       context "topic_page_title_includes_category is false" do
         before { SiteSetting.topic_page_title_includes_category = false }
@@ -662,6 +687,54 @@ describe TopicView do
     it 'should return the right id' do
       expect(topic_view.first_post_id).to eq(p1.id)
       expect(topic_view.last_post_id).to eq(p3.id)
+    end
+  end
+
+  describe '#read_time' do
+    let!(:post) { Fabricate(:post, topic: topic) }
+
+    before do
+      PostCreator.create!(Discourse.system_user, topic_id: topic.id, raw: "![image|100x100](upload://upload.png)")
+      topic_view.topic.reload
+    end
+
+    it 'should return the right read time' do
+      SiteSetting.read_time_word_count = 500
+      expect(topic_view.read_time).to eq(1)
+
+      SiteSetting.read_time_word_count = 0
+      expect(topic_view.read_time).to eq(nil)
+    end
+  end
+
+  describe '#image_url' do
+    let!(:post1) { Fabricate(:post, topic: topic) }
+    let!(:post2) { Fabricate(:post, topic: topic) }
+    let!(:post3) { Fabricate(:post, topic: topic).tap { |p| p.update_column(:image_url, "post3_image.png") }.reload }
+
+    def topic_view_for_post(post_number)
+      TopicView.new(topic.id, evil_trout, post_number: post_number)
+    end
+
+    context "when op has an image" do
+      before do
+        topic.update_column(:image_url, "op_image.png")
+        post1.update_column(:image_url, "op_image.png")
+      end
+
+      it "uses the topic image as a fallback when posts have no image" do
+        expect(topic_view_for_post(1).image_url).to eq("op_image.png")
+        expect(topic_view_for_post(2).image_url).to eq("op_image.png")
+        expect(topic_view_for_post(3).image_url).to eq("post3_image.png")
+      end
+    end
+
+    context "when op has no image" do
+      it "returns nil when posts have no image" do
+        expect(topic_view_for_post(1).image_url).to eq(nil)
+        expect(topic_view_for_post(2).image_url).to eq(nil)
+        expect(topic_view_for_post(3).image_url).to eq("post3_image.png")
+      end
     end
   end
 end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Check whether a user is ready for a new trust level.
 #
@@ -17,7 +19,7 @@ class Promotion
     return false if @user.trust_level >= TrustLevel[2]
 
     review_method = :"review_tl#{@user.trust_level}"
-    return send(review_method) if respond_to?(review_method)
+    return public_send(review_method) if respond_to?(review_method)
 
     false
   end
@@ -47,7 +49,7 @@ class Promotion
     if new_level < old_level && @user.manual_locked_trust_level.nil?
       next_up = new_level + 1
       key = "tl#{next_up}_met?"
-      if self.class.respond_to?(key) && self.class.send(key, @user)
+      if self.class.respond_to?(key) && self.class.public_send(key, @user)
         raise Discourse::InvalidAccess.new, I18n.t('trust_levels.change_failed_explanation',
              user_name: @user.name,
              new_trust_level: new_level,
@@ -72,6 +74,7 @@ class Promotion
       @user.save!
       @user.user_profile.recook_bio
       @user.user_profile.save!
+      DiscourseEvent.trigger(:user_promoted, user_id: @user.id, new_trust_level: new_level, old_trust_level: old_level)
       Group.user_trust_level_change!(@user.id, @user.trust_level)
       BadgeGranter.queue_badge_grant(Badge::Trigger::TrustLevelChange, user: @user)
     end
@@ -100,7 +103,7 @@ class Promotion
     return false if (stat.time_read / 60) < SiteSetting.tl1_requires_time_spent_mins
     return false if ((Time.now - user.created_at) / 60) < SiteSetting.tl1_requires_time_spent_mins
 
-    return true
+    true
   end
 
   def self.tl3_met?(user)
@@ -139,5 +142,4 @@ class Promotion
       user.change_trust_level!(2, log_action_for: performed_by || Discourse.system_user)
     end
   end
-
 end

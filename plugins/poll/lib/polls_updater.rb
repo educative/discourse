@@ -3,7 +3,7 @@
 module DiscoursePoll
   class PollsUpdater
 
-    POLL_ATTRIBUTES ||= %w{close_at max min results status step type visibility}
+    POLL_ATTRIBUTES ||= %w{close_at max min results status step type visibility groups}
 
     def self.update(post, polls)
       ::Poll.transaction do
@@ -38,6 +38,7 @@ module DiscoursePoll
           attributes["visibility"] = new_poll["public"] == "true" ? "everyone" : "secret"
           attributes["close_at"] = Time.zone.parse(new_poll["close"]) rescue nil
           attributes["status"] = old_poll["status"]
+          attributes["groups"] = new_poll["groups"]
           poll = ::Poll.new(attributes)
 
           if is_different?(old_poll, poll, new_poll_options)
@@ -57,8 +58,9 @@ module DiscoursePoll
 
             # update poll
             POLL_ATTRIBUTES.each do |attr|
-              old_poll.send("#{attr}=", poll.send(attr))
+              old_poll.public_send("#{attr}=", poll.public_send(attr))
             end
+
             old_poll.save!
 
             # keep track of anonymous votes
@@ -102,7 +104,7 @@ module DiscoursePoll
     def self.is_different?(old_poll, new_poll, new_options)
       # an attribute was changed?
       POLL_ATTRIBUTES.each do |attr|
-        return true if old_poll.send(attr) != new_poll.send(attr)
+        return true if old_poll.public_send(attr) != new_poll.public_send(attr)
       end
 
       # an option was changed?

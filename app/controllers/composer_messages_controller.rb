@@ -1,4 +1,4 @@
-require_dependency 'composer_messages_finder'
+# frozen_string_literal: true
 
 class ComposerMessagesController < ApplicationController
 

@@ -1,13 +1,14 @@
-import {
-  default as computed,
-  observes
-} from "ember-addons/ember-computed-decorators";
+import { isEmpty } from "@ember/utils";
+import { empty, or } from "@ember/object/computed";
+import Controller from "@ember/controller";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
 import { setting, propertyEqual } from "discourse/lib/computed";
 import DiscourseURL from "discourse/lib/url";
 import { userPath } from "discourse/lib/url";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import User from "discourse/models/user";
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   taken: false,
   saving: false,
   errorMessage: null,
@@ -15,8 +16,8 @@ export default Ember.Controller.extend({
 
   maxLength: setting("max_username_length"),
   minLength: setting("min_username_length"),
-  newUsernameEmpty: Ember.computed.empty("newUsername"),
-  saveDisabled: Ember.computed.or(
+  newUsernameEmpty: empty("newUsername"),
+  saveDisabled: or(
     "saving",
     "newUsernameEmpty",
     "taken",
@@ -27,32 +28,30 @@ export default Ember.Controller.extend({
 
   @observes("newUsername")
   checkTaken() {
-    let newUsername = this.get("newUsername");
+    let newUsername = this.newUsername;
 
-    if (newUsername && newUsername.length < this.get("minLength")) {
+    if (newUsername && newUsername.length < this.minLength) {
       this.set("errorMessage", I18n.t("user.name.too_short"));
     } else {
       this.set("taken", false);
       this.set("errorMessage", null);
 
-      if (Ember.isEmpty(this.get("newUsername"))) return;
-      if (this.get("unchanged")) return;
+      if (isEmpty(this.newUsername)) return;
+      if (this.unchanged) return;
 
-      Discourse.User.checkUsername(
-        newUsername,
-        undefined,
-        this.get("model.id")
-      ).then(result => {
-        if (result.errors) {
-          this.set("errorMessage", result.errors.join(" "));
-        } else if (result.available === false) {
-          this.set("taken", true);
+      User.checkUsername(newUsername, undefined, this.get("model.id")).then(
+        result => {
+          if (result.errors) {
+            this.set("errorMessage", result.errors.join(" "));
+          } else if (result.available === false) {
+            this.set("taken", true);
+          }
         }
-      });
+      );
     }
   },
 
-  @computed("saving")
+  @discourseComputed("saving")
   saveButtonText(saving) {
     if (saving) return I18n.t("saving");
     return I18n.t("user.change");
@@ -60,7 +59,7 @@ export default Ember.Controller.extend({
 
   actions: {
     changeUsername() {
-      if (this.get("saveDisabled")) {
+      if (this.saveDisabled) {
         return;
       }
 
@@ -71,13 +70,11 @@ export default Ember.Controller.extend({
         result => {
           if (result) {
             this.set("saving", true);
-            this.get("model")
-              .changeUsername(this.get("newUsername"))
+            this.model
+              .changeUsername(this.newUsername)
               .then(() => {
                 DiscourseURL.redirectTo(
-                  userPath(
-                    this.get("newUsername").toLowerCase() + "/preferences"
-                  )
+                  userPath(this.newUsername.toLowerCase() + "/preferences")
                 );
               })
               .catch(popupAjaxError)

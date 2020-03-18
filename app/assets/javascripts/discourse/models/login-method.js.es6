@@ -1,107 +1,90 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import EmberObject from "@ember/object";
+import { updateCsrfToken } from "discourse/lib/ajax";
+import { Promise } from "rsvp";
+import Session from "discourse/models/session";
+import Site from "discourse/models/site";
 
-const LoginMethod = Ember.Object.extend({
-  @computed
+const LoginMethod = EmberObject.extend({
+  @discourseComputed
   title() {
-    return (
-      this.get("title_override") || I18n.t(`login.${this.get("name")}.title`)
-    );
+    return this.title_override || I18n.t(`login.${this.name}.title`);
   },
 
-  @computed
+  @discourseComputed
   prettyName() {
-    return (
-      this.get("pretty_name_override") ||
-      I18n.t(`login.${this.get("name")}.name`)
-    );
+    return this.pretty_name_override || I18n.t(`login.${this.name}.name`);
   },
 
-  @computed
+  @discourseComputed
   message() {
-    return (
-      this.get("message_override") ||
-      I18n.t("login." + this.get("name") + ".message")
-    );
+    return this.message_override || I18n.t(`login.${this.name}.message`);
   },
 
-  doLogin(reconnect = false) {
-    const name = this.get("name");
-    const customLogin = this.get("customLogin");
-
-    if (customLogin) {
-      customLogin();
-    } else {
-      let authUrl = this.get("custom_url") || Discourse.getURL("/auth/" + name);
-
-      if (reconnect) {
-        authUrl += "?reconnect=true";
-      }
-
-      if (this.get("full_screen_login")) {
-        document.cookie = "fsl=true";
-        window.location = authUrl;
-      } else {
-        this.set("authenticate", name);
-        const left = this.get("lastX") - 400;
-        const top = this.get("lastY") - 200;
-
-        const height = this.get("frame_height") || 400;
-        const width = this.get("frame_width") || 800;
-
-        if (name === "facebook") {
-          authUrl += authUrl.includes("?") ? "&" : "?";
-          authUrl += "display=popup";
-        }
-
-        const w = window.open(
-          authUrl,
-          "_blank",
-          "menubar=no,status=no,height=" +
-            height +
-            ",width=" +
-            width +
-            ",left=" +
-            left +
-            ",top=" +
-            top
-        );
-        const self = this;
-        const timer = setInterval(function() {
-          if (!w || w.closed) {
-            clearInterval(timer);
-            self.set("authenticate", null);
-          }
-        }, 1000);
-      }
+  doLogin({ reconnect = false, params = {} } = {}) {
+    if (this.customLogin) {
+      this.customLogin();
+      return Promise.resolve();
     }
+
+    if (this.custom_url) {
+      window.location = this.custom_url;
+      return Promise.resolve();
+    }
+
+    let authUrl = Discourse.getURL(`/auth/${this.name}`);
+
+    if (reconnect) {
+      params["reconnect"] = true;
+    }
+
+    const paramKeys = Object.keys(params);
+    if (paramKeys.length > 0) {
+      authUrl += "?";
+      authUrl += paramKeys
+        .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
+        .join("&");
+    }
+
+    return LoginMethod.buildPostForm(authUrl).then(form => form.submit());
+  }
+});
+
+LoginMethod.reopenClass({
+  buildPostForm(url) {
+    // Login always happens in an anonymous context, with no CSRF token
+    // So we need to fetch it before sending a POST request
+    return updateCsrfToken().then(() => {
+      const form = document.createElement("form");
+      form.setAttribute("style", "display:none;");
+      form.setAttribute("method", "post");
+      form.setAttribute("action", url);
+
+      const input = document.createElement("input");
+      input.setAttribute("name", "authenticity_token");
+      input.setAttribute("value", Session.currentProp("csrfToken"));
+      form.appendChild(input);
+
+      document.body.appendChild(form);
+
+      return form;
+    });
   }
 });
 
 let methods;
 
-export function findAll(siteSettings, capabilities, isMobileDevice) {
-  if (methods) {
-    return methods;
-  }
+export function findAll() {
+  if (methods) return methods;
 
   methods = [];
 
-  Discourse.Site.currentProp("auth_providers").forEach(provider => {
-    methods.pushObject(LoginMethod.create(provider));
-  });
-
-  // On Mobile, Android or iOS always go with full screen
-  if (
-    isMobileDevice ||
-    (capabilities && (capabilities.isIOS || capabilities.isAndroid))
-  ) {
-    methods.forEach(m => m.set("full_screen_login", true));
-  }
+  Site.currentProp("auth_providers").forEach(provider =>
+    methods.pushObject(LoginMethod.create(provider))
+  );
 
   // exclude FA icon for Google, uses custom SVG
-  methods.forEach(m =>
-    m.set("hasRegularIcon", m.get("name") === "google_oauth2" ? false : true)
-  );
+  methods.forEach(m => m.set("isGoogle", m.name === "google_oauth2"));
 
   return methods;
 }

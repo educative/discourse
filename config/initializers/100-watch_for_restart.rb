@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # this is a trivial graceful restart on touch of tmp/restart.
 #
 # It simply drains all the requests (waits up to 4 seconds) and issues a HUP
@@ -27,7 +29,7 @@ Thread.new do
 
         if old_time != time
           Rails.logger.info "attempting to reload #{$$} #{$PROGRAM_NAME} in #{wait_seconds} seconds"
-          $shutdown = true
+          $shutdown = true # rubocop:disable Style/GlobalVars
           sleep wait_seconds
           Rails.logger.info "restarting #{$$}"
           Process.kill("USR2", $$)

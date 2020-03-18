@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # If Mini Profiler is included via gem
 if Rails.configuration.respond_to?(:load_mini_profiler) && Rails.configuration.load_mini_profiler
   require 'rack-mini-profiler'
@@ -70,6 +72,8 @@ if defined?(Rack::MiniProfiler) && defined?(Rack::MiniProfiler::Config)
   Rack::MiniProfiler.config.backtrace_ignores << /lib\/rack\/message_bus.rb/
   Rack::MiniProfiler.config.backtrace_ignores << /config\/initializers\/silence_logger/
   Rack::MiniProfiler.config.backtrace_ignores << /config\/initializers\/quiet_logger/
+
+  Rack::MiniProfiler.config.backtrace_includes = [/^\/?(app|config|lib|test|plugins)/]
 
   # Rack::MiniProfiler.counter_method(ActiveRecord::QueryMethods, 'build_arel')
   # Rack::MiniProfiler.counter_method(Array, 'uniq')

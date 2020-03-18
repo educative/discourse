@@ -1,13 +1,10 @@
 # encoding: utf-8
+# frozen_string_literal: true
 
 require 'rails_helper'
-require_dependency 'search'
 
 describe Search do
-
-  class TextHelper
-    extend ActionView::Helpers::TextHelper
-  end
+  fab!(:admin) { Fabricate(:admin) }
 
   before do
     SearchIndexer.enable
@@ -15,7 +12,7 @@ describe Search do
 
   context 'post indexing observer' do
     before do
-      @category = Fabricate(:category, name: 'america')
+      @category = Fabricate(:category_with_definition, name: 'america')
       @topic = Fabricate(:topic, title: 'sam saffron test topic', category: @category)
       @post = Fabricate(:post, topic: @topic, raw: 'this <b>fun test</b> <img src="bla" title="my image">')
       @indexed = @post.post_search_data.search_data
@@ -50,7 +47,7 @@ describe Search do
 
   context 'category indexing observer' do
     before do
-      @category = Fabricate(:category, name: 'america')
+      @category = Fabricate(:category_with_definition, name: 'america')
       @indexed = @category.category_search_data.search_data
     end
 
@@ -212,7 +209,7 @@ describe Search do
       results = Search.execute('mars',
                               type_filter: 'private_messages',
                               search_context: post.user,
-                              guardian: Guardian.new(Fabricate(:admin)))
+                              guardian: Guardian.new(admin))
 
       expect(results.posts.length).to eq(1)
 
@@ -238,6 +235,140 @@ describe Search do
 
     end
 
+    context 'personal-direct flag' do
+      let(:current) { Fabricate(:user, admin: true, username: "current_user") }
+      let(:participant) { Fabricate(:user, username: "participant_1") }
+      let(:participant_2) { Fabricate(:user, username: "participant_2") }
+
+      let(:group) do
+        group = Fabricate(:group, has_messages: true)
+        group.add(current)
+        group.add(participant)
+        group
+      end
+
+      def create_pm(users:, group: nil)
+        pm = Fabricate(:private_message_post_one_user, user: users.first).topic
+        users[1..-1].each do |u|
+          pm.invite(users.first, u.username)
+          Fabricate(:post, user: u, topic: pm)
+        end
+        if group
+          pm.invite_group(users.first, group)
+          group.users.each do |u|
+            Fabricate(:post, user: u, topic: pm)
+          end
+        end
+        pm.reload
+      end
+
+      it 'can find all direct PMs of the current user' do
+        pm = create_pm(users: [current, participant])
+        pm_2 = create_pm(users: [participant_2, participant])
+        pm_3 = create_pm(users: [participant, current])
+        pm_4 = create_pm(users: [participant_2, current])
+        results = Search.execute("in:personal-direct", guardian: Guardian.new(current))
+        expect(results.posts.size).to eq(3)
+        expect(results.posts.map(&:topic_id)).to contain_exactly(pm.id, pm_3.id, pm_4.id)
+      end
+
+      it 'can filter direct PMs by @username' do
+        pm = create_pm(users: [current, participant])
+        pm_2 = create_pm(users: [participant, current])
+        pm_3 = create_pm(users: [participant_2, current])
+        results = Search.execute("@#{participant.username} in:personal-direct", guardian: Guardian.new(current))
+        expect(results.posts.size).to eq(2)
+        expect(results.posts.map(&:topic_id)).to contain_exactly(pm.id, pm_2.id)
+        expect(results.posts.map(&:user_id).uniq).to contain_exactly(participant.id)
+      end
+
+      it "doesn't include PMs that have more than 2 participants" do
+        pm = create_pm(users: [current, participant, participant_2])
+        results = Search.execute("@#{participant.username} in:personal-direct", guardian: Guardian.new(current))
+        expect(results.posts.size).to eq(0)
+      end
+
+      it "doesn't include PMs that have groups" do
+        pm = create_pm(users: [current, participant], group: group)
+        results = Search.execute("@#{participant.username} in:personal-direct", guardian: Guardian.new(current))
+        expect(results.posts.size).to eq(0)
+      end
+    end
+
+    context 'all topics' do
+
+      let!(:u1) { Fabricate(:user, username: 'fred', name: 'bob jones', email: 'foo+1@bar.baz') }
+      let!(:u2) { Fabricate(:user, username: 'bob', name: 'fred jones', email: 'foo+2@bar.baz') }
+      let!(:u3) { Fabricate(:user, username: 'jones', name: 'bob fred', email: 'foo+3@bar.baz') }
+      let!(:u4) { Fabricate(:user, username: 'alice', name: 'bob fred', email: 'foo+4@bar.baz', admin: true) }
+
+      let!(:public_topic) { Fabricate(:topic, user: u1) }
+      let!(:public_post1) { Fabricate(:post, topic: public_topic, raw: "what do you want for breakfast?  ham and eggs?", user: u1) }
+      let!(:public_post2) { Fabricate(:post, topic: public_topic, raw: "ham and spam", user: u2) }
+
+      let!(:private_topic) { Fabricate(:topic, user: u1, category_id: nil, archetype: 'private_message') }
+      let!(:private_post1) { Fabricate(:post, topic: private_topic, raw: "what do you want for lunch?  ham and cheese?", user: u1) }
+      let!(:private_post2) { Fabricate(:post, topic: private_topic, raw: "cheese and spam", user: u2) }
+
+      it 'finds private messages' do
+        TopicAllowedUser.create!(user_id: u1.id, topic_id: private_topic.id)
+        TopicAllowedUser.create!(user_id: u2.id, topic_id: private_topic.id)
+
+        # private only
+        results = Search.execute('cheese',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u1))
+        expect(results.posts.length).to eq(1)
+
+        # public only
+        results = Search.execute('eggs',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u1))
+        expect(results.posts.length).to eq(1)
+
+        # both
+        results = Search.execute('spam',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u1))
+        expect(results.posts.length).to eq(2)
+
+        # nonparticipatory user
+        results = Search.execute('cheese',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u3))
+        expect(results.posts.length).to eq(0)
+
+        results = Search.execute('eggs',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u3))
+        expect(results.posts.length).to eq(1)
+
+        results = Search.execute('spam',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u3))
+        expect(results.posts.length).to eq(1)
+
+        # Admin doesn't see private topic
+        results = Search.execute('spam',
+                  type_filter: 'all_topics',
+                  guardian: Guardian.new(u4))
+        expect(results.posts.length).to eq(1)
+
+        # same keyword for different users
+        results = Search.execute('ham',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u1))
+        expect(results.posts.length).to eq(2)
+        results = Search.execute('ham',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u2))
+        expect(results.posts.length).to eq(2)
+        results = Search.execute('ham',
+                                type_filter: 'all_topics',
+                                guardian: Guardian.new(u3))
+        expect(results.posts.length).to eq(1)
+      end
+    end
   end
 
   context 'topics' do
@@ -290,7 +421,7 @@ describe Search do
       end
 
       it "works for unlisted topics" do
-        topic.update_attributes(visible: false)
+        topic.update(visible: false)
         _post = new_post('discourse is awesome', topic)
         results = Search.execute('discourse', search_context: topic)
         expect(results.posts.length).to eq(1)
@@ -308,16 +439,78 @@ describe Search do
     end
 
     context 'searching for a post' do
-      let!(:reply) { Fabricate(:basic_reply, topic: topic, user: topic.user) }
-      let(:result) { Search.execute('quotes', type_filter: 'topic', include_blurbs: true) }
+      let!(:reply) do
+        Fabricate(:post_with_long_raw_content,
+          topic: topic,
+          user: topic.user,
+        ).tap { |post| post.update!(raw: "#{post.raw} elephant") }
+      end
+
+      let(:expected_blurb) do
+        "...to satisfy any test conditions that require content longer than the typical test post raw content. elephant"
+      end
 
       it 'returns the post' do
-        expect(result).to be_present
-        expect(result.posts.length).to eq(1)
-        p = result.posts[0]
-        expect(p.topic.id).to eq(topic.id)
-        expect(p.id).to eq(reply.id)
-        expect(result.blurb(p)).to eq("this reply has no quotes")
+        result = Search.execute('elephant',
+          type_filter: 'topic',
+          include_blurbs: true
+        )
+
+        expect(result.posts).to contain_exactly(reply)
+        expect(result.blurb(reply)).to eq(expected_blurb)
+      end
+
+      it 'returns the right post and blurb for searches with phrase' do
+        result = Search.execute('"elephant"',
+          type_filter: 'topic',
+          include_blurbs: true
+        )
+
+        expect(result.posts).to contain_exactly(reply)
+        expect(result.blurb(reply)).to eq(expected_blurb)
+      end
+
+      it 'does not allow a post with repeated words to dominate the ranking' do
+        category = Fabricate(:category_with_definition, name: "winter is coming")
+
+        post = Fabricate(:post,
+          raw: "I think winter will end soon",
+          topic: Fabricate(:topic,
+            title: "dragon john snow winter",
+            category: category
+          )
+        )
+
+        post2 = Fabricate(:post,
+          raw: "I think #{'winter' * 20} will end soon",
+          topic: Fabricate(:topic, title: "dragon john snow summer", category: category)
+        )
+
+        result = Search.execute('winter')
+
+        expect(result.posts.pluck(:id)).to eq([
+          post.id, category.topic.first_post.id, post2.id
+        ])
+      end
+
+      it 'applies a small penalty to closed topic when ranking' do
+        post = Fabricate(:post,
+          raw: "My weekly update",
+          topic: Fabricate(:topic,
+            title: "A topic that will be closed",
+            closed: true
+          )
+        )
+
+        post2 = Fabricate(:post,
+          raw: "My weekly update",
+          topic: Fabricate(:topic,
+            title: "A topic that will be open"
+          )
+        )
+
+        result = Search.execute('weekly update')
+        expect(result.posts.pluck(:id)).to eq([post2.id, post.id])
       end
     end
 
@@ -360,10 +553,10 @@ describe Search do
         end
 
         it 'restricts result to messages' do
-          result = Search.execute(topic.relative_url, search_for_id: true, type_filter: 'private_messages', guardian: Guardian.new(Fabricate(:admin)), restrict_to_archetype: Archetype.private_message)
+          result = Search.execute(topic.relative_url, search_for_id: true, type_filter: 'private_messages', guardian: Guardian.new(admin), restrict_to_archetype: Archetype.private_message)
           expect(result.posts.length).to eq(0)
 
-          result = Search.execute(personal_message.relative_url, search_for_id: true, type_filter: 'private_messages', guardian: Guardian.new(Fabricate(:admin)), restrict_to_archetype: Archetype.private_message)
+          result = Search.execute(personal_message.relative_url, search_for_id: true, type_filter: 'private_messages', guardian: Guardian.new(admin), restrict_to_archetype: Archetype.private_message)
           expect(result.posts.length).to eq(1)
         end
       end
@@ -376,7 +569,7 @@ describe Search do
       end
 
       it 'secures results correctly' do
-        category = Fabricate(:category)
+        category = Fabricate(:category_with_definition)
 
         topic.category_id = category.id
         topic.save
@@ -386,7 +579,7 @@ describe Search do
 
         expect(result(nil).posts).not_to be_present
         expect(result(Fabricate(:user)).posts).not_to be_present
-        expect(result(Fabricate(:admin)).posts).to be_present
+        expect(result(admin).posts).to be_present
 
       end
     end
@@ -413,21 +606,131 @@ describe Search do
   end
 
   context 'categories' do
+    let(:category) { Fabricate(:category_with_definition, name: "monkey Category 2") }
+    let(:topic) { Fabricate(:topic, category: category) }
+    let!(:post) { Fabricate(:post, topic: topic, raw: "snow monkey") }
 
-    let!(:category) { Fabricate(:category) }
-    def search
-      Search.execute(category.name)
+    let!(:ignored_category) do
+      Fabricate(:category_with_definition,
+        name: "monkey Category 1",
+        slug: "test",
+        search_priority: Searchable::PRIORITIES[:ignore]
+      )
     end
 
-    it 'returns the correct result' do
-      expect(search.categories).to be_present
+    it "should return the right categories" do
+      search = Search.execute("monkey")
 
-      category.set_permissions({})
-      category.save
+      expect(search.categories).to contain_exactly(
+        category, ignored_category
+      )
 
-      expect(search.categories).not_to be_present
+      expect(search.posts).to contain_exactly(category.topic.first_post, post)
+
+      search = Search.execute("monkey #test")
+
+      expect(search.posts).to contain_exactly(ignored_category.topic.first_post)
     end
 
+    describe "with child categories" do
+      let!(:child_of_ignored_category) do
+        Fabricate(:category_with_definition,
+          name: "monkey Category 3",
+          parent_category: ignored_category
+        )
+      end
+
+      let!(:post2) do
+        Fabricate(:post,
+          topic: Fabricate(:topic, category: child_of_ignored_category),
+          raw: "snow monkey park"
+        )
+      end
+
+      it 'returns the right results' do
+        search = Search.execute("monkey")
+
+        expect(search.categories).to contain_exactly(
+          category, ignored_category, child_of_ignored_category
+        )
+
+        expect(search.posts).to contain_exactly(
+          category.topic.first_post,
+          post,
+          child_of_ignored_category.topic.first_post,
+          post2
+        )
+
+        search = Search.execute("snow")
+        expect(search.posts).to contain_exactly(post, post2)
+
+        category.set_permissions({})
+        category.save
+        search = Search.execute("monkey")
+
+        expect(search.categories).to contain_exactly(
+          ignored_category, child_of_ignored_category
+        )
+
+        expect(search.posts).to contain_exactly(
+          child_of_ignored_category.topic.first_post,
+          post2
+        )
+      end
+    end
+
+    describe 'categories with different priorities' do
+      let(:category2) { Fabricate(:category_with_definition) }
+
+      it "should return posts in the right order" do
+        raw = "The pure genuine evian"
+        post = Fabricate(:post, topic: category.topic, raw: raw)
+        post2 = Fabricate(:post, topic: category2.topic, raw: raw)
+
+        search = Search.execute(raw)
+
+        expect(search.posts).to eq([post2, post])
+
+        category.update!(search_priority: Searchable::PRIORITIES[:high])
+
+        search = Search.execute(raw)
+
+        expect(search.posts).to eq([post, post2])
+      end
+    end
+
+  end
+
+  context 'groups' do
+    def search(user = Fabricate(:user))
+      Search.execute(group.name, guardian: Guardian.new(user))
+    end
+
+    let!(:group) { Group[:trust_level_0] }
+
+    it 'shows group' do
+      expect(search.groups.map(&:name)).to eq([group.name])
+    end
+
+    context 'group visibility' do
+      let!(:group) { Fabricate(:group) }
+
+      before do
+        group.update!(visibility_level: 3)
+      end
+
+      context 'staff logged in' do
+        it 'shows group' do
+          expect(search(admin).groups.map(&:name)).to eq([group.name])
+        end
+      end
+
+      context 'non staff logged in' do
+        it 'shows doesn’t show group' do
+          expect(search.groups.map(&:name)).to be_empty
+        end
+      end
+    end
   end
 
   context 'tags' do
@@ -438,16 +741,18 @@ describe Search do
     let!(:tag) { Fabricate(:tag) }
     let!(:uppercase_tag) { Fabricate(:tag, name: "HeLlO") }
     let(:tag_group) { Fabricate(:tag_group) }
-    let(:category) { Fabricate(:category) }
+    let(:category) { Fabricate(:category_with_definition) }
 
     context 'post searching' do
-      it 'can find posts with tags' do
+      before do
         SiteSetting.tagging_enabled = true
-
-        post = Fabricate(:post, raw: 'I am special post')
         DiscourseTagging.tag_topic_by_names(post.topic, Guardian.new(Fabricate.build(:admin)), [tag.name, uppercase_tag.name])
         post.topic.save
+      end
 
+      let(:post) { Fabricate(:post, raw: 'I am special post') }
+
+      it 'can find posts with tags' do
         # we got to make this index (it is deferred)
         Jobs::ReindexSearch.new.rebuild_problem_posts
 
@@ -461,6 +766,13 @@ describe Search do
 
         result = Search.execute(tag.name)
         expect(result.posts.length).to eq(0)
+      end
+
+      it 'can find posts with tag synonyms' do
+        synonym = Fabricate(:tag, name: 'synonym', target_tag: tag)
+        Jobs::ReindexSearch.new.rebuild_problem_posts
+        result = Search.execute(synonym.name)
+        expect(result.posts.length).to eq(1)
       end
     end
 
@@ -482,7 +794,7 @@ describe Search do
       it 'shows staff tags' do
         create_staff_tags(["#{tag.name}9"])
 
-        expect(Search.execute(tag.name, guardian: Guardian.new(Fabricate(:admin))).tags.map(&:name)).to contain_exactly(tag.name, "#{tag.name}9")
+        expect(Search.execute(tag.name, guardian: Guardian.new(admin)).tags.map(&:name)).to contain_exactly(tag.name, "#{tag.name}9")
         expect(search.tags.map(&:name)).to contain_exactly(tag.name, "#{tag.name}9")
       end
 
@@ -493,7 +805,7 @@ describe Search do
         category.allowed_tag_groups = [tag_group.name]
         category.save!
 
-        expect(Search.execute(tag.name, guardian: Guardian.new(Fabricate(:admin))).tags).to contain_exactly(tag, category_tag)
+        expect(Search.execute(tag.name, guardian: Guardian.new(admin)).tags).to contain_exactly(tag, category_tag)
         expect(search.tags).to contain_exactly(tag, category_tag)
       end
     end
@@ -502,7 +814,7 @@ describe Search do
   context 'type_filter' do
 
     let!(:user) { Fabricate(:user, username: 'amazing', email: 'amazing@amazing.com') }
-    let!(:category) { Fabricate(:category, name: 'amazing category', user: user) }
+    let!(:category) { Fabricate(:category_with_definition, name: 'amazing category', user: user) }
 
     context 'user filter' do
       let(:results) { Search.execute('amazing', type_filter: 'user') }
@@ -544,21 +856,39 @@ describe Search do
     end
 
     it 'can use category as a search context' do
-      category = Fabricate(:category)
+      category = Fabricate(:category_with_definition,
+        search_priority: Searchable::PRIORITIES[:ignore]
+      )
+
       topic = Fabricate(:topic, category: category)
       topic_no_cat = Fabricate(:topic)
 
       # includes subcategory in search
-      subcategory = Fabricate(:category, parent_category_id: category.id)
+      subcategory = Fabricate(:category_with_definition, parent_category_id: category.id)
       sub_topic = Fabricate(:topic, category: subcategory)
 
       post = Fabricate(:post, topic: topic, user: topic.user)
-      _another_post = Fabricate(:post, topic: topic_no_cat, user: topic.user)
+      Fabricate(:post, topic: topic_no_cat, user: topic.user)
       sub_post = Fabricate(:post, raw: 'I am saying hello from a subcategory', topic: sub_topic, user: topic.user)
 
       search = Search.execute('hello', search_context: category)
-      expect(search.posts.map(&:id).sort).to eq([post.id, sub_post.id].sort)
+      expect(search.posts.map(&:id)).to match_array([post.id, sub_post.id])
       expect(search.posts.length).to eq(2)
+    end
+
+    it 'can use tag as a search context' do
+      tag = Fabricate(:tag, name: 'important-stuff')
+
+      topic = Fabricate(:topic)
+      topic_no_tag = Fabricate(:topic)
+      Fabricate(:topic_tag, tag: tag, topic: topic)
+
+      post = Fabricate(:post, topic: topic, user: topic.user, raw: 'This is my hello')
+      Fabricate(:post, topic: topic_no_tag, user: topic.user)
+
+      search = Search.execute('hello', search_context: tag)
+      expect(search.posts.map(&:id)).to contain_exactly(post.id)
+      expect(search.posts.length).to eq(1)
     end
 
   end
@@ -701,8 +1031,14 @@ describe Search do
       expect(Search.execute('test after:jan').posts.length).to eq(1)
 
       expect(Search.execute('test in:first').posts.length).to eq(1)
+
       expect(Search.execute('boom').posts.length).to eq(1)
+
       expect(Search.execute('boom in:first').posts.length).to eq(0)
+      expect(Search.execute('boom f').posts.length).to eq(0)
+
+      expect(Search.execute('123 in:first').posts.length).to eq(1)
+      expect(Search.execute('123 f').posts.length).to eq(1)
 
       expect(Search.execute('user:nobody').posts.length).to eq(0)
       expect(Search.execute("user:#{_post.user.username}").posts.length).to eq(1)
@@ -735,32 +1071,44 @@ describe Search do
     end
 
     it 'can search numbers correctly, and match exact phrases' do
-      topic = Fabricate(:topic, created_at: 3.months.ago)
-      Fabricate(:post, raw: '3.0 eta is in 2 days horrah', topic: topic)
+      post = Fabricate(:post, raw: '3.0 eta is in 2 days horrah')
+      post2 = Fabricate(:post, raw: '3.0 is eta in 2 days horrah')
 
-      expect(Search.execute('3.0 eta').posts.length).to eq(1)
-      expect(Search.execute('"3.0, eta is"').posts.length).to eq(0)
+      expect(Search.execute('3.0 eta').posts).to contain_exactly(post, post2)
+      expect(Search.execute("'3.0 eta'").posts).to contain_exactly(post, post2)
+      expect(Search.execute("\"3.0 eta\"").posts).to contain_exactly(post)
+      expect(Search.execute('"3.0, eta is"').posts).to eq([])
     end
 
     it 'can find by status' do
+      public_category = Fabricate(:category, read_restricted: false)
       post = Fabricate(:post, raw: 'hi this is a test 123 123')
       topic = post.topic
+      topic.update(category: public_category)
 
+      private_category = Fabricate(:category, read_restricted: true)
+      post2 = Fabricate(:post, raw: 'hi this is another test 123 123')
+      second_topic = post2.topic
+      second_topic.update(category: private_category)
+
+      post3 = Fabricate(:post, raw: "another test!", user: topic.user, topic: second_topic)
+
+      expect(Search.execute('test status:public').posts.length).to eq(1)
       expect(Search.execute('test status:closed').posts.length).to eq(0)
       expect(Search.execute('test status:open').posts.length).to eq(1)
       expect(Search.execute('test posts_count:1').posts.length).to eq(1)
       expect(Search.execute('test min_post_count:1').posts.length).to eq(1)
 
-      topic.closed = true
-      topic.save
+      topic.update(closed: true)
+      second_topic.update(category: public_category)
 
+      expect(Search.execute('test status:public').posts.length).to eq(2)
       expect(Search.execute('test status:closed').posts.length).to eq(1)
       expect(Search.execute('status:closed').posts.length).to eq(1)
-      expect(Search.execute('test status:open').posts.length).to eq(0)
+      expect(Search.execute('test status:open').posts.length).to eq(1)
 
-      topic.archived = true
-      topic.closed = false
-      topic.save
+      topic.update(archived: true, closed: false)
+      second_topic.update(closed: true)
 
       expect(Search.execute('test status:archived').posts.length).to eq(1)
       expect(Search.execute('test status:open').posts.length).to eq(0)
@@ -769,12 +1117,22 @@ describe Search do
 
       expect(Search.execute('test in:likes', guardian: Guardian.new(topic.user)).posts.length).to eq(0)
 
-      expect(Search.execute('test in:posted', guardian: Guardian.new(topic.user)).posts.length).to eq(1)
+      expect(Search.execute('test in:posted', guardian: Guardian.new(topic.user)).posts.length).to eq(2)
+
+      in_created = Search.execute('test in:created', guardian: Guardian.new(topic.user)).posts
+      created_by_user = Search.execute("test created:@#{topic.user.username}", guardian: Guardian.new(topic.user)).posts
+      expect(in_created.length).to eq(1)
+      expect(created_by_user.length).to eq(1)
+      expect(in_created).to eq(created_by_user)
+
+      expect(Search.execute("test created:@#{second_topic.user.username}", guardian: Guardian.new(topic.user)).posts.length).to eq(1)
+
+      new_user = Fabricate(:user)
+      expect(Search.execute("test created:@#{new_user.username}", guardian: Guardian.new(topic.user)).posts.length).to eq(0)
 
       TopicUser.change(topic.user.id, topic.id, notification_level: TopicUser.notification_levels[:tracking])
       expect(Search.execute('test in:watching', guardian: Guardian.new(topic.user)).posts.length).to eq(0)
       expect(Search.execute('test in:tracking', guardian: Guardian.new(topic.user)).posts.length).to eq(1)
-
     end
 
     it 'can find posts with images' do
@@ -804,22 +1162,45 @@ describe Search do
       today        = Date.today
       yesterday    = 1.day.ago
       two_days_ago = 2.days.ago
+      category = Fabricate(:category_with_definition)
 
-      old_topic    = Fabricate(:topic,
-          title: 'First Topic, testing the created_at sort',
-          created_at: two_days_ago)
+      old_topic = Fabricate(:topic,
+        title: 'First Topic, testing the created_at sort',
+        created_at: two_days_ago,
+        category: category
+      )
+
       latest_topic = Fabricate(:topic,
-          title: 'Second Topic, testing the created_at sort',
-          created_at: yesterday)
+        title: 'Second Topic, testing the created_at sort',
+        created_at: yesterday,
+        category: category
+      )
 
-      old_relevant_topic_post     = Fabricate(:post, topic: old_topic, created_at: yesterday, raw: 'Relevant Topic')
-      latest_irelevant_topic_post = Fabricate(:post, topic: latest_topic, created_at: today, raw: 'Not Relevant')
+      old_relevant_topic_post = Fabricate(:post,
+        topic: old_topic,
+        created_at: yesterday,
+        raw: 'Relevant Relevant Topic'
+      )
+
+      latest_irelevant_topic_post = Fabricate(:post,
+        topic: latest_topic,
+        created_at: today,
+        raw: 'Not Relevant'
+      )
 
       # Expecting the default results
-      expect(Search.execute('Topic').posts.map(&:id)).to eq([old_relevant_topic_post.id, latest_irelevant_topic_post.id])
+      expect(Search.execute('Topic').posts).to contain_exactly(
+        old_relevant_topic_post,
+        latest_irelevant_topic_post,
+        category.topic.first_post
+      )
 
       # Expecting the ordered by topic creation results
-      expect(Search.execute('Topic order:latest_topic').posts.map(&:id)).to eq([latest_irelevant_topic_post.id, old_relevant_topic_post.id])
+      expect(Search.execute('Topic order:latest_topic').posts).to contain_exactly(
+        latest_irelevant_topic_post,
+        old_relevant_topic_post,
+        category.topic.first_post
+      )
     end
 
     it 'can tokenize dots' do
@@ -835,24 +1216,27 @@ describe Search do
 
     it 'supports category slug and tags' do
       # main category
-      category = Fabricate(:category, name: 'category 24', slug: 'category-24')
+      category = Fabricate(:category_with_definition, name: 'category 24', slug: 'cateGory-24')
       topic = Fabricate(:topic, created_at: 3.months.ago, category: category)
       post = Fabricate(:post, raw: 'Sams first post', topic: topic)
 
-      expect(Search.execute('sams post #category-24').posts.length).to eq(1)
+      expect(Search.execute('sams post #categoRy-24').posts.length).to eq(1)
       expect(Search.execute("sams post category:#{category.id}").posts.length).to eq(1)
-      expect(Search.execute('sams post #category-25').posts.length).to eq(0)
+      expect(Search.execute('sams post #categoRy-25').posts.length).to eq(0)
 
-      sub_category = Fabricate(:category, name: 'sub category', slug: 'sub-category', parent_category_id: category.id)
+      sub_category = Fabricate(:category_with_definition, name: 'sub category', slug: 'sub-category', parent_category_id: category.id)
       second_topic = Fabricate(:topic, created_at: 3.months.ago, category: sub_category)
       Fabricate(:post, raw: 'sams second post', topic: second_topic)
 
-      expect(Search.execute("sams post category:category-24").posts.length).to eq(2)
-      expect(Search.execute("sams post category:=category-24").posts.length).to eq(1)
+      expect(Search.execute("sams post category:categoRY-24").posts.length).to eq(2)
+      expect(Search.execute("sams post category:=cAtegory-24").posts.length).to eq(1)
 
       expect(Search.execute("sams post #category-24").posts.length).to eq(2)
       expect(Search.execute("sams post #=category-24").posts.length).to eq(1)
       expect(Search.execute("sams post #sub-category").posts.length).to eq(1)
+
+      expect(Search.execute("sams post #categoRY-24:SUB-category").posts.length)
+        .to eq(1)
 
       # tags
       topic.tags = [Fabricate(:tag, name: 'alpha'), Fabricate(:tag, name: 'привет'), Fabricate(:tag, name: 'HeLlO')]
@@ -878,19 +1262,39 @@ describe Search do
     end
 
     context 'tags' do
-      let(:tag1) { Fabricate(:tag, name: 'lunch') }
-      let(:tag2) { Fabricate(:tag, name: 'eggs') }
-      let(:tag3) { Fabricate(:tag, name: 'sandwiches') }
-      let(:topic1) { Fabricate(:topic, tags: [tag2, Fabricate(:tag)]) }
-      let(:topic2) { Fabricate(:topic, tags: [tag2]) }
-      let(:topic3) { Fabricate(:topic, tags: [tag1, tag2]) }
-      let(:topic4) { Fabricate(:topic, tags: [tag1, tag2, tag3]) }
-      let(:topic5) { Fabricate(:topic, tags: [tag2, tag3]) }
-      let!(:post1) { Fabricate(:post, topic: topic1) }
-      let!(:post2) { Fabricate(:post, topic: topic2) }
-      let!(:post3) { Fabricate(:post, topic: topic3) }
-      let!(:post4) { Fabricate(:post, topic: topic4) }
-      let!(:post5) { Fabricate(:post, topic: topic5) }
+      fab!(:tag1) { Fabricate(:tag, name: 'lunch') }
+      fab!(:tag2) { Fabricate(:tag, name: 'eggs') }
+      fab!(:tag3) { Fabricate(:tag, name: 'sandwiches') }
+
+      fab!(:tag_group) do
+        group = TagGroup.create!(name: 'mid day')
+        TagGroupMembership.create!(tag_id: tag1.id, tag_group_id: group.id)
+        TagGroupMembership.create!(tag_id: tag3.id, tag_group_id: group.id)
+        group
+      end
+
+      fab!(:topic1) { Fabricate(:topic, tags: [tag2, Fabricate(:tag)]) }
+      fab!(:topic2) { Fabricate(:topic, tags: [tag2]) }
+      fab!(:topic3) { Fabricate(:topic, tags: [tag1, tag2]) }
+      fab!(:topic4) { Fabricate(:topic, tags: [tag1, tag2, tag3]) }
+      fab!(:topic5) { Fabricate(:topic, tags: [tag2, tag3]) }
+
+      def indexed_post(*args)
+        SearchIndexer.enable
+        Fabricate(:post, *args)
+      end
+
+      fab!(:post1) { indexed_post(topic: topic1) }
+      fab!(:post2) { indexed_post(topic: topic2) }
+      fab!(:post3) { indexed_post(topic: topic3) }
+      fab!(:post4) { indexed_post(topic: topic4) }
+      fab!(:post5) { indexed_post(topic: topic5) }
+
+      it 'can find posts by tag group' do
+        expect(Search.execute('#mid-day').posts.map(&:id)).to (
+          contain_exactly(post3.id, post4.id, post5.id)
+        )
+      end
 
       it 'can find posts with tag' do
         post4 = Fabricate(:post, topic: topic3, raw: "It probably doesn't help that they're green...")
@@ -908,8 +1312,6 @@ describe Search do
       end
 
       it 'can find posts with any tag from multiple tags' do
-        Fabricate(:post)
-
         expect(Search.execute('tags:eggs,lunch').posts.map(&:id).sort).to eq([post1.id, post2.id, post3.id, post4.id, post5.id].sort)
       end
 
@@ -930,7 +1332,7 @@ describe Search do
       end
 
       it 'orders posts correctly when combining tags with categories or terms' do
-        cat1 = Fabricate(:category, name: 'food')
+        cat1 = Fabricate(:category_with_definition, name: 'food')
         topic6 = Fabricate(:topic, tags: [tag1, tag2], category: cat1)
         topic7 = Fabricate(:topic, tags: [tag1, tag2, tag3], category: cat1)
         post7 = Fabricate(:post, topic: topic6, raw: "Wakey, wakey, eggs and bakey.", like_count: 5)
@@ -967,14 +1369,14 @@ describe Search do
 
   context '#ts_query' do
     it 'can parse complex strings using ts_query helper' do
-      str = " grigio:babel deprecated? "
+      str = +" grigio:babel deprecated? "
       str << "page page on Atmosphere](https://atmospherejs.com/grigio/babel)xxx: aaa.js:222 aaa'\"bbb"
 
       ts_query = Search.ts_query(term: str, ts_config: "simple")
-      expect { DB.exec("SELECT to_tsvector('bbb') @@ " << ts_query) }.to_not raise_error
+      expect { DB.exec(+"SELECT to_tsvector('bbb') @@ " << ts_query) }.to_not raise_error
 
       ts_query = Search.ts_query(term: "foo.bar/'&baz", ts_config: "simple")
-      expect { DB.exec("SELECT to_tsvector('bbb') @@ " << ts_query) }.to_not raise_error
+      expect { DB.exec(+"SELECT to_tsvector('bbb') @@ " << ts_query) }.to_not raise_error
       expect(ts_query).to include("baz")
     end
   end
@@ -1050,7 +1452,13 @@ describe Search do
       results = Search.execute('title in:title')
       expect(results.posts.length).to eq(1)
 
+      results = Search.execute('title t')
+      expect(results.posts.length).to eq(1)
+
       results = Search.execute('first in:title')
+      expect(results.posts.length).to eq(0)
+
+      results = Search.execute('first t')
       expect(results.posts.length).to eq(0)
     end
 
@@ -1144,6 +1552,34 @@ describe Search do
       expect(results.more_full_page_results).to eq(nil)
     end
 
+  end
+
+  context 'in:tagged' do
+    it 'allows for searching by presence of any tags' do
+      topic = Fabricate(:topic, title: 'I am testing a tagged search')
+      _post = Fabricate(:post, topic: topic, raw: 'this is the first post')
+      tag = Fabricate(:tag)
+      topic_tag = Fabricate(:topic_tag, topic: topic, tag: tag)
+
+      results = Search.execute('in:untagged')
+      expect(results.posts.length).to eq(0)
+
+      results = Search.execute('in:tagged')
+      expect(results.posts.length).to eq(1)
+    end
+  end
+
+  context 'in:untagged' do
+    it 'allows for searching by presence of no tags' do
+      topic = Fabricate(:topic, title: 'I am testing a untagged search')
+      _post = Fabricate(:post, topic: topic, raw: 'this is the first post')
+
+      results = Search.execute('in:untagged')
+      expect(results.posts.length).to eq(1)
+
+      results = Search.execute('in:tagged')
+      expect(results.posts.length).to eq(0)
+    end
   end
 
 end

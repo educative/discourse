@@ -1,4 +1,4 @@
-require_dependency 'report'
+# frozen_string_literal: true
 
 class Admin::ReportsController < Admin::AdminController
   def index
@@ -88,19 +88,11 @@ class Admin::ReportsController < Admin::AdminController
   private
 
   def parse_params(report_params)
-    start_date = (report_params[:start_date].present? ? Time.parse(report_params[:start_date]).to_date : 1.days.ago).beginning_of_day
-    end_date = (report_params[:end_date].present? ? Time.parse(report_params[:end_date]).to_date : start_date + 30.days).end_of_day
-
-    if report_params.has_key?(:category_id) && report_params[:category_id].to_i > 0
-      category_id = report_params[:category_id].to_i
-    else
-      category_id = nil
-    end
-
-    if report_params.has_key?(:group_id) && report_params[:group_id].to_i > 0
-      group_id = report_params[:group_id].to_i
-    else
-      group_id = nil
+    begin
+      start_date = (report_params[:start_date].present? ? Time.parse(report_params[:start_date]).to_date : 1.days.ago).beginning_of_day
+      end_date = (report_params[:end_date].present? ? Time.parse(report_params[:end_date]).to_date : start_date + 30.days).end_of_day
+    rescue ArgumentError => e
+      raise Discourse::InvalidParameters.new(e.message)
     end
 
     facets = nil
@@ -113,11 +105,15 @@ class Admin::ReportsController < Admin::AdminController
       limit = report_params[:limit].to_i
     end
 
+    filters = nil
+    if report_params.has_key?(:filters)
+      filters = report_params[:filters]
+    end
+
     {
       start_date: start_date,
       end_date: end_date,
-      category_id: category_id,
-      group_id: group_id,
+      filters: filters,
       facets: facets,
       limit: limit
     }

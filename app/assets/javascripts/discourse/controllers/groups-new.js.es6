@@ -1,12 +1,13 @@
+import Controller from "@ember/controller";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   saving: null,
 
   actions: {
     save() {
       this.set("saving", true);
-      const group = this.get("model");
+      const group = this.model;
 
       group
         .create()

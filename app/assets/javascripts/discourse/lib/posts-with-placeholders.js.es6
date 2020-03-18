@@ -1,10 +1,11 @@
-import { default as computed } from "ember-addons/ember-computed-decorators";
+import EmberObject from "@ember/object";
+import discourseComputed from "discourse-common/utils/decorators";
 
 export function Placeholder(viewName) {
   this.viewName = viewName;
 }
 
-export default Ember.Object.extend(Ember.Array, {
+export default EmberObject.extend(Ember.Array, {
   posts: null,
   _appendingIds: null,
 
@@ -12,7 +13,7 @@ export default Ember.Object.extend(Ember.Array, {
     this._appendingIds = {};
   },
 
-  @computed
+  @discourseComputed
   length() {
     return (
       this.get("posts.length") + Object.keys(this._appendingIds || {}).length
@@ -53,7 +54,7 @@ export default Ember.Object.extend(Ember.Array, {
         const appendingIds = this._appendingIds;
         postIds.forEach(pid => (appendingIds[pid] = true));
       },
-      this.get("length"),
+      this.length,
       0,
       postIds.length
     );
@@ -76,7 +77,7 @@ export default Ember.Object.extend(Ember.Array, {
   },
 
   objectAt(index) {
-    const posts = this.get("posts");
+    const posts = this.posts;
     return index < posts.length
       ? posts[index]
       : new Placeholder("post-placeholder");

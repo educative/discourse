@@ -1,9 +1,10 @@
-import { on } from "ember-addons/ember-computed-decorators";
-import computed from "ember-addons/ember-computed-decorators";
-const { run, isPresent, makeArray, isEmpty } = Ember;
+import Component from "@ember/component";
+import { computed } from "@ember/object";
+import { makeArray } from "discourse-common/lib/helpers";
+import { guidFor } from "@ember/object/internals";
 import UtilsMixin from "select-kit/mixins/utils";
 
-export default Ember.Component.extend(UtilsMixin, {
+export default Component.extend(UtilsMixin, {
   layoutName: "select-kit/templates/components/select-kit/select-kit-row",
   classNames: ["select-kit-row"],
   tagName: "li",
@@ -11,82 +12,85 @@ export default Ember.Component.extend(UtilsMixin, {
   attributeBindings: [
     "tabIndex",
     "title",
-    "value:data-value",
-    "name:data-name",
+    "rowValue:data-value",
+    "rowName:data-name",
     "ariaLabel:aria-label",
     "guid:data-guid"
   ],
-  classNameBindings: ["isHighlighted", "isSelected"],
+  classNameBindings: [
+    "isHighlighted",
+    "isSelected",
+    "isNone",
+    "isNone:none",
+    "item.classNames"
+  ],
 
-  forceEscape: Ember.computed.alias("options.forceEscape"),
+  isNone: computed("rowValue", function() {
+    return this.rowValue === this.getValue(this.selectKit.noneItem);
+  }),
 
-  ariaLabel: Ember.computed.or("computedContent.ariaLabel", "title"),
+  guid: computed("item", function() {
+    return guidFor(this.item);
+  }),
 
-  @computed("computedContent.title", "name")
-  title(computedContentTitle, name) {
-    if (computedContentTitle) return computedContentTitle;
-    if (name) return name;
+  ariaLabel: computed("item.ariaLabel", "title", function() {
+    return this.getProperty(this.item, "ariaLabel") || this.title;
+  }),
 
-    return null;
-  },
+  title: computed("item.title", "rowName", function() {
+    return this.getProperty(this.item, "title") || this.rowName;
+  }),
 
-  @computed("computedContent")
-  guid(computedContent) {
-    return Ember.guidFor(computedContent);
-  },
-
-  label: Ember.computed.or("computedContent.label", "title", "name"),
-
-  name: Ember.computed.alias("computedContent.name"),
-
-  value: Ember.computed.alias("computedContent.value"),
-
-  @computed("templateForRow")
-  template(templateForRow) {
-    return templateForRow(this);
-  },
-
-  @on("didReceiveAttrs")
-  _setSelectionState() {
-    this.set("isSelected", this.get("computedValue") === this.get("value"));
-    this.set(
-      "isHighlighted",
-      this.get("highlighted.value") === this.get("value")
-    );
-  },
-
-  @on("willDestroyElement")
-  _clearDebounce() {
-    const hoverDebounce = this.get("hoverDebounce");
-    if (isPresent(hoverDebounce)) {
-      run.cancel(hoverDebounce);
+  label: computed("item.label", "title", "rowName", function() {
+    const label =
+      this.getProperty(this.item, "label") || this.title || this.rowName;
+    if (
+      this.selectKit.options.allowAny &&
+      this.rowValue === this.selectKit.filter &&
+      this.getName(this.selectKit.noneItem) !== this.rowName &&
+      this.getName(this.selectKit.newItem) === this.rowName
+    ) {
+      return I18n.t("select_kit.create", { content: label });
     }
+    return label;
+  }),
+
+  didReceiveAttrs() {
+    this._super(...arguments);
+
+    this.setProperties({
+      rowName: this.getName(this.item),
+      rowValue: this.getValue(this.item)
+    });
   },
 
-  @computed(
-    "computedContent.icon",
-    "computedContent.icons",
-    "computedContent.originalContent.icon"
-  )
-  icons(icon, icons, originalIcon) {
-    return makeArray(icon)
-      .concat(icons)
-      .concat(makeArray(originalIcon))
-      .filter(i => !isEmpty(i));
-  },
+  icons: computed("item.{icon,icons}", function() {
+    const icon = makeArray(this.getProperty(this.item, "icon"));
+    const icons = makeArray(this.getProperty(this.item, "icons"));
+    return icon.concat(icons).filter(Boolean);
+  }),
+
+  highlightedValue: computed("selectKit.highlighted", function() {
+    return this.getValue(this.selectKit.highlighted);
+  }),
+
+  isHighlighted: computed("rowValue", "highlightedValue", function() {
+    return this.rowValue === this.highlightedValue;
+  }),
+
+  isSelected: computed("rowValue", "value", function() {
+    return this.rowValue === this.value;
+  }),
 
   mouseEnter() {
-    this.set(
-      "hoverDebounce",
-      run.debounce(this, this._sendMouseoverAction, 32)
-    );
+    if (!this.isDestroying || !this.isDestroyed) {
+      this.selectKit.onHover(this.rowValue, this.item);
+    }
+    return false;
   },
 
   click() {
-    this.onClickRow(this.get("computedContent"));
-  },
-
-  _sendMouseoverAction() {
-    this.onMouseoverRow(this.get("computedContent"));
+    this.selectKit.select(this.rowValue, this.item);
+    return false;
   }
 });

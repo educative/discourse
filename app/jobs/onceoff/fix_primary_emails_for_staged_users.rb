@@ -1,7 +1,7 @@
-require_dependency 'user_destroyer'
+# frozen_string_literal: true
 
 module Jobs
-  class FixPrimaryEmailsForStagedUsers < Jobs::Onceoff
+  class FixPrimaryEmailsForStagedUsers < ::Jobs::Onceoff
     def execute_onceoff(args)
       users = User.where(active: false, staged: true).joins(:email_tokens)
       acting_user = Discourse.system_user

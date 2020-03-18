@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # lightweight Twitter api calls
 class TwitterApi
 
@@ -119,7 +121,7 @@ class TwitterApi
 
     def bearer_token_credentials
       Base64.strict_encode64(
-        "#{URI::encode(consumer_key)}:#{URI::encode(consumer_secret)}"
+        "#{UrlHelper.encode_component(consumer_key)}:#{UrlHelper.encode_component(consumer_secret)}"
       )
     end
 

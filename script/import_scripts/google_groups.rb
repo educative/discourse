@@ -1,27 +1,28 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 
 require "bundler/inline"
 
 gemfile(true) do
   source "https://rubygems.org"
 
-  gem "nokogiri"
-  gem "selenium-webdriver"
+  gem "webdrivers"
+  gem "colored2"
 end
 
 require "fileutils"
-require "nokogiri"
 require "optparse"
-require "selenium-webdriver"
 require "set"
 require "yaml"
 
 DEFAULT_OUTPUT_PATH = "/shared/import/data"
+DEFAULT_COOKIES_TXT = "/shared/import/cookies.txt"
 
 def driver
   @driver ||= begin
-    chrome_args = ["headless", "disable-gpu"]
-    chrome_args << "no-sandbox" << "disable-dev-shm-usage" if inside_container?
+    chrome_args = ["disable-gpu"]
+    chrome_args << "headless" unless ENV["NOT_HEADLESS"] == '1'
+    chrome_args << "no-sandbox" if inside_container?
     options = Selenium::WebDriver::Chrome::Options.new(args: chrome_args)
     Selenium::WebDriver.for(:chrome, options: options)
   end
@@ -62,16 +63,36 @@ def find(css, parent_element = driver)
   begin
     retries ||= 0
     parent_element.find_element(css: css)
-  rescue Net::ReadTimeout, Selenium::WebDriver::Error::ElementNotVisibleError
+  rescue Net::ReadTimeout, Selenium::WebDriver::Error::ElementNotInteractableError
     sleep retries
     retry if (retries += 1) < MAX_FIND_RETRIES
   end
 end
 
+def base_url
+  if @domain.nil?
+    "https://groups.google.com/forum/?_escaped_fragment_=categories"
+  else
+    "https://groups.google.com/a/#{@domain}/forum/?_escaped_fragment_=categories"
+  end
+end
+
 def crawl_categories
   1.step(nil, 100).each do |start|
-    url = "https://groups.google.com/forum/?_escaped_fragment_=categories/#{@groupname}[#{start}-#{start + 99}]"
+    url = "#{base_url}/#{@groupname}[#{start}-#{start + 99}]"
     get(url)
+
+    begin
+      if start == 1 && find("h2").text == "Error 403"
+        exit_with_error(<<~MSG.red.bold)
+          Unable to find topics. Try running the script with the "--domain example.com"
+          option if you are a G Suite user and your group's URL contains a path with
+          your domain that looks like "/a/example.com".
+        MSG
+      end
+    rescue Selenium::WebDriver::Error::NoSuchElementError
+      # Ignore this error. It simply means there wasn't an error.
+    end
 
     topic_urls = extract(".subject a[href*='#{@groupname}']") { |a| a["href"].sub("/d/topic/", "/forum/?_escaped_fragment_=topic/") }
     break if topic_urls.size == 0
@@ -82,7 +103,7 @@ end
 
 def crawl_topic(url)
   if @scraped_topic_urls.include?(url)
-    puts "Skipping #{url}"
+    puts "Skipping".green << " #{url}"
     return
   end
 
@@ -98,8 +119,8 @@ def crawl_topic(url)
 
   @scraped_topic_urls << url
 rescue
-  puts "Failed to scrape topic at #{url}"
-  raise
+  puts "Failed to scrape topic at #{url}".red
+  raise if @abort_on_error
 end
 
 def crawl_message(url, might_be_deleted)
@@ -108,32 +129,73 @@ def crawl_message(url, might_be_deleted)
   filename = File.join(@path, "#{url[/#{@groupname}\/(.+)/, 1].sub("/", "-")}.eml")
   content = find("pre")["innerText"]
 
+  if !@first_message_checked
+    @first_message_checked = true
+
+    if content.match?(/From:.*\.\.\.@.*/i) && !@force_import
+      exit_with_error(<<~MSG.red.bold)
+        It looks like you do not have permissions to see email addresses. Aborting.
+        Use the --force option to import anyway.
+      MSG
+    end
+  end
+
   File.write(filename, content)
 rescue Selenium::WebDriver::Error::NoSuchElementError
-  raise unless might_be_deleted
-  puts "Message might be deleted. Skipping #{url}"
+  if might_be_deleted
+    puts "Message might be deleted. Skipping #{url}"
+  else
+    puts "Failed to scrape message at #{url}".red
+    raise if @abort_on_error
+  end
 rescue
-  puts "Failed to scrape message at #{url}"
-  raise
+  puts "Failed to scrape message at #{url}".red
+  raise if @abort_on_error
 end
 
 def login
   puts "Logging in..."
-  get("https://www.google.com/accounts/Login")
+  get("https://google.com/404")
 
-  sleep(0.5)
+  add_cookies(
+    "myaccount.google.com",
+    "google.com"
+  )
 
-  email_element = find("input[type='email']")
-  driver.action.move_to(email_element)
-  email_element.send_keys(@email)
-  email_element.send_keys("\n")
+  get("https://myaccount.google.com/?utm_source=sign_in_no_continue")
 
-  sleep(2)
+  begin
+    wait_for_url { |url| url.start_with?("https://myaccount.google.com") }
+  rescue Selenium::WebDriver::Error::TimeoutError
+    exit_with_error("Failed to login. Please check the content of your cookies.txt".red.bold)
+  end
+end
 
-  password_element = find("input[type='password']")
-  driver.action.move_to(password_element)
-  password_element.send_keys(@password)
-  password_element.send_keys("\n")
+def add_cookies(*domains)
+  File.readlines(@cookies).each do |line|
+    parts = line.chomp.split("\t")
+    next if parts.size != 7 || !domains.any? { |domain| parts[0] =~ /^\.?#{Regexp.escape(domain)}$/ }
+
+    driver.manage.add_cookie(
+      domain: parts[0],
+      httpOnly: "true".casecmp?(parts[1]),
+      path: parts[2],
+      secure: "true".casecmp?(parts[3]),
+      expires: parts[4] == "0" ? nil : DateTime.strptime(parts[4], "%s"),
+      name: parts[5],
+      value: parts[6]
+    )
+  end
+end
+
+def wait_for_url
+  wait = Selenium::WebDriver::Wait.new(timeout: 5)
+  wait.until { yield(driver.current_url) }
+end
+
+def exit_with_error(*messages)
+  STDERR.puts messages
+  exit 1
 end
 
 def crawl
@@ -156,13 +218,20 @@ end
 def parse_arguments
   puts ""
 
+  # default values
+  @force_import = false
+  @abort_on_error = false
+  @cookies = DEFAULT_COOKIES_TXT if File.exist?(DEFAULT_COOKIES_TXT)
+
   parser = OptionParser.new do |opts|
     opts.banner = "Usage: google_groups.rb [options]"
 
-    opts.on("-e", "--email EMAIL", "email address of group admin or manager") { |v| @email = v }
-    opts.on("-p", "--password PASSWORD", "password of group admin or manager") { |v| @password = v }
     opts.on("-g", "--groupname GROUPNAME") { |v| @groupname = v }
+    opts.on("-d", "--domain DOMAIN") { |v| @domain = v }
+    opts.on("-c", "--cookies PATH", "path to cookies.txt") { |v| @cookies = v }
     opts.on("--path PATH", "output path for emails") { |v| @path = v }
+    opts.on("-f", "--force", "force import when user isn't allowed to see email addresses") { @force_import = true }
+    opts.on("-a", "--abort-on-error", "abort crawl on error instead of skipping message") { @abort_on_error = true }
     opts.on("-h", "--help") do
       puts opts
       exit
@@ -172,17 +241,14 @@ def parse_arguments
   begin
     parser.parse!
   rescue OptionParser::ParseError => e
-    STDERR.puts e.message, "", parser
-    exit 1
+    exit_with_error(e.message, "", parser)
   end
 
-  mandatory = [:email, :password, :groupname]
+  mandatory = [:groupname, :cookies]
   missing = mandatory.select { |name| instance_variable_get("@#{name}").nil? }
 
-  if missing.any?
-    STDERR.puts "Missing arguments: #{missing.join(', ')}", "", parser
-    exit 1
-  end
+  exit_with_error("Missing arguments: #{missing.join(', ')}".red.bold, "", parser, "") if missing.any?
+  exit_with_error("cookies.txt not found at #{@cookies}".red.bold, "") if !File.exist?(@cookies)
 
   @path = File.join(DEFAULT_OUTPUT_PATH, @groupname) if @path.nil?
   FileUtils.mkpath(@path)

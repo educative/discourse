@@ -1,5 +1,3 @@
-import parseHTML from "discourse/helpers/parse-html";
-
 const trimLeft = text => text.replace(/^\s+/, "");
 const trimRight = text => text.replace(/\s+$/, "");
 const countPipes = text => (text.replace(/\\\|/, "").match(/\|/g) || []).length;
@@ -46,7 +44,6 @@ export class Tag {
     return [
       "address",
       "article",
-      "aside",
       "dd",
       "div",
       "dl",
@@ -91,6 +88,7 @@ export class Tag {
       ...Tag.blocks(),
       ...Tag.headings(),
       ...Tag.slices(),
+      "aside",
       "li",
       "td",
       "th",
@@ -102,6 +100,10 @@ export class Tag {
       "tr",
       "ul"
     ];
+  }
+
+  static whitelists() {
+    return ["ins", "del", "small", "big", "kbd", "ruby", "rt", "rb", "rp"];
   }
 
   static block(name, prefix, suffix) {
@@ -120,6 +122,45 @@ export class Tag {
         }
 
         return `${this.gap}${this.prefix}${text}${this.suffix}${this.gap}`;
+      }
+    };
+  }
+
+  static aside() {
+    return class extends Tag.block("aside") {
+      constructor() {
+        super();
+      }
+
+      toMarkdown() {
+        if (!/\bquote\b/.test(this.element.attributes.class)) {
+          return super.toMarkdown();
+        }
+
+        const blockquote = this.element.children.find(
+          child => child.name === "blockquote"
+        );
+
+        if (!blockquote) {
+          return super.toMarkdown();
+        }
+
+        let text = Element.parse([blockquote], this.element) || "";
+        text = text.trim().replace(/^>/g, "");
+        if (text.length === 0) {
+          return "";
+        }
+
+        const username = this.element.attributes["data-username"];
+        const post = this.element.attributes["data-post"];
+        const topic = this.element.attributes["data-topic"];
+
+        const prefix =
+          username && post && topic
+            ? `[quote="${username}, post:${post}, topic:${topic}"]`
+            : "[quote]";
+
+        return `\n\n${prefix}\n${text}\n[/quote]\n\n`;
       }
     };
   }
@@ -151,7 +192,7 @@ export class Tag {
     };
   }
 
-  static keep(name) {
+  static whitelist(name) {
     return class extends Tag {
       constructor() {
         super(name, `<${name}>`, `</${name}>`);
@@ -208,8 +249,16 @@ export class Tag {
           ["lightbox", "d-lazyload"].includes(attr.class) &&
           hasChild(e, "img")
         ) {
+          let href = attr.href;
+          const img = (e.children || []).find(c => c.name === "img");
+          const base62SHA1 = img.attributes["data-base62-sha1"];
           text = attr.title || "";
-          return "![" + text + "](" + attr.href + ")";
+
+          if (base62SHA1) {
+            href = `upload://${base62SHA1}`;
+          }
+
+          return "![" + text + "](" + href + ")";
         }
 
         if (attr.href && text !== attr.href) {
@@ -232,7 +281,9 @@ export class Tag {
         const e = this.element;
         const attr = e.attributes;
         const pAttr = (e.parent && e.parent.attributes) || {};
-        const src = attr.src || pAttr.src;
+        let src = attr.src || pAttr.src;
+        const base62SHA1 = attr["data-base62-sha1"];
+        if (base62SHA1) src = `upload://${base62SHA1}`;
         const cssClass = attr.class || pAttr.class;
 
         if (cssClass && cssClass.includes("emoji")) {
@@ -243,6 +294,7 @@ export class Tag {
           let alt = attr.alt || pAttr.alt || "";
           const width = attr.width || pAttr.width;
           const height = attr.height || pAttr.height;
+          const title = attr.title;
 
           if (width && height) {
             const pipe = this.element.parentNames.includes("table")
@@ -251,7 +303,7 @@ export class Tag {
             alt = `${alt}${pipe}${width}x${height}`;
           }
 
-          return "![" + alt + "](" + src + ")";
+          return `![${alt}](${src}${title ? ` "${title}"` : ""})`;
         }
 
         return "";
@@ -312,7 +364,8 @@ export class Tag {
         if (msoListClasses.includes(attrs.class)) {
           try {
             const level = parseInt(
-              attrs.style.match(/level./)[0].replace("level", "")
+              attrs.style.match(/level./)[0].replace("level", ""),
+              10
             );
             indent = Array(level).join("\t") + indent;
           } finally {
@@ -439,7 +492,7 @@ export class Tag {
         const bullet = text.match(/\n\t*\*/)[0];
 
         for (
-          let i = parseInt(this.element.attributes.start || 1);
+          let i = parseInt(this.element.attributes.start || 1, 10);
           text.includes(bullet);
           i++
         ) {
@@ -469,16 +522,13 @@ function tags() {
     ...Tag.headings().map((h, i) => Tag.heading(h, i + 1)),
     ...Tag.slices().map(s => Tag.slice(s, "\n")),
     ...Tag.emphases().map(e => Tag.emphasis(e[0], e[1])),
+    ...Tag.whitelists().map(t => Tag.whitelist(t)),
+    Tag.aside(),
     Tag.cell("td"),
     Tag.cell("th"),
     Tag.replace("br", "\n"),
     Tag.replace("hr", "\n---\n"),
     Tag.replace("head", ""),
-    Tag.keep("ins"),
-    Tag.keep("del"),
-    Tag.keep("small"),
-    Tag.keep("big"),
-    Tag.keep("kbd"),
     Tag.li(),
     Tag.link(),
     Tag.image(),
@@ -495,10 +545,9 @@ function tags() {
 class Element {
   constructor(element, parent, previous, next) {
     this.name = element.name;
-    this.type = element.type;
     this.data = element.data;
     this.children = element.children;
-    this.attributes = element.attributes || {};
+    this.attributes = element.attributes;
 
     if (parent) {
       this.parent = parent;
@@ -554,14 +603,7 @@ class Element {
   }
 
   toMarkdown() {
-    switch (this.type) {
-      case "text":
-        return this.text();
-        break;
-      case "tag":
-        return this.tag().toMarkdown();
-        break;
-    }
+    return this.name === "#text" ? this.text() : this.tag().toMarkdown();
   }
 
   filterParentNames(names) {
@@ -628,7 +670,42 @@ function putPlaceholders(html) {
     match = codeRegEx.exec(origHtml);
   }
 
-  const elements = parseHTML(trimUnwanted(html));
+  const transformNode = node => {
+    if (node.nodeName !== "#text" && node.length !== undefined) {
+      const ret = [];
+      for (let i = 0; i < node.length; ++i) {
+        if (node[i].nodeName !== "#comment") {
+          ret.push(transformNode(node[i]));
+        }
+      }
+      return ret;
+    }
+
+    const ret = {
+      name: node.nodeName.toLowerCase(),
+      data: node.data,
+      children: [],
+      attributes: {}
+    };
+
+    if (node.nodeName === "#text") {
+      return ret;
+    }
+
+    for (let i = 0; i < node.childNodes.length; ++i) {
+      if (node.childNodes[i].nodeName !== "#comment") {
+        ret.children.push(transformNode(node.childNodes[i]));
+      }
+    }
+
+    for (let i = 0; i < node.attributes.length; ++i) {
+      ret.attributes[node.attributes[i].name] = node.attributes[i].value;
+    }
+
+    return ret;
+  };
+
+  const elements = transformNode($.parseHTML(trimUnwanted(html)));
   return { elements, placeholders };
 }
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 if ARGV.include?('bbcode-to-md')
   # Replace (most) bbcode with markdown before creating posts.
   # This will dramatically clean up the final posts in Discourse.
@@ -27,7 +29,7 @@ class BulkImport::Base
   NOW ||= "now()".freeze
   PRIVATE_OFFSET ||= 2**30
 
-  # rubocop:disable Layout/AlignHash
+  # rubocop:disable Layout/HashAlignment
 
   CHARSET_MAP = {
     "armscii8" => nil,
@@ -68,7 +70,7 @@ class BulkImport::Base
     "utf8"     => Encoding::UTF_8,
   }
 
-  # rubocop:enable Layout/AlignHash
+  # rubocop:enable Layout/HashAlignment
 
   def initialize
     charset = ENV["DB_CHARSET"] || "utf8"
@@ -103,7 +105,7 @@ class BulkImport::Base
 
   def preload_i18n
     puts "Preloading I18n..."
-    I18n.locale = ENV.fetch("LOCALE") { "en" }.to_sym
+    I18n.locale = ENV.fetch("LOCALE") { SiteSettings::DefaultsProvider::DEFAULT_LOCALE }.to_sym
     I18n.t("test")
     ActiveSupport::Inflector.transliterate("test")
   end
@@ -300,14 +302,6 @@ class BulkImport::Base
         record_id: @imported_usernames[username],
         value: username,
       }
-    end
-  end
-
-  def create_categories(rows, &block)
-    create_records(rows, "category", CATEGORY_COLUMNS, &block)
-
-    Category.where(topic_id: nil).each do |c|
-      c.create_category_definition
     end
   end
 
@@ -784,7 +778,7 @@ class BulkImport::Base
 
   def normalize_charset(text)
     return text if @encoding == Encoding::UTF_8
-    return text && text.encode(@encoding).force_encoding(Encoding::UTF_8)
+    text && text.encode(@encoding).force_encoding(Encoding::UTF_8)
   end
 
 end

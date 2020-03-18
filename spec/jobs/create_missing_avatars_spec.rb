@@ -1,6 +1,6 @@
-require 'rails_helper'
+# frozen_string_literal: true
 
-require_dependency 'jobs/scheduled/create_missing_avatars'
+require 'rails_helper'
 
 describe Jobs::CreateMissingAvatars do
   it "runs correctly without crashing" do

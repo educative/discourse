@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'open-uri'
 
 class Typepad < Thor
@@ -12,7 +14,7 @@ class Typepad < Thor
 
     backup_settings = {}
     %w(email_domains_blacklist).each do |s|
-      backup_settings[s] = SiteSetting.send(s)
+      backup_settings[s] = SiteSetting.get(s)
     end
 
     user = User.where(username_lower: options[:post_as].downcase).first
@@ -26,7 +28,6 @@ class Typepad < Thor
       exit 1
     end
 
-    inside_block = true
     input = ""
 
     entries = []
@@ -103,7 +104,7 @@ class Typepad < Thor
   ensure
     RateLimiter.enable
     backup_settings.each do |s, v|
-      SiteSetting.send("#{s}=", v)
+      SiteSetting.set(s, v)
     end
   end
 
@@ -160,11 +161,11 @@ class Typepad < Thor
 
         if options[:google_api] && comment[:author] =~ /plus.google.com\/(\d+)/
           gplus_id = Regexp.last_match[1]
-          from_redis = $redis.get("gplus:#{gplus_id}")
+          from_redis = Discourse.redis.get("gplus:#{gplus_id}")
           if from_redis.blank?
             json = ::JSON.parse(open("https://www.googleapis.com/plus/v1/people/#{gplus_id}?key=#{options[:google_api]}").read)
             from_redis = json['displayName']
-            $redis.set("gplus:#{gplus_id}", from_redis)
+            Discourse.redis.set("gplus:#{gplus_id}", from_redis)
           end
           comment[:author] = from_redis
         end
@@ -183,11 +184,11 @@ class Typepad < Thor
 
         if comment[:author] =~ /www.facebook.com\/profile.php\?id=(\d+)/
           fb_id = Regexp.last_match[1]
-          from_redis = $redis.get("fb:#{fb_id}")
+          from_redis = Discourse.redis.get("fb:#{fb_id}")
           if from_redis.blank?
             json = ::JSON.parse(open("http://graph.facebook.com/#{fb_id}").read)
             from_redis = json['username']
-            $redis.set("fb:#{fb_id}", from_redis)
+            Discourse.redis.set("fb:#{fb_id}", from_redis)
           end
           comment[:author] = from_redis
         end

@@ -1,15 +1,35 @@
+import { notEmpty } from "@ember/object/computed";
+import EmberObject from "@ember/object";
 import { ajax } from "discourse/lib/ajax";
 import RestModel from "discourse/models/rest";
-import Model from "discourse/models/model";
+import { getOwner } from "discourse-common/lib/get-owner";
+import { Promise } from "rsvp";
+import Category from "discourse/models/category";
+import Session from "discourse/models/session";
+import { isEmpty } from "@ember/utils";
+import User from "discourse/models/user";
+
+function extractByKey(collection, klass) {
+  const retval = {};
+  if (isEmpty(collection)) {
+    return retval;
+  }
+
+  collection.forEach(function(item) {
+    retval[item.id] = klass.create(item);
+  });
+  return retval;
+}
 
 // Whether to show the category badge in topic lists
 function displayCategoryInList(site, category) {
   if (category) {
-    if (category.get("has_children")) {
+    if (category.has_children) {
       return true;
     }
-    let draftCategoryId = site.get("shared_drafts_category_id");
-    if (draftCategoryId && category.get("id") === draftCategoryId) {
+
+    const draftCategoryId = site.shared_drafts_category_id;
+    if (draftCategoryId && category.id === draftCategoryId) {
       return true;
     }
 
@@ -20,12 +40,12 @@ function displayCategoryInList(site, category) {
 }
 
 const TopicList = RestModel.extend({
-  canLoadMore: Ember.computed.notEmpty("more_topics_url"),
+  canLoadMore: notEmpty("more_topics_url"),
 
   forEachNew(topics, callback) {
     const topicIds = [];
 
-    this.get("topics").forEach(topic => (topicIds[topic.get("id")] = true));
+    this.topics.forEach(topic => (topicIds[topic.id] = true));
 
     topics.forEach(topic => {
       if (!topicIds[topic.id]) {
@@ -35,7 +55,7 @@ const TopicList = RestModel.extend({
   },
 
   refreshSort(order, ascending) {
-    let params = this.get("params") || {};
+    let params = this.params || {};
 
     if (params.q) {
       // search is unique, nothing else allowed with it
@@ -49,11 +69,11 @@ const TopicList = RestModel.extend({
   },
 
   loadMore() {
-    if (this.get("loadingMore")) {
-      return Ember.RSVP.resolve();
+    if (this.loadingMore) {
+      return Promise.resolve();
     }
 
-    let moreUrl = this.get("more_topics_url");
+    let moreUrl = this.more_topics_url;
     if (moreUrl) {
       let [url, params] = moreUrl.split("?");
 
@@ -68,84 +88,76 @@ const TopicList = RestModel.extend({
         moreUrl += "?" + params;
       }
 
-      const self = this;
       this.set("loadingMore", true);
 
-      const store = this.store;
-      return ajax({ url: moreUrl }).then(function(result) {
+      return ajax({ url: moreUrl }).then(result => {
         let topicsAdded = 0;
 
         if (result) {
           // the new topics loaded from the server
-          const newTopics = TopicList.topicsFrom(store, result);
-          const topics = self.get("topics");
+          const newTopics = TopicList.topicsFrom(this.store, result);
 
-          self.forEachNew(newTopics, function(t) {
+          this.forEachNew(newTopics, t => {
             t.set("highlight", topicsAdded++ === 0);
-            topics.pushObject(t);
+            this.topics.pushObject(t);
           });
 
-          self.setProperties({
+          this.setProperties({
             loadingMore: false,
             more_topics_url: result.topic_list.more_topics_url
           });
 
-          Discourse.Session.currentProp("topicList", self);
-          return self.get("more_topics_url");
+          Session.currentProp("topicList", this);
+          return this.more_topics_url;
         }
       });
     } else {
       // Return a promise indicating no more results
-      return Ember.RSVP.resolve();
+      return Promise.resolve();
     }
   },
 
   // loads topics with these ids "before" the current topics
   loadBefore(topic_ids, storeInSession) {
-    const topicList = this,
-      topics = this.get("topics");
-
     // refresh dupes
-    topics.removeObjects(
-      topics.filter(topic => topic_ids.indexOf(topic.get("id")) >= 0)
+    this.topics.removeObjects(
+      this.topics.filter(topic => topic_ids.indexOf(topic.id) >= 0)
     );
 
-    const url = `${Discourse.getURL("/")}${this.get(
-      "filter"
-    )}.json?topic_ids=${topic_ids.join(",")}`;
-    const store = this.store;
+    const url = `${Discourse.getURL("/")}${
+      this.filter
+    }.json?topic_ids=${topic_ids.join(",")}`;
 
-    return ajax({ url, data: this.get("params") }).then(result => {
+    return ajax({ url, data: this.params }).then(result => {
       let i = 0;
-      topicList.forEachNew(TopicList.topicsFrom(store, result), function(t) {
+      this.forEachNew(TopicList.topicsFrom(this.store, result), t => {
         // highlight the first of the new topics so we can get a visual feedback
         t.set("highlight", true);
-        topics.insertAt(i, t);
+        this.topics.insertAt(i, t);
         i++;
       });
-      if (storeInSession) Discourse.Session.currentProp("topicList", topicList);
+
+      if (storeInSession) Session.currentProp("topicList", this);
     });
   }
 });
 
 TopicList.reopenClass({
   topicsFrom(store, result, opts) {
-    if (!result) {
-      return;
-    }
+    if (!result) return;
 
     opts = opts || {};
     let listKey = opts.listKey || "topics";
 
     // Stitch together our side loaded data
 
-    const categories = Discourse.Category.list(),
-      users = Model.extractByKey(result.users, Discourse.User),
-      groups = Model.extractByKey(result.primary_groups, Ember.Object);
+    const categories = Category.list(),
+      users = extractByKey(result.users, User),
+      groups = extractByKey(result.primary_groups, EmberObject);
 
-    return result.topic_list[listKey].map(function(t) {
+    return result.topic_list[listKey].map(t => {
       t.category = categories.findBy("id", t.category_id);
-      t.posters.forEach(function(p) {
+      t.posters.forEach(p => {
         p.user = users[p.user_id];
         p.extraClasses = p.extras;
         if (p.primary_group_id) {
@@ -157,11 +169,11 @@ TopicList.reopenClass({
           }
         }
       });
+
       if (t.participants) {
-        t.participants.forEach(function(p) {
-          p.user = users[p.user_id];
-        });
+        t.participants.forEach(p => (p.user = users[p.user_id]));
       }
+
       return store.createRecord("topic", t);
     });
   },
@@ -188,7 +200,7 @@ TopicList.reopenClass({
   },
 
   find(filter, params) {
-    const store = Discourse.__container__.lookup("service:store");
+    const store = getOwner(this).lookup("service:store");
     return store.findFiltered("topicList", { filter, params });
   },
 

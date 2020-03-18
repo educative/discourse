@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class UserUpdater
 
   CATEGORY_IDS = {
@@ -15,16 +17,15 @@ class UserUpdater
   }
 
   OPTION_ATTR = [
-    :email_always,
     :mailing_list_mode,
     :mailing_list_mode_frequency,
     :email_digests,
-    :email_direct,
-    :email_private_messages,
+    :email_level,
+    :email_messages_level,
     :external_links_in_new_tab,
     :enable_quoting,
+    :enable_defer,
     :dynamic_favicon,
-    :disable_jump_reply,
     :automatically_unpin_topics,
     :digest_after_minutes,
     :new_topic_duration_minutes,
@@ -38,7 +39,9 @@ class UserUpdater
     :allow_private_messages,
     :homepage_id,
     :hide_profile_and_presence,
-    :text_size
+    :text_size,
+    :title_count_mode,
+    :timezone
   ]
 
   def initialize(actor, user)
@@ -55,8 +58,18 @@ class UserUpdater
     unless SiteSetting.enable_sso && SiteSetting.sso_overrides_bio
       user_profile.bio_raw = attributes.fetch(:bio_raw) { user_profile.bio_raw }
     end
-    user_profile.profile_background = attributes.fetch(:profile_background) { user_profile.profile_background }
-    user_profile.card_background = attributes.fetch(:card_background) { user_profile.card_background }
+
+    if attributes[:profile_background_upload_url] == ""
+      user_profile.profile_background_upload_id = nil
+    elsif upload = Upload.get_from_url(attributes[:profile_background_upload_url])
+      user_profile.profile_background_upload_id = upload.id
+    end
+
+    if attributes[:card_background_upload_url] == ""
+      user_profile.card_background_upload_id = nil
+    elsif upload = Upload.get_from_url(attributes[:card_background_upload_url])
+      user_profile.card_background_upload_id = upload.id
+    end
 
     old_user_name = user.name.present? ? user.name : ""
     user.name = attributes.fetch(:name) { user.name }
@@ -68,6 +81,19 @@ class UserUpdater
       attributes[:title] != user.title &&
       guardian.can_grant_title?(user, attributes[:title])
       user.title = attributes[:title]
+    end
+
+    if SiteSetting.user_selected_primary_groups &&
+      attributes[:primary_group_id] &&
+      attributes[:primary_group_id] != user.primary_group_id &&
+      guardian.can_use_primary_group?(user, attributes[:primary_group_id])
+
+      user.primary_group_id = attributes[:primary_group_id]
+    elsif SiteSetting.user_selected_primary_groups &&
+      attributes[:primary_group_id] &&
+      attributes[:primary_group_id].blank?
+
+      user.primary_group_id = nil
     end
 
     CATEGORY_IDS.each do |attribute, level|
@@ -104,11 +130,11 @@ class UserUpdater
       if attributes.key?(attribute)
         save_options = true
 
-        if [true, false].include?(user.user_option.send(attribute))
+        if [true, false].include?(user.user_option.public_send(attribute))
           val = attributes[attribute].to_s == 'true'
-          user.user_option.send("#{attribute}=", val)
+          user.user_option.public_send("#{attribute}=", val)
         else
-          user.user_option.send("#{attribute}=", attributes[attribute])
+          user.user_option.public_send("#{attribute}=", attributes[attribute])
         end
       end
     end
@@ -126,6 +152,10 @@ class UserUpdater
     User.transaction do
       if attributes.key?(:muted_usernames)
         update_muted_users(attributes[:muted_usernames])
+      end
+
+      if attributes.key?(:ignored_usernames)
+        update_ignored_users(attributes[:ignored_usernames])
       end
 
       name_changed = user.name_changed?
@@ -146,7 +176,8 @@ class UserUpdater
 
   def update_muted_users(usernames)
     usernames ||= ""
-    desired_ids = User.where(username: usernames.split(",")).pluck(:id)
+    desired_usernames = usernames.split(",").reject { |username| user.username == username }
+    desired_ids = User.where(username: desired_usernames).pluck(:id)
     if desired_ids.empty?
       MutedUser.where(user_id: user.id).destroy_all
     else
@@ -157,13 +188,30 @@ class UserUpdater
         INSERT into muted_users(user_id, muted_user_id, created_at, updated_at)
         SELECT :user_id, id, :now, :now
         FROM users
-        WHERE
-          id in (:desired_ids) AND
-          id NOT IN (
-            SELECT muted_user_id
-            FROM muted_users
-            WHERE user_id = :user_id
-          )
+        WHERE id in (:desired_ids)
+        ON CONFLICT DO NOTHING
+      SQL
+    end
+  end
+
+  def update_ignored_users(usernames)
+    return unless guardian.can_ignore_users?
+
+    usernames ||= ""
+    desired_usernames = usernames.split(",").reject { |username| user.username == username }
+    desired_ids = User.where(username: desired_usernames).where(admin: false, moderator: false).pluck(:id)
+    if desired_ids.empty?
+      IgnoredUser.where(user_id: user.id).destroy_all
+    else
+      IgnoredUser.where('user_id = ? AND ignored_user_id not in (?)', user.id, desired_ids).destroy_all
+
+      # SQL is easier here than figuring out how to do the same in AR
+      DB.exec(<<~SQL, now: Time.now, user_id: user.id, desired_ids: desired_ids)
+        INSERT into ignored_users(user_id, ignored_user_id, created_at, updated_at)
+        SELECT :user_id, id, :now, :now
+        FROM users
+        WHERE id in (:desired_ids)
+        ON CONFLICT DO NOTHING
       SQL
     end
   end

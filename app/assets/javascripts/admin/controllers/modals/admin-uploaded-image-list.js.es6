@@ -1,7 +1,8 @@
-import { on, observes } from "ember-addons/ember-computed-decorators";
+import Controller from "@ember/controller";
+import { on, observes } from "discourse-common/utils/decorators";
 import ModalFunctionality from "discourse/mixins/modal-functionality";
 
-export default Ember.Controller.extend(ModalFunctionality, {
+export default Controller.extend(ModalFunctionality, {
   @on("init")
   @observes("model.value")
   _setup() {
@@ -11,15 +12,15 @@ export default Ember.Controller.extend(ModalFunctionality, {
 
   actions: {
     uploadDone({ url }) {
-      this.get("images").addObject(url);
+      this.images.addObject(url);
     },
 
     remove(url) {
-      this.get("images").removeObject(url);
+      this.images.removeObject(url);
     },
 
     close() {
-      this.save(this.get("images").join("\n"));
+      this.save(this.images.join("\n"));
       this.send("closeModal");
     }
   }

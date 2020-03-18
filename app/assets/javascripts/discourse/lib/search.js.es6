@@ -1,9 +1,12 @@
+import { isEmpty } from "@ember/utils";
+import EmberObject from "@ember/object";
 import { ajax } from "discourse/lib/ajax";
 import { findRawTemplate } from "discourse/lib/raw-templates";
 import Category from "discourse/models/category";
 import { search as searchCategoryTag } from "discourse/lib/category-tag-search";
 import userSearch from "discourse/lib/user-search";
 import { userPath } from "discourse/lib/url";
+import { emojiUnescape } from "discourse/lib/text";
 import User from "discourse/models/user";
 import Post from "discourse/models/post";
 import Topic from "discourse/models/topic";
@@ -16,6 +19,7 @@ export function translateResults(results, opts) {
   results.posts = results.posts || [];
   results.categories = results.categories || [];
   results.tags = results.tags || [];
+  results.groups = results.groups || [];
 
   const topicMap = {};
   results.topics = results.topics.map(function(topic) {
@@ -30,6 +34,7 @@ export function translateResults(results, opts) {
     }
     post = Post.create(post);
     post.set("topic", topicMap[post.topic_id]);
+    post.blurb = emojiUnescape(post.blurb);
     return post;
   });
 
@@ -43,12 +48,38 @@ export function translateResults(results, opts) {
     })
     .compact();
 
+  results.groups = results.groups
+    .map(group => {
+      const name = Handlebars.Utils.escapeExpression(group.name);
+      const fullName = Handlebars.Utils.escapeExpression(
+        group.full_name || group.display_name
+      );
+      const flairUrl = isEmpty(group.flair_url)
+        ? null
+        : Handlebars.Utils.escapeExpression(group.flair_url);
+      const flairColor = Handlebars.Utils.escapeExpression(group.flair_color);
+      const flairBgColor = Handlebars.Utils.escapeExpression(
+        group.flair_bg_color
+      );
+
+      return {
+        id: group.id,
+        flairUrl,
+        flairColor,
+        flairBgColor,
+        fullName,
+        name,
+        url: Discourse.getURL(`/g/${name}`)
+      };
+    })
+    .compact();
+
   results.tags = results.tags
     .map(function(tag) {
       const tagName = Handlebars.Utils.escapeExpression(tag.name);
-      return Ember.Object.create({
+      return EmberObject.create({
         id: tagName,
-        url: Discourse.getURL("/tags/" + tagName)
+        url: Discourse.getURL("/tag/" + tagName)
       });
     })
     .compact();
@@ -60,9 +91,10 @@ export function translateResults(results, opts) {
   if (groupedSearchResult) {
     [
       ["topic", "posts"],
+      ["user", "users"],
+      ["group", "groups"],
       ["category", "categories"],
-      ["tag", "tags"],
-      ["user", "users"]
+      ["tag", "tags"]
     ].forEach(function(pair) {
       const type = pair[0];
       const name = pair[1];
@@ -97,7 +129,7 @@ export function translateResults(results, opts) {
     !results.categories.length
   );
 
-  return noResults ? null : Ember.Object.create(results);
+  return noResults ? null : EmberObject.create(results);
 }
 
 export function searchForTerm(term, opts) {
@@ -113,7 +145,8 @@ export function searchForTerm(term, opts) {
   if (opts.searchContext) {
     data.search_context = {
       type: opts.searchContext.type,
-      id: opts.searchContext.id
+      id: opts.searchContext.id,
+      name: opts.searchContext.name
     };
   }
 
@@ -135,6 +168,8 @@ export function searchContextDescription(type, name) {
         return I18n.t("search.context.user", { username: name });
       case "category":
         return I18n.t("search.context.category", { category: name });
+      case "tag":
+        return I18n.t("search.context.tag", { tag: name });
       case "private_messages":
         return I18n.t("search.context.private_messages");
     }

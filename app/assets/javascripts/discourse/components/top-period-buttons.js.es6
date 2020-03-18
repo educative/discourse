@@ -1,10 +1,13 @@
-export default Ember.Component.extend({
+import discourseComputed from "discourse-common/utils/decorators";
+import Component from "@ember/component";
+
+export default Component.extend({
   classNames: ["top-title-buttons"],
 
-  periods: function() {
-    const period = this.get("period");
+  @discourseComputed("period")
+  periods(period) {
     return this.site.get("periods").filter(p => p !== period);
-  }.property("period"),
+  },
 
   actions: {
     changePeriod(p) {

@@ -1,4 +1,4 @@
-require_dependency 'upload_creator'
+# frozen_string_literal: true
 
 class Admin::EmojisController < Admin::AdminController
 

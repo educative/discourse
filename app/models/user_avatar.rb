@@ -1,5 +1,4 @@
-require_dependency 'letter_avatar'
-require_dependency 'upload_creator'
+# frozen_string_literal: true
 
 class UserAvatar < ActiveRecord::Base
   belongs_to :user
@@ -16,6 +15,10 @@ class UserAvatar < ActiveRecord::Base
         self.update!(last_gravatar_download_attempt: Time.now)
 
         max = Discourse.avatar_sizes.max
+
+        # The user could be deleted before this executes
+        return if user.blank? || user.primary_email.blank?
+
         email_hash = user_id == Discourse::SYSTEM_USER_ID ? User.email_hash("info@discourse.org") : user.email_hash
         gravatar_url = "https://www.gravatar.com/avatar/#{email_hash}.png?s=#{max}&d=404"
 
@@ -37,7 +40,8 @@ class UserAvatar < ActiveRecord::Base
             tempfile,
             "gravatar#{ext}",
             origin: gravatar_url,
-            type: "avatar"
+            type: "avatar",
+            for_gravatar: true
           ).create_for(user_id)
 
           if gravatar_upload_id != upload.id

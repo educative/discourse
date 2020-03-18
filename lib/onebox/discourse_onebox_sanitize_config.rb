@@ -1,9 +1,13 @@
-class Sanitize
-  module Config
+# frozen_string_literal: true
 
-    DISCOURSE_ONEBOX ||= freeze_config merge(ONEBOX,
-      attributes: merge(ONEBOX[:attributes], 'aside' => [:data])
-    )
-
+module Onebox
+  class DiscourseOneboxSanitizeConfig
+    module Config
+      DISCOURSE_ONEBOX ||=
+        Sanitize::Config.freeze_config(
+          Sanitize::Config.merge(Sanitize::Config::ONEBOX,
+                                 attributes: Sanitize::Config.merge(Sanitize::Config::ONEBOX[:attributes],
+                                                                    'aside' => [:data])))
+    end
   end
 end

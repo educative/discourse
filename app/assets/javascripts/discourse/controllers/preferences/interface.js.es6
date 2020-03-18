@@ -1,16 +1,20 @@
+import { inject } from "@ember/controller";
+import Controller from "@ember/controller";
 import PreferencesTabController from "discourse/mixins/preferences-tab-controller";
 import { setDefaultHomepage } from "discourse/lib/utilities";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
 import {
-  default as computed,
-  observes
-} from "ember-addons/ember-computed-decorators";
-import {
-  currentThemeId,
   listThemes,
   previewTheme,
   setLocalTheme
 } from "discourse/lib/theme-selector";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import {
+  safariHacksDisabled,
+  isiPad,
+  iOSWithVisualViewport
+} from "discourse/lib/utilities";
+import { computed } from "@ember/object";
 
 const USER_HOMES = {
   1: "latest",
@@ -21,21 +25,23 @@ const USER_HOMES = {
 };
 
 const TEXT_SIZES = ["smaller", "normal", "larger", "largest"];
+const TITLE_COUNT_MODES = ["notifications", "contextual"];
 
-export default Ember.Controller.extend(PreferencesTabController, {
-  @computed("makeThemeDefault")
+export default Controller.extend(PreferencesTabController, {
+  @discourseComputed("makeThemeDefault")
   saveAttrNames(makeDefault) {
     let attrs = [
       "locale",
       "external_links_in_new_tab",
       "dynamic_favicon",
       "enable_quoting",
-      "disable_jump_reply",
+      "enable_defer",
       "automatically_unpin_topics",
       "allow_private_messages",
       "homepage_id",
       "hide_profile_and_presence",
-      "text_size"
+      "text_size",
+      "title_count_mode"
     ];
 
     if (makeDefault) {
@@ -45,40 +51,74 @@ export default Ember.Controller.extend(PreferencesTabController, {
     return attrs;
   },
 
-  preferencesController: Ember.inject.controller("preferences"),
-  makeThemeDefault: true,
-  makeTextSizeDefault: true,
+  preferencesController: inject("preferences"),
 
-  @computed()
+  @discourseComputed()
+  isiPad() {
+    // TODO: remove this preference checkbox when iOS adoption > 90%
+    // (currently only applies to iOS 12 and below)
+    return isiPad() && !iOSWithVisualViewport();
+  },
+
+  @discourseComputed()
+  disableSafariHacks() {
+    return safariHacksDisabled();
+  },
+
+  @discourseComputed()
   availableLocales() {
     return JSON.parse(this.siteSettings.available_locales);
   },
 
-  @computed()
-  themeId() {
-    return currentThemeId();
-  },
-
-  @computed
+  @discourseComputed
   textSizes() {
     return TEXT_SIZES.map(value => {
       return { name: I18n.t(`user.text_size.${value}`), value };
     });
   },
 
-  userSelectableThemes: function() {
-    return listThemes(this.site);
-  }.property(),
+  homepageId: computed(
+    "model.user_option.homepage_id",
+    "userSelectableHome.[]",
+    function() {
+      return (
+        this.model.user_option.homepage_id ||
+        this.userSelectableHome.firstObject.value
+      );
+    }
+  ),
 
-  @computed("userSelectableThemes")
+  @discourseComputed
+  titleCountModes() {
+    return TITLE_COUNT_MODES.map(value => {
+      return { name: I18n.t(`user.title_count_mode.${value}`), value };
+    });
+  },
+
+  @discourseComputed
+  userSelectableThemes() {
+    return listThemes(this.site);
+  },
+
+  @discourseComputed("userSelectableThemes")
   showThemeSelector(themes) {
     return themes && themes.length > 1;
   },
 
   @observes("themeId")
   themeIdChanged() {
-    const id = this.get("themeId");
+    const id = this.themeId;
     previewTheme([id]);
+  },
+
+  @discourseComputed("model.user_option.theme_ids", "themeId")
+  showThemeSetDefault(userOptionThemes, selectedTheme) {
+    return !userOptionThemes || userOptionThemes[0] !== selectedTheme;
+  },
+
+  @discourseComputed("model.user_option.text_size", "textSize")
+  showTextSetDefault(userOptionTextSize, selectedTextSize) {
+    return userOptionTextSize !== selectedTextSize;
   },
 
   homeChanged() {
@@ -88,9 +128,13 @@ export default Ember.Controller.extend(PreferencesTabController, {
     setDefaultHomepage(userHome || siteHome);
   },
 
-  @computed()
+  @discourseComputed()
   userSelectableHome() {
-    let homeValues = _.invert(USER_HOMES);
+    let homeValues = {};
+    Object.keys(USER_HOMES).forEach(newValue => {
+      const newKey = USER_HOMES[newValue];
+      homeValues[newKey] = newValue;
+    });
 
     let result = [];
     this.siteSettings.top_menu.split("|").forEach(m => {
@@ -105,32 +149,46 @@ export default Ember.Controller.extend(PreferencesTabController, {
   actions: {
     save() {
       this.set("saved", false);
-      const makeThemeDefault = this.get("makeThemeDefault");
+      const makeThemeDefault = this.makeThemeDefault;
       if (makeThemeDefault) {
-        this.set("model.user_option.theme_ids", [this.get("themeId")]);
+        this.set("model.user_option.theme_ids", [this.themeId]);
       }
 
-      const makeTextSizeDefault = this.get("makeTextSizeDefault");
+      const makeTextSizeDefault = this.makeTextSizeDefault;
       if (makeTextSizeDefault) {
-        this.set("model.user_option.text_size", this.get("textSize"));
+        this.set("model.user_option.text_size", this.textSize);
       }
 
-      return this.get("model")
-        .save(this.get("saveAttrNames"))
+      return this.model
+        .save(this.saveAttrNames)
         .then(() => {
           this.set("saved", true);
 
-          if (!makeThemeDefault) {
+          if (makeThemeDefault) {
+            setLocalTheme([]);
+          } else {
             setLocalTheme(
-              [this.get("themeId")],
+              [this.themeId],
               this.get("model.user_option.theme_key_seq")
             );
           }
-          if (!makeTextSizeDefault) {
-            this.get("model").updateTextSizeCookie(this.get("textSize"));
+          if (makeTextSizeDefault) {
+            this.model.updateTextSizeCookie(null);
+          } else {
+            this.model.updateTextSizeCookie(this.textSize);
           }
 
           this.homeChanged();
+
+          if (this.isiPad) {
+            if (safariHacksDisabled() !== this.disableSafariHacks) {
+              Discourse.set("assetVersion", "forceRefresh");
+            }
+            localStorage.setItem(
+              "safari-hacks-disabled",
+              this.disableSafariHacks.toString()
+            );
+          }
         })
         .catch(popupAjaxError);
     },
@@ -149,6 +207,8 @@ export default Ember.Controller.extend(PreferencesTabController, {
 
       // Force refresh when leaving this screen
       Discourse.set("assetVersion", "forceRefresh");
+
+      this.set("textSize", newSize);
     }
   }
 });

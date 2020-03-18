@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class MigrateTaggingPlugin < Jobs::Onceoff
+  class MigrateTaggingPlugin < ::Jobs::Onceoff
 
     def execute_onceoff(args)
       all_tags = TopicCustomField.where(name: "tags").select('DISTINCT value').all.map(&:value)

@@ -5,7 +5,7 @@ acceptance("Tags intersection", {
   site: { can_tag_topics: true },
   settings: { tagging_enabled: true },
   pretend(server, helper) {
-    server.get("/tags/first/notifications", () => {
+    server.get("/tag/first/notifications", () => {
       return helper.response({
         tag_notification: { id: "first", notification_level: 1 }
       });
@@ -19,8 +19,8 @@ acceptance("Tags intersection", {
           draft_key: "new_topic",
           topics: [{ id: 16, posters: [] }],
           tags: [
-            { id: 1, name: "first", topic_count: 1 },
-            { id: 2, name: "second", topic_count: 1 }
+            { id: 1, name: "second", topic_count: 1 },
+            { id: 2, name: "first", topic_count: 1 }
           ]
         }
       });

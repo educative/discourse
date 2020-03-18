@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # See http://unicorn.bogomips.org/Unicorn/Configurator.html
 
 if ENV["LOGSTASH_UNICORN_URI"]
@@ -13,7 +15,7 @@ worker_processes (ENV["UNICORN_WORKERS"] || 3).to_i
 working_directory discourse_path
 
 # listen "#{discourse_path}/tmp/sockets/unicorn.sock"
-listen (ENV["UNICORN_PORT"] || 3000).to_i
+listen "#{(ENV["UNICORN_BIND_ALL"] ? "" : "127.0.0.1:")}#{(ENV["UNICORN_PORT"] || 3000).to_i}"
 
 if !File.exist?("#{discourse_path}/tmp/pids")
   FileUtils.mkdir_p("#{discourse_path}/tmp/pids")
@@ -47,61 +49,19 @@ preload_app true
 # fast LAN.
 check_client_connection false
 
-@stats_socket_dir = ENV["UNICORN_STATS_SOCKET_DIR"]
-
-def clean_up_stats_socket(server, pid)
-  if @stats_socket_dir.present?
-    name = "#{@stats_socket_dir}/#{pid}.sock"
-    FileUtils.rm_f(name)
-    server.logger.info "Cleaned up stats socket at #{name}"
-  end
-rescue => e
-  server.logger.warn "Failed to clean up stats socket #{e}"
-end
-
-def start_stats_socket(server)
-  if @stats_socket_dir.present?
-    name = "#{@stats_socket_dir}/#{Process.pid}.sock"
-    StatsSocket.new(name).start
-    server.logger.info "Started stats socket at #{name}"
-  end
-rescue => e
-  server.logger.warn "Failed to start stats socket #{e}"
-end
-
 initialized = false
 before_fork do |server, worker|
 
   unless initialized
-    # load up the yaml for the localization bits, in master process
-    I18n.t(:posts)
+    Discourse.preload_rails!
 
-    # load up all models and schema
-    (ActiveRecord::Base.connection.tables - %w[schema_migrations versions]).each do |table|
-      table.classify.constantize.first rescue nil
-    end
-
-    # router warm up
-    Rails.application.routes.recognize_path('abc') rescue nil
-
-    if @stats_socket_dir.present?
-      server.logger.info "Initializing stats socket at #{@stats_socket_dir}"
-      begin
-        require 'stats_socket'
-        FileUtils.mkdir_p @stats_socket_dir
-        FileUtils.rm_f Dir.glob("#{@stats_socket_dir}/*.sock")
-        start_stats_socket(server)
-      rescue => e
-        server.logger.info "Failed to initialize stats socket dir #{e}"
-      end
-    end
-
-    # preload discourse version
-    Discourse.git_version
-    Discourse.git_branch
-    Discourse.full_version
+    # V8 does not support forking, make sure all contexts are disposed
+    ObjectSpace.each_object(MiniRacer::Context) { |c| c.dispose }
 
     # get rid of rubbish so we don't share it
+    # longer term we will use compact! here
+    GC.start
+    GC.start
     GC.start
 
     initialized = true
@@ -125,7 +85,6 @@ before_fork do |server, worker|
 
       require 'demon/sidekiq'
       Demon::Sidekiq.after_fork do
-        start_stats_socket(server) if @stats_socket_dir
         DiscourseEvent.trigger(:sidekiq_fork_started)
       end
 
@@ -196,7 +155,7 @@ before_fork do |server, worker|
               sleep 10
               force_kill_rogue_sidekiq
             end
-            $redis._client.disconnect
+            Discourse.redis._client.disconnect
           end
         end
 
@@ -211,7 +170,7 @@ before_fork do |server, worker|
 
   end
 
-  $redis._client.disconnect
+  Discourse.redis._client.disconnect
 
   # Throttle the master from forking too quickly by sleeping.  Due
   # to the implementation of standard Unix signal handlers, this
@@ -220,13 +179,7 @@ before_fork do |server, worker|
   sleep 1
 end
 
-after_worker_exit do |server, worker, status|
-  clean_up_stats_socket(server, status.pid)
-end
-
 after_fork do |server, worker|
-  start_stats_socket(server)
-
   DiscourseEvent.trigger(:web_fork_started)
 
   # warm up v8 after fork, that way we do not fork a v8 context

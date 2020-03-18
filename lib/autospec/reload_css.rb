@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Autospec; end
 
 class Autospec::ReloadCss
@@ -12,6 +14,7 @@ class Autospec::ReloadCss
   watch(/\.ca?ss\.erb$/)
   watch(/\.s[ac]ss$/)
   watch(/\.hbs$/)
+  watch(/\.hbr$/)
 
   def self.message_bus
     MessageBus::Instance.new.tap do |bus|

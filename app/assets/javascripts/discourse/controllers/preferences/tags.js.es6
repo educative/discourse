@@ -1,16 +1,21 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import Controller from "@ember/controller";
 import PreferencesTabController from "discourse/mixins/preferences-tab-controller";
 import { popupAjaxError } from "discourse/lib/ajax-error";
-import computed from "ember-addons/ember-computed-decorators";
 
-export default Ember.Controller.extend(PreferencesTabController, {
-  saveAttrNames: [
-    "muted_tags",
-    "tracked_tags",
-    "watched_tags",
-    "watching_first_post_tags"
-  ],
+export default Controller.extend(PreferencesTabController, {
+  init() {
+    this._super(...arguments);
 
-  @computed(
+    this.saveAttrNames = [
+      "muted_tags",
+      "tracked_tags",
+      "watched_tags",
+      "watching_first_post_tags"
+    ];
+  },
+
+  @discourseComputed(
     "model.watched_tags.[]",
     "model.watching_first_post_tags.[]",
     "model.tracked_tags.[]",
@@ -23,8 +28,8 @@ export default Ember.Controller.extend(PreferencesTabController, {
   actions: {
     save() {
       this.set("saved", false);
-      return this.get("model")
-        .save(this.get("saveAttrNames"))
+      return this.model
+        .save(this.saveAttrNames)
         .then(() => {
           this.set("saved", true);
         })

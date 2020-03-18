@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class ProcessEmail < Jobs::Base
+  class ProcessEmail < ::Jobs::Base
     sidekiq_options retry: 3
 
     def execute(args)

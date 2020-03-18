@@ -7,13 +7,71 @@ class DiscourseIpInfo
   include Singleton
 
   def initialize
-    open_db(File.join(Rails.root, 'vendor', 'data'))
+    open_db(DiscourseIpInfo.path)
   end
 
   def open_db(path)
     @loc_mmdb = mmdb_load(File.join(path, 'GeoLite2-City.mmdb'))
     @asn_mmdb = mmdb_load(File.join(path, 'GeoLite2-ASN.mmdb'))
     @cache = LruRedux::ThreadSafeCache.new(2000)
+  end
+
+  def self.path
+    @path ||= File.join(Rails.root, 'vendor', 'data')
+  end
+
+  def self.mmdb_path(name)
+    File.join(path, "#{name}.mmdb")
+  end
+
+  def self.mmdb_download(name)
+
+    if GlobalSetting.maxmind_license_key.blank?
+      STDERR.puts "MaxMind IP database updates require a license"
+      STDERR.puts "Please set DISCOURSE_MAXMIND_LICENSE_KEY to one you generated at https://www.maxmind.com"
+      return
+    end
+
+    FileUtils.mkdir_p(path)
+
+    url = "https://download.maxmind.com/app/geoip_download?license_key=#{GlobalSetting.maxmind_license_key}&edition_id=#{name}&suffix=tar.gz"
+
+    gz_file = FileHelper.download(
+      url,
+      max_file_size: 100.megabytes,
+      tmp_file_name: "#{name}.gz",
+      validate_uri: false,
+      follow_redirect: false
+    )
+
+    filename = File.basename(gz_file.path)
+
+    dir = "#{Dir.tmpdir}/#{SecureRandom.hex}"
+
+    Discourse::Utils.execute_command(
+      "mkdir", "-p", dir
+    )
+
+    Discourse::Utils.execute_command(
+      "cp",
+      gz_file.path,
+      "#{dir}/#{filename}"
+    )
+
+    Discourse::Utils.execute_command(
+      "tar",
+      "-xzvf",
+      "#{dir}/#{filename}",
+      chdir: dir
+    )
+
+    Dir["#{dir}/**/*.mmdb"].each do |f|
+      FileUtils.mv(f, mmdb_path(name))
+    end
+
+  ensure
+    FileUtils.rm_r(dir, force: true) if dir
+    gz_file&.close!
   end
 
   def mmdb_load(filepath)
@@ -23,7 +81,7 @@ class DiscourseIpInfo
       Rails.logger.warn("MaxMindDB (#{filepath}) could not be found: #{e}")
       nil
     rescue => e
-      Discourse.warn_exception(e, "MaxMindDB (#{filepath}) could not be loaded.")
+      Discourse.warn_exception(e, message: "MaxMindDB (#{filepath}) could not be loaded.")
       nil
     end
   end

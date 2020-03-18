@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class CleanUpUnsubscribeKeys < Jobs::Scheduled
+  class CleanUpUnsubscribeKeys < ::Jobs::Scheduled
     every 1.day
 
     def execute(args)

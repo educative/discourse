@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class MigrateFeaturedLinks < Jobs::Onceoff
+  class MigrateFeaturedLinks < ::Jobs::Onceoff
 
     def execute_onceoff(args)
       TopicCustomField.where(name: "featured_link").find_each do |tcf|

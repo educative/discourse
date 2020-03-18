@@ -1,4 +1,6 @@
 # encoding: utf-8
+# frozen_string_literal: true
+
 #
 # Author: Erick Guan <fantasticfears@gmail.com>
 #
@@ -199,7 +201,7 @@ class ImportScripts::DiscuzX < ImportScripts::Base
                 end
               end
             end
-            if !user['spacecss'].blank? && newmember.user_profile.profile_background.blank?
+            if !user['spacecss'].blank? && newmember.user_profile.profile_background_upload.blank?
               # profile background
               if matched = user['spacecss'].match(/body\s*{[^}]*url\('?(.+?)'?\)/i)
                 body_background = matched[1].split(ORIGINAL_SITE_PREFIX, 2).last
@@ -273,7 +275,6 @@ class ImportScripts::DiscuzX < ImportScripts::Base
         description: row['description'],
         position: row['position'].to_i + max_position,
         color: color,
-        suppress_from_latest: (row['status'] == (0) || row['status'] == (3)),
         post_create_action: lambda do |category|
           if slug = @category_slug[row['id']]
             category.update(slug: slug)
@@ -287,11 +288,15 @@ class ImportScripts::DiscuzX < ImportScripts::Base
           if !row['icon'].empty?
             upload = create_upload(Discourse::SYSTEM_USER_ID, File.join(DISCUZX_BASE_DIR, ATTACHMENT_DIR, '../common', row['icon']), File.basename(row['icon']))
             if upload
-              category.uploaded_logo = upload
+              category.uploaded_logo_id = upload.id
               # FIXME: I don't know how to get '/shared' by script. May change to Rails.root
-              category.color = Miro::DominantColors.new(File.join('/shared', category.logo_url)).to_hex.first[1, 6] if !color
+              category.color = Miro::DominantColors.new(File.join('/shared', upload.url)).to_hex.first[1, 6] if !color
               category.save!
             end
+          end
+
+          if row['status'] == (0) || row['status'] == (3)
+            SiteSetting.default_categories_muted = [SiteSetting.default_categories_muted, category.id].reject(&:blank?).join("|")
           end
           category
         end
@@ -345,6 +350,7 @@ class ImportScripts::DiscuzX < ImportScripts::Base
         mapped[:user_id] = user_id_from_imported_user_id(m['user_id']) || -1
         mapped[:raw] = process_discuzx_post(m['raw'], m['id'])
         mapped[:created_at] = Time.zone.at(m['post_time'])
+        mapped[:tags] = m['tags']
 
         if m['id'] == m['first_id']
           mapped[:category] = category_id_from_imported_category_id(m['category_id'])
@@ -398,7 +404,7 @@ class ImportScripts::DiscuzX < ImportScripts::Base
           end
         elsif (m['status'] & 2) >> 1 == 1 # waiting for approve
           mapped[:post_create_action] = lambda do |action_post|
-            PostAction.act(Discourse.system_user, action_post, 6, take_action: false)
+            PostActionCreator.notify_user(Discourse.system_user, action_post)
           end
         end
         skip ? nil : mapped
@@ -784,7 +790,7 @@ class ImportScripts::DiscuzX < ImportScripts::Base
           FROM #{table_name 'forum_attachment'}
           WHERE pid = #{post.custom_fields['import_id']}"
       if !inline_attachments.empty?
-        sql << " AND aid NOT IN (#{inline_attachments.join(',')})"
+        sql = "#{sql} AND aid NOT IN (#{inline_attachments.join(',')})"
       end
 
       results = mysql_query(sql)
@@ -827,9 +833,9 @@ class ImportScripts::DiscuzX < ImportScripts::Base
     file_name = "#{part_4}_avatar_big.jpg"
 
     if absolute
-      return File.join(DISCUZX_BASE_DIR, AVATAR_DIR, part_1, part_2, part_3, file_name), file_name
+      [File.join(DISCUZX_BASE_DIR, AVATAR_DIR, part_1, part_2, part_3, file_name), file_name]
     else
-      return File.join(AVATAR_DIR, part_1, part_2, part_3, file_name), file_name
+      [File.join(AVATAR_DIR, part_1, part_2, part_3, file_name), file_name]
     end
   end
 
@@ -879,7 +885,7 @@ class ImportScripts::DiscuzX < ImportScripts::Base
       return nil
     end
 
-    return upload, real_filename
+    [upload, real_filename]
   end
 
   # find the uploaded file and real name from the db
@@ -935,12 +941,12 @@ class ImportScripts::DiscuzX < ImportScripts::Base
       return nil
     end
 
-    return upload, real_filename
+    [upload, real_filename]
   rescue Mysql2::Error => e
     puts "SQL Error"
     puts e.message
     puts sql
-    return nil
+    nil
   end
 
   def first_exists(*items)

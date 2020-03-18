@@ -1,7 +1,7 @@
-require_dependency 'upload_creator'
+# frozen_string_literal: true
 
 module Jobs
-  class MigrateCustomEmojis < Jobs::Onceoff
+  class MigrateCustomEmojis < ::Jobs::Onceoff
     def execute_onceoff(args)
       return if Rails.env.test?
 

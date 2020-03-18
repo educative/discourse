@@ -1,4 +1,4 @@
-require_dependency 'enum_site_setting'
+# frozen_string_literal: true
 
 class AutoTrackDurationSiteSetting < EnumSiteSetting
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 if ENV['COVERAGE']
   require 'simplecov'
   SimpleCov.start
@@ -42,8 +44,20 @@ end
 ENV["RAILS_ENV"] ||= 'test'
 require File.expand_path("../../config/environment", __FILE__)
 require 'rspec/rails'
-require 'shoulda'
+require 'shoulda-matchers'
 require 'sidekiq/testing'
+require 'test_prof/recipes/rspec/let_it_be'
+require 'test_prof/before_all/adapters/active_record'
+
+# The shoulda-matchers gem no longer detects the test framework
+# you're using or mixes itself into that framework automatically.
+Shoulda::Matchers.configure do |config|
+  config.integrate do |with|
+    with.test_framework :rspec
+    with.library :active_record
+    with.library :active_model
+  end
+end
 
 # Requires supporting ruby files with custom matchers and macros, etc,
 # in spec/support/ and its subdirectories.
@@ -64,12 +78,89 @@ SiteSetting.automatically_download_gravatars = false
 
 SeedFu.seed
 
+# we need this env var to ensure that we can impersonate in test
+# this enable integration_helpers sign_in helper
+ENV['DISCOURSE_DEV_ALLOW_ANON_TO_IMPERSONATE'] = '1'
+
+module TestSetup
+  # This is run before each test and before each before_all block
+  def self.test_setup(x = nil)
+    # TODO not sure about this, we could use a mock redis implementation here:
+    #   this gives us really clean "flush" semantics, howere the side-effect is that
+    #   we are no longer using a clean redis implementation, a preferable solution may
+    #   be simply flushing before tests, trouble is that redis may be reused with dev
+    #   so that would mean the dev would act weird
+    #
+    #   perf benefit seems low (shaves 20 secs off a 4 minute test suite)
+    #
+    # Discourse.redis = DiscourseMockRedis.new
+
+    RateLimiter.disable
+    PostActionNotifier.disable
+    SearchIndexer.disable
+    UserActionManager.disable
+    NotificationEmailer.disable
+    SiteIconManager.disable
+
+    SiteSetting.provider.all.each do |setting|
+      SiteSetting.remove_override!(setting.name)
+    end
+
+    # very expensive IO operations
+    SiteSetting.automatically_download_gravatars = false
+
+    Discourse.clear_readonly!
+    Sidekiq::Worker.clear_all
+
+    I18n.locale = SiteSettings::DefaultsProvider::DEFAULT_LOCALE
+
+    RspecErrorTracker.last_exception = nil
+
+    if $test_cleanup_callbacks
+      $test_cleanup_callbacks.reverse_each(&:call)
+      $test_cleanup_callbacks = nil
+    end
+
+    # in test this is very expensive, we explicitly enable when needed
+    Topic.update_featured_topics = false
+
+    # Running jobs are expensive and most of our tests are not concern with
+    # code that runs inside jobs. run_later! means they are put on the redis
+    # queue and never processed.
+    Jobs.run_later!
+  end
+end
+
+TestProf::BeforeAll.configure do |config|
+  config.before(:begin) do
+    TestSetup.test_setup
+  end
+end
+
+if ENV['PREFABRICATION'] == '0'
+  module Prefabrication
+    def fab!(name, &blk)
+      let!(name, &blk)
+    end
+  end
+
+  RSpec.configure do |config|
+    config.extend Prefabrication
+  end
+else
+  TestProf::LetItBe.configure do |config|
+    config.alias_to :fab!, refind: true
+  end
+end
+
 RSpec.configure do |config|
   config.fail_fast = ENV['RSPEC_FAIL_FAST'] == "1"
+  config.silence_filter_announcements = ENV['RSPEC_SILENCE_FILTER_ANNOUNCEMENTS'] == "1"
   config.include Helpers
   config.include MessageBus
   config.include RSpecHtmlMatchers
   config.include IntegrationHelpers, type: :request
+  config.include WebauthnIntegrationHelpers
   config.include SiteSettingsHelpers
   config.mock_framework = :mocha
   config.order = 'random'
@@ -86,6 +177,12 @@ RSpec.configure do |config|
   config.infer_base_class_for_anonymous_controllers = true
 
   config.before(:suite) do
+    begin
+      ActiveRecord::Migration.check_pending!
+    rescue ActiveRecord::PendingMigrationError
+      raise "There are pending migrations, run RAILS_ENV=test bin/rake db:migrate"
+    end
+
     Sidekiq.error_handlers.clear
 
     # Ugly, but needed until we have a user creator
@@ -106,7 +203,6 @@ RSpec.configure do |config|
       SiteSetting.defaults.set_regardless_of_locale(k, v) if SiteSetting.respond_to? k
     end
 
-    require_dependency 'site_settings/local_process_provider'
     SiteSetting.provider = SiteSettings::LocalProcessProvider.new
 
     WebMock.disable_net_connect!
@@ -141,42 +237,7 @@ RSpec.configure do |config|
     end
   end
 
-  config.before :each do |x|
-    # TODO not sure about this, we could use a mock redis implementation here:
-    #   this gives us really clean "flush" semantics, howere the side-effect is that
-    #   we are no longer using a clean redis implementation, a preferable solution may
-    #   be simply flushing before tests, trouble is that redis may be reused with dev
-    #   so that would mean the dev would act weird
-    #
-    #   perf benefit seems low (shaves 20 secs off a 4 minute test suite)
-    #
-    # $redis = DiscourseMockRedis.new
-
-    RateLimiter.disable
-    PostActionNotifier.disable
-    SearchIndexer.disable
-    UserActionCreator.disable
-    NotificationEmailer.disable
-
-    SiteSetting.provider.all.each do |setting|
-      SiteSetting.remove_override!(setting.name)
-    end
-
-    # very expensive IO operations
-    SiteSetting.automatically_download_gravatars = false
-
-    Discourse.clear_readonly!
-    Sidekiq::Worker.clear_all
-
-    I18n.locale = :en
-
-    RspecErrorTracker.last_exception = nil
-
-    if $test_cleanup_callbacks
-      $test_cleanup_callbacks.reverse_each(&:call)
-      $test_cleanup_callbacks = nil
-    end
-  end
+  config.before :each, &TestSetup.method(:test_setup)
 
   config.before(:each, type: :multisite) do
     Rails.configuration.multisite = true
@@ -210,18 +271,10 @@ RSpec.configure do |config|
   # force a rollback after using a multisite connection.
   def test_multisite_connection(name)
     RailsMultisite::ConnectionManagement.with_connection(name) do
-      spec_exception = nil
-
-      ActiveRecord::Base.transaction do
-        begin
-          yield
-        rescue Exception => spec_exception
-        ensure
-          raise ActiveRecord::Rollback
-        end
+      ActiveRecord::Base.transaction(joinable: false) do
+        yield
+        raise ActiveRecord::Rollback
       end
-
-      raise spec_exception if spec_exception
     end
   end
 
@@ -273,8 +326,17 @@ def set_cdn_url(cdn_url)
 end
 
 def freeze_time(now = Time.now)
-  datetime = DateTime.parse(now.to_s)
-  time = Time.parse(now.to_s)
+  time = now
+  datetime = now
+
+  if Time === now
+    datetime = now.to_datetime
+  elsif DateTime === now
+    time = now.to_time
+  else
+    datetime = DateTime.parse(now.to_s)
+    time = Time.parse(now.to_s)
+  end
 
   if block_given?
     raise "nested freeze time not supported" if TrackTimeStub.stubbed

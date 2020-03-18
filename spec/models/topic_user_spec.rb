@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe TopicUser do
@@ -73,7 +75,7 @@ describe TopicUser do
   it { is_expected.to belong_to :user }
   it { is_expected.to belong_to :topic }
 
-  let(:user) { Fabricate(:user) }
+  fab!(:user) { Fabricate(:user) }
 
   let(:topic) {
     u = Fabricate(:user)
@@ -83,7 +85,6 @@ describe TopicUser do
   let(:topic_user) { TopicUser.get(topic, user) }
   let(:topic_creator_user) { TopicUser.get(topic, topic.user) }
 
-  let(:post) { Fabricate(:post, topic: topic, user: user) }
   let(:new_user) {
     u = Fabricate(:user)
     u.user_option.update_columns(auto_track_topics_after_msecs: 1000)
@@ -234,7 +235,7 @@ describe TopicUser do
     end
 
     context 'private messages' do
-      let(:target_user) { Fabricate(:user) }
+      fab!(:target_user) { Fabricate(:user) }
 
       let(:post) do
         create_post(
@@ -245,7 +246,7 @@ describe TopicUser do
 
       let(:topic) { post.topic }
 
-      it 'should ensure recepients and senders are watching' do
+      it 'should ensure recipients and senders are watching' do
         expect(TopicUser.get(topic, post.user).notification_level)
           .to eq(TopicUser.notification_levels[:watching])
 
@@ -278,8 +279,8 @@ describe TopicUser do
         it "should use group's default notification level" do
           another_user = Fabricate(:user)
           group.add(another_user)
+
           topic.invite_group(target_user, group)
-          TopicUser.track_visit!(topic.id, another_user.id)
 
           expect(TopicUser.get(topic, another_user).notification_level)
             .to eq(TopicUser.notification_levels[:tracking])
@@ -451,7 +452,7 @@ describe TopicUser do
     it "will receive email notification for every topic" do
       user1 = Fabricate(:user)
 
-      SiteSetting.queue_jobs = false
+      Jobs.run_immediately!
       SiteSetting.default_email_mailing_list_mode = true
       SiteSetting.default_email_mailing_list_mode_frequency = 1
 

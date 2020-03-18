@@ -1,4 +1,6 @@
-export default Ember.Component.extend({
+import { schedule } from "@ember/runloop";
+import Component from "@ember/component";
+export default Component.extend({
   didInsertElement() {
     this._super(...arguments);
 
@@ -13,12 +15,12 @@ export default Ember.Component.extend({
       this.set("loginName", $.cookie("email"));
     }
 
-    Ember.run.schedule("afterRender", () => {
+    schedule("afterRender", () => {
       $(
         "#login-account-password, #login-account-name, #login-second-factor"
       ).keydown(e => {
         if (e.keyCode === 13) {
-          this.sendAction();
+          this.action();
         }
       });
     });

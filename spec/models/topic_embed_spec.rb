@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 require 'stringio'
 
@@ -9,11 +11,11 @@ describe TopicEmbed do
 
   context '.import' do
 
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
     let(:title) { "How to turn a fish from good to evil in 30 seconds" }
     let(:url) { 'http://eviltrout.com/123' }
     let(:contents) { "hello world new post <a href='/hello'>hello</a> <img src='/images/wat.jpg'>" }
-    let!(:embeddable_host) { Fabricate(:embeddable_host) }
+    fab!(:embeddable_host) { Fabricate(:embeddable_host) }
 
     it "returns nil when the URL is malformed" do
       expect(TopicEmbed.import(user, "invalid url", title, contents)).to eq(nil)
@@ -84,6 +86,36 @@ describe TopicEmbed do
         expect(post.cook_method).to eq(Post.cook_methods[:regular])
       end
     end
+
+    describe 'embedded content truncation' do
+      MAX_LENGTH_BEFORE_TRUNCATION = 100
+
+      let(:long_content) { "<p>#{'a' * MAX_LENGTH_BEFORE_TRUNCATION}</p>\n<p>more</p>" }
+
+      it 'truncates the imported post when truncation is enabled' do
+        SiteSetting.embed_truncate = true
+        post = TopicEmbed.import(user, url, title, long_content)
+
+        expect(post.raw).not_to include(long_content)
+      end
+
+      it 'keeps everything in the imported post when truncation is disabled' do
+        SiteSetting.embed_truncate = false
+        post = TopicEmbed.import(user, url, title, long_content)
+
+        expect(post.raw).to include(long_content)
+      end
+
+      it 'looks at first div when there is no paragraph' do
+
+        no_para = "<div><h>testing it</h></div>"
+
+        SiteSetting.embed_truncate = true
+        post = TopicEmbed.import(user, url, title, no_para)
+
+        expect(post.raw).to include("testing it")
+      end
+    end
   end
 
   context '.topic_id_for_embed' do
@@ -111,7 +143,7 @@ describe TopicEmbed do
 
       let(:url) { 'http://eviltrout.com/123' }
       let(:contents) { "<title>Through the Looking Glass - Classic Books</title><body>some content here</body>" }
-      let!(:embeddable_host) { Fabricate(:embeddable_host) }
+      fab!(:embeddable_host) { Fabricate(:embeddable_host) }
       let!(:file) { StringIO.new }
 
       before do
@@ -133,10 +165,10 @@ describe TopicEmbed do
     end
 
     context 'post with allowed classes "foo" and "emoji"' do
-      let(:user) { Fabricate(:user) }
+      fab!(:user) { Fabricate(:user) }
       let(:url) { 'http://eviltrout.com/123' }
       let(:contents) { "my normal size emoji <p class='foo'>Hi</p> <img class='emoji other foo' src='/images/smiley.jpg'>" }
-      let!(:embeddable_host) { Fabricate(:embeddable_host) }
+      fab!(:embeddable_host) { Fabricate(:embeddable_host) }
       let!(:file) { StringIO.new }
 
       response = nil
@@ -170,10 +202,10 @@ describe TopicEmbed do
     end
 
     context 'post with author metadata' do
-      let!(:user) { Fabricate(:user, username: 'eviltrout') }
+      fab!(:user) { Fabricate(:user, username: 'eviltrout') }
       let(:url) { 'http://eviltrout.com/321' }
       let(:contents) { '<html><head><meta name="author" content="eviltrout"></head><body>rich and morty</body></html>' }
-      let!(:embeddable_host) { Fabricate(:embeddable_host) }
+      fab!(:embeddable_host) { Fabricate(:embeddable_host) }
       let!(:file) { StringIO.new }
 
       response = nil
@@ -191,10 +223,10 @@ describe TopicEmbed do
 
     context 'post with no allowed classes' do
 
-      let(:user) { Fabricate(:user) }
+      fab!(:user) { Fabricate(:user) }
       let(:url) { 'http://eviltrout.com/123' }
       let(:contents) { "my normal size emoji <p class='foo'>Hi</p> <img class='emoji other foo' src='/images/smiley.jpg'>" }
-      let!(:embeddable_host) { Fabricate(:embeddable_host) }
+      fab!(:embeddable_host) { Fabricate(:embeddable_host) }
       let!(:file) { StringIO.new }
 
       response = nil
@@ -226,7 +258,7 @@ describe TopicEmbed do
     context "non-ascii URL" do
       let(:url) { 'http://eviltrout.com/test/ماهی' }
       let(:contents) { "<title>سلام</title><body>این یک پاراگراف آزمون است.</body>" }
-      let!(:embeddable_host) { Fabricate(:embeddable_host) }
+      fab!(:embeddable_host) { Fabricate(:embeddable_host) }
       let!(:file) { StringIO.new }
 
       before do
@@ -244,7 +276,7 @@ describe TopicEmbed do
     context "encoded URL" do
       let(:url) { 'http://example.com/hello%20world' }
       let(:contents) { "<title>Hello World!</title><body></body>" }
-      let!(:embeddable_host) { Fabricate(:embeddable_host) }
+      fab!(:embeddable_host) { Fabricate(:embeddable_host) }
       let!(:file) { StringIO.new }
 
       before do
@@ -262,7 +294,7 @@ describe TopicEmbed do
     context "emails" do
       let(:url) { 'http://example.com/foo' }
       let(:contents) { '<p><a href="mailto:foo%40example.com">URL encoded @ symbol</a></p><p><a href="mailto:bar@example.com">normal mailto link</a></p>' }
-      let!(:embeddable_host) { Fabricate(:embeddable_host) }
+      fab!(:embeddable_host) { Fabricate(:embeddable_host) }
       let!(:file) { StringIO.new }
 
       before do
@@ -275,6 +307,16 @@ describe TopicEmbed do
         expect(response.body).to have_tag('a', with: { href: 'mailto:foo%40example.com' })
         expect(response.body).to have_tag('a', with: { href: 'mailto:bar@example.com' })
       end
+    end
+  end
+
+  describe '.absolutize_urls' do
+    let(:invalid_url) { 'http://source.com/#double#anchor' }
+    let(:contents) { "hello world new post <a href='/hello'>hello</a>" }
+
+    it "does not attempt absolutizing on a bad URI" do
+      raw = TopicEmbed.absolutize_urls(invalid_url, contents)
+      expect(raw).to eq(contents)
     end
   end
 

@@ -9,7 +9,6 @@
 @import "desktop/header";
 @import "desktop/login";
 @import "desktop/modal";
-@import "desktop/user-card";
 @import "desktop/category-list";
 @import "desktop/latest-topic-list";
 @import "desktop/topic-list";
@@ -18,7 +17,6 @@
 @import "desktop/upload";
 @import "desktop/user";
 @import "desktop/history";
-@import "desktop/queued-posts";
 @import "desktop/group";
 @import "desktop/admin_customize";
 
@@ -27,6 +25,4 @@
 
 /* These files doesn't actually exist, they are injected by Stylesheet::Compiler. */
 
-@import "plugins";
-@import "plugins_desktop";
 @import "category_backgrounds";

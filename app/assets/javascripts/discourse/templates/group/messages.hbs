@@ -1,5 +1,5 @@
-<section class="user-navigation">
-  {{#mobile-nav class='messages-nav' desktopClass='nav-stacked action-list' currentPath=application.currentPath}}
+  <section class="user-secondary-navigation">
+  {{#mobile-nav class='messages-nav' desktopClass='nav-stacked action-list' currentPath=router._router.currentPath}}
 
     <li>
       {{#link-to 'group.messages.inbox' model.name}}
@@ -13,6 +13,6 @@
     </li>
   {{/mobile-nav}}
 </section>
-<section class='user-right messages'>
+<section class="user-content">
     {{outlet}}
 </section>

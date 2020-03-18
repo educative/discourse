@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class CategoryStats < Jobs::Scheduled
+  class CategoryStats < ::Jobs::Scheduled
     every 24.hours
 
     def execute(args)

@@ -1,9 +1,17 @@
+import { next } from "@ember/runloop";
 import MountWidget from "discourse/components/mount-widget";
 import Docking from "discourse/mixins/docking";
-import { observes } from "ember-addons/ember-computed-decorators";
+import { observes } from "discourse-common/utils/decorators";
 import optionalService from "discourse/lib/optional-service";
 
-const headerPadding = () => parseInt($("#main-outlet").css("padding-top")) + 3;
+const headerPadding = () => {
+  let topPadding = parseInt($("#main-outlet").css("padding-top"), 10) + 3;
+  const iPadNavHeight = $(".footer-nav-ipad .footer-nav").height();
+  if (iPadNavHeight) {
+    topPadding += iPadNavHeight;
+  }
+  return topPadding;
+};
 
 export default MountWidget.extend(Docking, {
   adminTools: optionalService(),
@@ -13,23 +21,23 @@ export default MountWidget.extend(Docking, {
 
   buildArgs() {
     let attrs = {
-      topic: this.get("topic"),
-      notificationLevel: this.get("notificationLevel"),
+      topic: this.topic,
+      notificationLevel: this.notificationLevel,
       topicTrackingState: this.topicTrackingState,
-      enteredIndex: this.get("enteredIndex"),
+      enteredIndex: this.enteredIndex,
       dockAt: this.dockAt,
       dockBottom: this.dockBottom,
       mobileView: this.get("site.mobileView")
     };
 
-    let event = this.get("prevEvent");
+    let event = this.prevEvent;
     if (event) {
       attrs.enteredIndex = event.postIndex - 1;
     }
 
-    if (this.get("fullscreen")) {
+    if (this.fullscreen) {
       attrs.fullScreen = true;
-      attrs.addShowClass = this.get("addShowClass");
+      attrs.addShowClass = this.addShowClass;
     } else {
       attrs.top = this.dockAt || headerPadding();
     }
@@ -51,9 +59,10 @@ export default MountWidget.extend(Docking, {
     const mainOffset = $("#main").offset();
     const offsetTop = mainOffset ? mainOffset.top : 0;
     const topicTop = $(".container.posts").offset().top - offsetTop;
-    const topicBottom = $("#topic-bottom").offset().top;
-    const $timeline = this.$(".timeline-container");
-    const timelineHeight = $timeline.height() || 400;
+    const topicBottom =
+      $("#topic-bottom").offset().top - $("#main-outlet").offset().top;
+    const timeline = this.element.querySelector(".timeline-container");
+    const timelineHeight = (timeline && timeline.offsetHeight) || 400;
     const footerHeight = $(".timeline-footer-controls").outerHeight(true) || 0;
 
     const prev = this.dockAt;
@@ -85,20 +94,29 @@ export default MountWidget.extend(Docking, {
   didInsertElement() {
     this._super(...arguments);
 
-    if (this.get("fullscreen") && !this.get("addShowClass")) {
-      Ember.run.next(() => {
+    if (this.fullscreen && !this.addShowClass) {
+      next(() => {
         this.set("addShowClass", true);
         this.queueRerender();
       });
     }
 
     this.dispatch("topic:current-post-scrolled", "timeline-scrollarea");
+    this.dispatch("topic:toggle-actions", "topic-admin-menu-button");
+    if (!this.site.mobileView) {
+      this.appEvents.on("composer:opened", this, this.queueRerender);
+      this.appEvents.on("composer:resized", this, this.queueRerender);
+      this.appEvents.on("composer:closed", this, this.queueRerender);
+    }
   },
 
-  showModerationHistory() {
-    this.get("adminTools").showModerationHistory({
-      filter: "topic",
-      topic_id: this.get("topic.id")
-    });
+  willDestroyElement() {
+    this._super(...arguments);
+
+    if (!this.site.mobileView) {
+      this.appEvents.off("composer:opened", this, this.queueRerender);
+      this.appEvents.off("composer:resized", this, this.queueRerender);
+      this.appEvents.off("composer:closed", this, this.queueRerender);
+    }
   }
 });

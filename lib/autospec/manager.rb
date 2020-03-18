@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "listen"
 require "thread"
 require "fileutils"
@@ -16,6 +18,7 @@ class Autospec::Manager
   def initialize(opts = {})
     @opts = opts
     @debug = opts[:debug]
+    @auto_run_all = ENV["AUTO_RUN_ALL"] != "0"
     @queue = []
     @mutex = Mutex.new
     @signal = ConditionVariable.new
@@ -40,12 +43,13 @@ class Autospec::Manager
       exit
     end
 
-    ensure_all_specs_will_run
+    ensure_all_specs_will_run if @auto_run_all
     start_runners
     start_service_queue
     listen_for_changes
 
     puts "Press [ENTER] to stop the current run"
+    puts "Press [ENTER] while stopped to run all specs" unless @auto_run_all
     while @runners.any?(&:running?)
       STDIN.gets
       process_queue
@@ -136,7 +140,7 @@ class Autospec::Manager
       has_failed = true
       if result > 0
         focus_on_failed_tests(current)
-        ensure_all_specs_will_run(runner)
+        ensure_all_specs_will_run(runner) if @auto_run_all
       end
     end
 
@@ -170,6 +174,35 @@ class Autospec::Manager
     @queue.unshift ["focus", failed_specs.join(" "), runner] if failed_specs.length > 0
   end
 
+  def root_path
+    root_path ||= File.expand_path(File.dirname(__FILE__) + "../../..")
+  end
+
+  def reverse_symlink_map
+    map = {}
+    Dir[root_path + "/plugins/*"].each do |f|
+      next if !File.directory? f
+      resolved = File.realpath(f)
+      if resolved != f
+        map[resolved] = f
+      end
+    end
+    map
+  end
+
+  # plugins can be symlinked, try to figure out which plugin this is
+  def reverse_symlink(file)
+    resolved = file
+    @reverse_map ||= reverse_symlink_map
+    @reverse_map.each do |location, discourse_location|
+      if file.start_with?(location)
+        resolved = discourse_location + file[location.length..-1]
+      end
+    end
+
+    resolved
+  end
+
   def listen_for_changes
     puts "@@@@@@@@@@@@ listen_for_changes" if @debug
 
@@ -182,7 +215,7 @@ class Autospec::Manager
       options[:latency] = @opts[:latency] || 3
     end
 
-    path = File.expand_path(File.dirname(__FILE__) + "../../..")
+    path = root_path
 
     if ENV['VIM_AUTOSPEC']
       STDERR.puts "Using VIM file listener"
@@ -192,7 +225,8 @@ class Autospec::Manager
       server = SocketServer.new(socket_path)
       server.start do |line|
         file, line = line.split(' ')
-        file = file.sub(Rails.root.to_s << "/", "")
+        file = reverse_symlink(file)
+        file = file.sub(Rails.root.to_s + "/", "")
         # process_change can aquire a mutex and block
         # the acceptor
         Thread.new do
@@ -216,7 +250,10 @@ class Autospec::Manager
           listener = Listen.to("#{path}/#{watch}", options) do |modified, added, _|
             paths = [modified, added].flatten
             paths.compact!
-            paths.map! { |long| long[(path.length + 1)..-1] }
+            paths.map! do |long|
+              long = reverse_symlink(long)
+              long[(path.length + 1)..-1]
+            end
             process_change(paths)
           end
           listener.start
@@ -308,7 +345,7 @@ class Autospec::Manager
         end
 
         # push run all specs to end of queue in correct order
-        ensure_all_specs_will_run(runner)
+        ensure_all_specs_will_run(runner) if @auto_run_all
       end
       puts "@@@@@@@@@@@@ specs queued" if @debug
       puts "@@@@@@@@@@@@ #{@queue}" if @debug
@@ -329,8 +366,9 @@ class Autospec::Manager
       puts
       puts
       if specs.length == 0
-        puts "No specs have failed yet! "
+        puts "No specs have failed yet! Aborting anyway"
         puts
+        abort_runners
       else
         puts "The following specs have failed:"
         specs.each { |s| puts s }

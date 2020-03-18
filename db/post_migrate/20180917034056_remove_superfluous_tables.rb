@@ -1,12 +1,16 @@
+# frozen_string_literal: true
+
 require 'migration/table_dropper'
 
 class RemoveSuperfluousTables < ActiveRecord::Migration[5.2]
-  def up
-    %i{
+  DROPPED_TABLES ||= %i{
       category_featured_users
       versions
       topic_status_updates
-    }.each do |table|
+    }
+
+  def up
+    DROPPED_TABLES.each do |table|
       Migration::TableDropper.execute_drop(table)
     end
   end

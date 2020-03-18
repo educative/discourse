@@ -1,7 +1,8 @@
+import Controller from "@ember/controller";
 import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   email: null,
   text: null,
   elided: null,
@@ -14,7 +15,7 @@ export default Ember.Controller.extend({
 
       ajax("/admin/email/advanced-test", {
         type: "POST",
-        data: { email: this.get("email") }
+        data: { email: this.email }
       })
         .then(data => {
           this.setProperties({

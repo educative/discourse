@@ -1,4 +1,4 @@
-require_dependency 'topic_list'
+# frozen_string_literal: true
 
 class SuggestedTopicsBuilder
 

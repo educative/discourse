@@ -1,4 +1,7 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
+require 's3_helper'
 require 'backup_restore/s3_backup_store'
 require_relative 'shared_examples_for_backup_store'
 
@@ -19,7 +22,7 @@ describe BackupRestore::S3BackupStore do
       expect(context.params[:prefix]).to eq(expected_prefix) if context.params.key?(:prefix)
     end
 
-    @s3_client.stub_responses(:list_objects, -> (context) do
+    @s3_client.stub_responses(:list_objects_v2, -> (context) do
       check_context(context)
 
       { contents: objects_with_prefix(context) }
@@ -129,7 +132,7 @@ describe BackupRestore::S3BackupStore do
     bucket = Regexp.escape(SiteSetting.s3_backup_bucket)
     prefix = file_prefix(db_name, multisite)
     filename = Regexp.escape(filename)
-    expires = BackupRestore::S3BackupStore::DOWNLOAD_URL_EXPIRES_AFTER_SECONDS
+    expires = S3Helper::DOWNLOAD_URL_EXPIRES_AFTER_SECONDS
 
     /\Ahttps:\/\/#{bucket}.*#{prefix}\/#{filename}\?.*X-Amz-Expires=#{expires}.*X-Amz-Signature=.*\z/
   end

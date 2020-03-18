@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe TopTopic do
@@ -22,8 +24,8 @@ describe TopTopic do
 
   context "refresh!" do
 
-    let!(:t1) { Fabricate(:topic) }
-    let!(:t2) { Fabricate(:topic) }
+    fab!(:t1) { Fabricate(:topic) }
+    fab!(:t2) { Fabricate(:topic) }
 
     it "begins blank" do
       expect(TopTopic.all).to be_blank
@@ -43,18 +45,18 @@ describe TopTopic do
 
   describe "#compute_top_score_for" do
 
-    let(:user) { Fabricate(:user) }
-    let(:coding_horror) { Fabricate(:coding_horror) }
+    fab!(:user) { Fabricate(:user) }
+    fab!(:coding_horror) { Fabricate(:coding_horror) }
 
-    let!(:topic_1) { Fabricate(:topic, posts_count: 10, like_count: 28) }
-    let!(:t1_post_1) { Fabricate(:post, topic: topic_1, like_count: 28, post_number: 1) }
+    fab!(:topic_1) { Fabricate(:topic, posts_count: 10, like_count: 28) }
+    fab!(:t1_post_1) { Fabricate(:post, topic: topic_1, like_count: 28, post_number: 1) }
 
-    let!(:topic_2) { Fabricate(:topic, posts_count: 10, like_count: 20) }
-    let!(:t2_post_1) { Fabricate(:post, topic: topic_2, like_count: 10, post_number: 1) }
-    let!(:t2_post_2) { Fabricate(:post, topic: topic_2, like_count: 10) }
+    fab!(:topic_2) { Fabricate(:topic, posts_count: 10, like_count: 20) }
+    fab!(:t2_post_1) { Fabricate(:post, topic: topic_2, like_count: 10, post_number: 1) }
+    fab!(:t2_post_2) { Fabricate(:post, topic: topic_2, like_count: 10) }
 
-    let!(:topic_3) { Fabricate(:topic, posts_count: 10) }
-    let!(:t3_post_1) { Fabricate(:post, topic_id: topic_3.id) }
+    fab!(:topic_3) { Fabricate(:topic, posts_count: 10) }
+    fab!(:t3_post_1) { Fabricate(:post, topic_id: topic_3.id) }
     let!(:t3_view_1) { TopicViewItem.add(topic_3.id, '127.0.0.1', user) }
     let!(:t3_view_2) { TopicViewItem.add(topic_3.id, '127.0.0.2', coding_horror) }
 
@@ -70,9 +72,9 @@ describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck(:yearly_score).first).to eq(27)
-      expect(top_topics.where(topic_id: topic_2.id).pluck(:yearly_score).first).to eq(18.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck(:yearly_score).first).to eq(10.602059991328)
+      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(27)
+      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(18.301029995664)
+      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(10.602059991328)
 
       # when 'top_topics_formula_log_views_multiplier' setting is changed
       SiteSetting.top_topics_formula_log_views_multiplier = 4
@@ -88,9 +90,9 @@ describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck(:yearly_score).first).to eq(27)
-      expect(top_topics.where(topic_id: topic_2.id).pluck(:yearly_score).first).to eq(18.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck(:yearly_score).first).to eq(11.2041199826559)
+      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(27)
+      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(18.301029995664)
+      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(11.2041199826559)
 
       # when 'top_topics_formula_first_post_likes_multiplier' setting is changed
       SiteSetting.top_topics_formula_log_views_multiplier = 2 # unchanged
@@ -106,9 +108,9 @@ describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck(:yearly_score).first).to eq(69)
-      expect(top_topics.where(topic_id: topic_2.id).pluck(:yearly_score).first).to eq(33.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck(:yearly_score).first).to eq(10.602059991328)
+      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(69)
+      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(33.301029995664)
+      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(10.602059991328)
 
       # when 'top_topics_formula_least_likes_per_post_multiplier' setting is changed
       SiteSetting.top_topics_formula_log_views_multiplier = 2 # unchanged
@@ -124,9 +126,9 @@ describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck(:yearly_score).first).to eq(30)
-      expect(top_topics.where(topic_id: topic_2.id).pluck(:yearly_score).first).to eq(21.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck(:yearly_score).first).to eq(10.602059991328)
+      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(30)
+      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(21.301029995664)
+      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(10.602059991328)
 
       # handles invalid string value
       SiteSetting.top_topics_formula_log_views_multiplier = "not good"
@@ -136,9 +138,9 @@ describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck(:yearly_score).first).to eq(27)
-      expect(top_topics.where(topic_id: topic_2.id).pluck(:yearly_score).first).to eq(18.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck(:yearly_score).first).to eq(10.602059991328)
+      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(27)
+      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(18.301029995664)
+      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(0.0000000001).of(10.602059991328)
 
     end
   end

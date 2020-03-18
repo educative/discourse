@@ -1,8 +1,10 @@
-import computed from "ember-addons/ember-computed-decorators";
-import { observes } from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { alias } from "@ember/object/computed";
+import Component from "@ember/component";
+import { observes } from "discourse-common/utils/decorators";
 import LivePostCounts from "discourse/models/live-post-counts";
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNameBindings: ["hidden:hidden", ":create-topics-notice"],
 
   enabled: false,
@@ -11,11 +13,11 @@ export default Ember.Component.extend({
   publicPostCount: null,
 
   requiredTopics: 5,
-  requiredPosts: Ember.computed.alias("siteSettings.tl1_requires_read_posts"),
+  requiredPosts: alias("siteSettings.tl1_requires_read_posts"),
 
   init() {
     this._super(...arguments);
-    if (this.get("shouldSee")) {
+    if (this.shouldSee) {
       let topicCount = 0,
         postCount = 0;
 
@@ -27,17 +29,14 @@ export default Ember.Component.extend({
         }
       });
 
-      if (
-        topicCount < this.get("requiredTopics") ||
-        postCount < this.get("requiredPosts")
-      ) {
+      if (topicCount < this.requiredTopics || postCount < this.requiredPosts) {
         this.set("enabled", true);
         this.fetchLiveStats();
       }
     }
   },
 
-  @computed()
+  @discourseComputed()
   shouldSee() {
     const user = this.currentUser;
     return (
@@ -48,17 +47,22 @@ export default Ember.Component.extend({
     );
   },
 
-  @computed("enabled", "shouldSee", "publicTopicCount", "publicPostCount")
+  @discourseComputed(
+    "enabled",
+    "shouldSee",
+    "publicTopicCount",
+    "publicPostCount"
+  )
   hidden() {
     return (
-      !this.get("enabled") ||
-      !this.get("shouldSee") ||
-      this.get("publicTopicCount") == null ||
-      this.get("publicPostCount") == null
+      !this.enabled ||
+      !this.shouldSee ||
+      this.publicTopicCount == null ||
+      this.publicPostCount == null
     );
   },
 
-  @computed(
+  @discourseComputed(
     "publicTopicCount",
     "publicPostCount",
     "topicTrackingState.incomingCount"
@@ -67,11 +71,11 @@ export default Ember.Component.extend({
     var msg = null;
 
     if (
-      this.get("publicTopicCount") < this.get("requiredTopics") &&
-      this.get("publicPostCount") < this.get("requiredPosts")
+      this.publicTopicCount < this.requiredTopics &&
+      this.publicPostCount < this.requiredPosts
     ) {
       msg = "too_few_topics_and_posts_notice";
-    } else if (this.get("publicTopicCount") < this.get("requiredTopics")) {
+    } else if (this.publicTopicCount < this.requiredTopics) {
       msg = "too_few_topics_notice";
     } else {
       msg = "too_few_posts_notice";
@@ -79,17 +83,17 @@ export default Ember.Component.extend({
 
     return new Handlebars.SafeString(
       I18n.t(msg, {
-        requiredTopics: this.get("requiredTopics"),
-        requiredPosts: this.get("requiredPosts"),
-        currentTopics: this.get("publicTopicCount"),
-        currentPosts: this.get("publicPostCount")
+        requiredTopics: this.requiredTopics,
+        requiredPosts: this.requiredPosts,
+        currentTopics: this.publicTopicCount,
+        currentPosts: this.publicPostCount
       })
     );
   },
 
   @observes("topicTrackingState.incomingCount")
   fetchLiveStats() {
-    if (!this.get("enabled")) {
+    if (!this.enabled) {
       return;
     }
 
@@ -98,8 +102,8 @@ export default Ember.Component.extend({
         this.set("publicTopicCount", stats.get("public_topic_count"));
         this.set("publicPostCount", stats.get("public_post_count"));
         if (
-          this.get("publicTopicCount") >= this.get("requiredTopics") &&
-          this.get("publicPostCount") >= this.get("requiredPosts")
+          this.publicTopicCount >= this.requiredTopics &&
+          this.publicPostCount >= this.requiredPosts
         ) {
           this.set("enabled", false); // No more checks
         }

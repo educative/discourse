@@ -1,9 +1,7 @@
 <div>
   <ul class="nav nav-pills">
     {{edit-category-tab panels=panels selectedTab=selectedTab tab="general"}}
-    {{#unless model.isUncategorizedCategory}}
-      {{edit-category-tab panels=panels selectedTab=selectedTab tab="security"}}
-    {{/unless}}
+    {{edit-category-tab panels=panels selectedTab=selectedTab tab="security"}}
     {{edit-category-tab panels=panels selectedTab=selectedTab tab="settings"}}
     {{edit-category-tab panels=panels selectedTab=selectedTab tab="images"}}
     {{edit-category-tab panels=panels selectedTab=selectedTab tab="topic-template"}}
@@ -14,7 +12,7 @@
 
   {{#d-modal-body}}
     {{#each panels as |tab|}}
-      {{component tab selectedTab=selectedTab category=model}}
+      {{component tab selectedTab=selectedTab category=model registerValidator=(action "registerValidator")}}
     {{/each}}
   {{/d-modal-body}}
 

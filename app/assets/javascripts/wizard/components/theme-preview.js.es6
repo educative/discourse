@@ -1,6 +1,5 @@
-import computed from "ember-addons/ember-computed-decorators";
-import { observes } from "ember-addons/ember-computed-decorators";
-
+import discourseComputed from "discourse-common/utils/decorators";
+import { observes } from "discourse-common/utils/decorators";
 import {
   createPreviewComponent,
   darkLightDiff,
@@ -14,13 +13,13 @@ export default createPreviewComponent(305, 165, {
 
   classNameBindings: ["isSelected"],
 
-  @computed("selectedId", "colorsId")
+  @discourseComputed("selectedId", "colorsId")
   isSelected(selectedId, colorsId) {
     return selectedId === colorsId;
   },
 
   click() {
-    this.onChange(this.get("colorsId"));
+    this.onChange(this.colorsId);
   },
 
   @observes("step.fieldsById.base_scheme_id.value")
@@ -30,7 +29,7 @@ export default createPreviewComponent(305, 165, {
 
   images() {
     return {
-      logo: this.get("wizard").getLogoUrl(),
+      logo: this.wizard.getLogoUrl(),
       avatar: "/images/wizard/trout.png"
     };
   },

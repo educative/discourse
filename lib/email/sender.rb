@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # A helper class to send an email. It will also handle a nil message, which it considers
 # to be "do nothing". This is because some Mailers will decide not to do work for some
@@ -6,11 +8,11 @@
 #
 # It also adds an HTML part for the plain text body
 #
-require_dependency 'email/renderer'
 require 'uri'
 require 'net/smtp'
 
 SMTP_CLIENT_ERRORS = [Net::SMTPFatalError, Net::SMTPSyntaxError]
+BYPASS_DISABLE_TYPES = ["admin_login", "test_message"]
 
 module Email
   class Sender
@@ -22,13 +24,23 @@ module Email
     end
 
     def send
-      return if SiteSetting.disable_emails == "yes" && @email_type.to_s != "admin_login"
+      bypass_disable = BYPASS_DISABLE_TYPES.include?(@email_type.to_s)
+
+      if SiteSetting.disable_emails == "yes" && !bypass_disable
+        return
+      end
 
       return if ActionMailer::Base::NullMail === @message
       return if ActionMailer::Base::NullMail === (@message.message rescue nil)
 
       return skip(SkippedEmailLog.reason_types[:sender_message_blank])    if @message.blank?
       return skip(SkippedEmailLog.reason_types[:sender_message_to_blank]) if @message.to.blank?
+
+      if SiteSetting.disable_emails == "non-staff" && !bypass_disable
+        return unless User.find_by_email(to_address)&.staff?
+      end
+
+      return skip(SkippedEmailLog.reason_types[:sender_message_to_invalid]) if to_address.end_with?(".invalid")
 
       if @message.text_part
         if @message.text_part.body.to_s.blank?
@@ -59,7 +71,7 @@ module Email
       # These are the links we add when a user uploads a file or image.
       # Ideally we would parse general markdown into plain text, but that is almost an intractable problem.
       url_prefix = Discourse.base_url
-      @message.parts[0].body = @message.parts[0].body.to_s.gsub(/<a class="attachment" href="(\/uploads\/default\/[^"]+)">([^<]*)<\/a>/, '[\2](' + url_prefix + '\1)')
+      @message.parts[0].body = @message.parts[0].body.to_s.gsub(/<a class="attachment" href="(\/uploads\/default\/[^"]+)">([^<]*)<\/a>/, '[\2|attachment](' + url_prefix + '\1)')
       @message.parts[0].body = @message.parts[0].body.to_s.gsub(/<img src="(\/uploads\/default\/[^"]+)"([^>]*)>/, '![](' + url_prefix + '\1)')
 
       @message.text_part.content_type = 'text/plain; charset=UTF-8'
@@ -87,6 +99,8 @@ module Email
         # guards against deleted posts
         return skip(SkippedEmailLog.reason_types[:sender_post_deleted]) unless post
 
+        add_attachments(post)
+
         topic = post.topic
         first_post = topic.ordered_posts.first
 
@@ -99,7 +113,8 @@ module Email
           "<topic/#{topic_id}/#{post_id}@#{host}>"
 
         referenced_posts = Post.includes(:incoming_email)
-          .where(id: PostReply.where(reply_id: post_id).select(:post_id))
+          .joins("INNER JOIN post_replies ON post_replies.post_id = posts.id ")
+          .where("post_replies.reply_post_id = ?", post_id)
           .order(id: :desc)
 
         referenced_post_message_ids = referenced_posts.map do |referenced_post|
@@ -154,13 +169,13 @@ module Email
         @message.header['List-Post'] = "<mailto:#{email}>"
       end
 
-      if SiteSetting.reply_by_email_address.present? && SiteSetting.reply_by_email_address["+"]
+      if Email::Sender.bounceable_reply_address?
         email_log.bounce_key = SecureRandom.hex
 
         # WARNING: RFC claims you can not set the Return Path header, this is 100% correct
         # however Rails has special handling for this header and ends up using this value
         # as the Envelope From address so stuff works as expected
-        @message.header[:return_path] = SiteSetting.reply_by_email_address.sub("%{reply_key}", "verp-#{email_log.bounce_key}")
+        @message.header[:return_path] = Email::Sender.bounce_address(email_log.bounce_key)
       end
 
       email_log.post_id = post_id if post_id.present?
@@ -225,6 +240,38 @@ module Email
 
     private
 
+    def add_attachments(post)
+      max_email_size = SiteSetting.email_total_attachment_size_limit_kb.kilobytes
+      return if max_email_size == 0
+
+      email_size = 0
+      post.uploads.each do |upload|
+        next if FileHelper.is_supported_image?(upload.original_filename)
+        next if email_size + upload.filesize > max_email_size
+
+        begin
+          path = if upload.local?
+            Discourse.store.path_for(upload)
+          else
+            Discourse.store.download(upload).path
+          end
+
+          @message.attachments[upload.original_filename] = File.read(path)
+          email_size += File.size(path)
+        rescue => e
+          Discourse.warn_exception(
+            e,
+            message: "Failed to attach file to email",
+            env: {
+              post_id: post.id,
+              upload_id: upload.id,
+              filename: upload.original_filename
+            }
+          )
+        end
+      end
+    end
+
     def header_value(name)
       header = @message.header[name]
       return nil unless header
@@ -271,5 +318,12 @@ module Email
         header_value('Reply-To').gsub!("%{reply_key}", reply_key)
     end
 
+    def self.bounceable_reply_address?
+      SiteSetting.reply_by_email_address.present? && SiteSetting.reply_by_email_address["+"]
+    end
+
+    def self.bounce_address(bounce_key)
+      SiteSetting.reply_by_email_address.sub("%{reply_key}", "verp-#{bounce_key}")
+    end
   end
 end

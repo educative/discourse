@@ -9,14 +9,16 @@
             label="admin.user.suspend_duration"
             includeFarFuture=true
             clearable=false
-            input=suspendUntil}}
+            input=suspendUntil
+            onChangeInput=(action (mut suspendUntil))
+          }}
         </label>
       </div>
       {{suspension-details reason=reason message=message}}
 
-      {{#if post}}
+      {{#if postId}}
         {{penalty-post-action
-          post=post
+          postId=postId
           postAction=postAction
           postEdit=postEdit}}
       {{/if}}

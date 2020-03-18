@@ -1,26 +1,28 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import { makeArray } from "discourse-common/lib/helpers";
+import { isEmpty } from "@ember/utils";
+import EmberObject from "@ember/object";
 import { escapeExpression } from "discourse/lib/utilities";
 import { ajax } from "discourse/lib/ajax";
 import round from "discourse/lib/round";
-import { fillMissingDates, formatUsername } from "discourse/lib/utilities";
-import computed from "ember-addons/ember-computed-decorators";
+import {
+  fillMissingDates,
+  formatUsername,
+  toNumber
+} from "discourse/lib/utilities";
 import { number, durationTiny } from "discourse/lib/formatter";
 import { renderAvatar } from "discourse/helpers/user-avatar";
 
 // Change this line each time report format change
 // and you want to ensure cache is reset
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
-const Report = Discourse.Model.extend({
+const Report = EmberObject.extend({
   average: false,
   percent: false,
   higher_is_better: true,
 
-  @computed("modes")
-  onlyTable(modes) {
-    return modes.length === 1 && modes[0] === "table";
-  },
-
-  @computed("type", "start_date", "end_date")
+  @discourseComputed("type", "start_date", "end_date")
   reportUrl(type, start_date, end_date) {
     start_date = moment
       .utc(start_date)
@@ -69,43 +71,53 @@ const Report = Discourse.Model.extend({
           count++;
         }
       });
-      if (this.get("method") === "average" && count > 0) {
+      if (this.method === "average" && count > 0) {
         sum /= count;
       }
       return round(sum, -2);
     }
   },
 
-  todayCount: function() {
+  @discourseComputed("data", "average")
+  todayCount() {
     return this.valueAt(0);
-  }.property("data", "average"),
-  yesterdayCount: function() {
-    return this.valueAt(1);
-  }.property("data", "average"),
-  sevenDaysAgoCount: function() {
-    return this.valueAt(7);
-  }.property("data", "average"),
-  thirtyDaysAgoCount: function() {
-    return this.valueAt(30);
-  }.property("data", "average"),
-
-  lastSevenDaysCount: function() {
-    return this.averageCount(7, this.valueFor(1, 7));
-  }.property("data", "average"),
-  lastThirtyDaysCount: function() {
-    return this.averageCount(30, this.valueFor(1, 30));
-  }.property("data", "average"),
-
-  averageCount(count, value) {
-    return this.get("average") ? value / count : value;
   },
 
-  @computed("yesterdayCount", "higher_is_better")
+  @discourseComputed("data", "average")
+  yesterdayCount() {
+    return this.valueAt(1);
+  },
+
+  @discourseComputed("data", "average")
+  sevenDaysAgoCount() {
+    return this.valueAt(7);
+  },
+
+  @discourseComputed("data", "average")
+  thirtyDaysAgoCount() {
+    return this.valueAt(30);
+  },
+
+  @discourseComputed("data", "average")
+  lastSevenDaysCount() {
+    return this.averageCount(7, this.valueFor(1, 7));
+  },
+
+  @discourseComputed("data", "average")
+  lastThirtyDaysCount() {
+    return this.averageCount(30, this.valueFor(1, 30));
+  },
+
+  averageCount(count, value) {
+    return this.average ? value / count : value;
+  },
+
+  @discourseComputed("yesterdayCount", "higher_is_better")
   yesterdayTrend(yesterdayCount, higherIsBetter) {
     return this._computeTrend(this.valueAt(2), yesterdayCount, higherIsBetter);
   },
 
-  @computed("lastSevenDaysCount", "higher_is_better")
+  @discourseComputed("lastSevenDaysCount", "higher_is_better")
   sevenDaysTrend(lastSevenDaysCount, higherIsBetter) {
     return this._computeTrend(
       this.valueFor(8, 14),
@@ -114,50 +126,55 @@ const Report = Discourse.Model.extend({
     );
   },
 
-  @computed("data")
+  @discourseComputed("data")
   currentTotal(data) {
     return data.reduce((cur, pair) => cur + pair.y, 0);
   },
 
-  @computed("data", "currentTotal")
+  @discourseComputed("data", "currentTotal")
   currentAverage(data, total) {
-    return Ember.makeArray(data).length === 0
+    return makeArray(data).length === 0
       ? 0
       : parseFloat((total / parseFloat(data.length)).toFixed(1));
   },
 
-  @computed("trend", "higher_is_better")
+  @discourseComputed("trend", "higher_is_better")
   trendIcon(trend, higherIsBetter) {
     return this._iconForTrend(trend, higherIsBetter);
   },
 
-  @computed("sevenDaysTrend", "higher_is_better")
+  @discourseComputed("sevenDaysTrend", "higher_is_better")
   sevenDaysTrendIcon(sevenDaysTrend, higherIsBetter) {
     return this._iconForTrend(sevenDaysTrend, higherIsBetter);
   },
 
-  @computed("thirtyDaysTrend", "higher_is_better")
+  @discourseComputed("thirtyDaysTrend", "higher_is_better")
   thirtyDaysTrendIcon(thirtyDaysTrend, higherIsBetter) {
     return this._iconForTrend(thirtyDaysTrend, higherIsBetter);
   },
 
-  @computed("yesterdayTrend", "higher_is_better")
+  @discourseComputed("yesterdayTrend", "higher_is_better")
   yesterdayTrendIcon(yesterdayTrend, higherIsBetter) {
     return this._iconForTrend(yesterdayTrend, higherIsBetter);
   },
 
-  @computed("prev_period", "currentTotal", "currentAverage", "higher_is_better")
+  @discourseComputed(
+    "prev_period",
+    "currentTotal",
+    "currentAverage",
+    "higher_is_better"
+  )
   trend(prev, currentTotal, currentAverage, higherIsBetter) {
-    const total = this.get("average") ? currentAverage : currentTotal;
+    const total = this.average ? currentAverage : currentTotal;
     return this._computeTrend(prev, total, higherIsBetter);
   },
 
-  @computed("prev30Days", "lastThirtyDaysCount", "higher_is_better")
+  @discourseComputed("prev30Days", "lastThirtyDaysCount", "higher_is_better")
   thirtyDaysTrend(prev30Days, lastThirtyDaysCount, higherIsBetter) {
     return this._computeTrend(prev30Days, lastThirtyDaysCount, higherIsBetter);
   },
 
-  @computed("type")
+  @discourseComputed("type")
   method(type) {
     if (type === "time_to_first_response") {
       return "average";
@@ -178,14 +195,14 @@ const Report = Discourse.Model.extend({
     }
   },
 
-  @computed("prev_period", "currentTotal", "currentAverage")
+  @discourseComputed("prev_period", "currentTotal", "currentAverage")
   trendTitle(prev, currentTotal, currentAverage) {
-    let current = this.get("average") ? currentAverage : currentTotal;
+    let current = this.average ? currentAverage : currentTotal;
     let percent = this.percentChangeString(prev, current);
 
-    if (this.get("average")) {
+    if (this.average) {
       prev = prev ? prev.toFixed(1) : "0";
-      if (this.get("percent")) {
+      if (this.percent) {
         current += "%";
         prev += "%";
       }
@@ -211,12 +228,12 @@ const Report = Discourse.Model.extend({
     return title;
   },
 
-  @computed("yesterdayCount")
+  @discourseComputed("yesterdayCount")
   yesterdayCountTitle(yesterdayCount) {
     return this.changeTitle(this.valueAt(2), yesterdayCount, "two days ago");
   },
 
-  @computed("lastSevenDaysCount")
+  @discourseComputed("lastSevenDaysCount")
   sevenDaysCountTitle(lastSevenDaysCount) {
     return this.changeTitle(
       this.valueFor(8, 14),
@@ -225,7 +242,7 @@ const Report = Discourse.Model.extend({
     );
   },
 
-  @computed("prev30Days", "lastThirtyDaysCount")
+  @discourseComputed("prev30Days", "lastThirtyDaysCount")
   thirtyDaysCountTitle(prev30Days, lastThirtyDaysCount) {
     return this.changeTitle(
       prev30Days,
@@ -234,18 +251,18 @@ const Report = Discourse.Model.extend({
     );
   },
 
-  @computed("data")
+  @discourseComputed("data")
   sortedData(data) {
-    return this.get("xAxisIsDate") ? data.toArray().reverse() : data.toArray();
+    return this.xAxisIsDate ? data.toArray().reverse() : data.toArray();
   },
 
-  @computed("data")
+  @discourseComputed("data")
   xAxisIsDate() {
     if (!this.data[0]) return false;
     return this.data && this.data[0].x.match(/\d{4}-\d{1,2}-\d{1,2}/);
   },
 
-  @computed("labels")
+  @discourseComputed("labels")
   computedLabels(labels) {
     return labels.map(label => {
       const type = label.type || "string";
@@ -264,7 +281,13 @@ const Report = Discourse.Model.extend({
         mainProperty,
         type,
         compute: (row, opts = {}) => {
-          const value = row[mainProperty];
+          let value = null;
+
+          if (opts.useSortProperty) {
+            value = row[label.sort_property || mainProperty];
+          } else {
+            value = row[mainProperty];
+          }
 
           if (type === "user") return this._userLabel(label.properties, row);
           if (type === "post") return this._postLabel(label.properties, row);
@@ -303,7 +326,7 @@ const Report = Discourse.Model.extend({
     const formatedValue = () => {
       const userId = row[properties.id];
 
-      const user = Ember.Object.create({
+      const user = EmberObject.create({
         username,
         name: formatUsername(username),
         avatar_template: row[properties.avatar]
@@ -316,9 +339,7 @@ const Report = Discourse.Model.extend({
         ignoreTitle: true
       });
 
-      return `<a href='${href}'>${avatarImg}<span class='username'>${
-        user.name
-      }</span></a>`;
+      return `<a href='${href}'>${avatarImg}<span class='username'>${user.name}</span></a>`;
     };
 
     return {
@@ -352,40 +373,42 @@ const Report = Discourse.Model.extend({
       property: properties.title,
       value: postTitle,
       formatedValue:
-        postTitle && href ? `<a href='${href}'>${escapeExpression(postTitle)}</a>` : "—"
+        postTitle && href
+          ? `<a href='${href}'>${escapeExpression(postTitle)}</a>`
+          : "—"
     };
   },
 
   _secondsLabel(value) {
     return {
-      value,
+      value: toNumber(value),
       formatedValue: durationTiny(value)
     };
   },
 
   _percentLabel(value) {
     return {
-      value,
+      value: toNumber(value),
       formatedValue: value ? `${value}%` : "—"
     };
   },
 
   _numberLabel(value, options = {}) {
-    const formatNumbers = Ember.isEmpty(options.formatNumbers)
+    const formatNumbers = isEmpty(options.formatNumbers)
       ? true
       : options.formatNumbers;
 
     const formatedValue = () => (formatNumbers ? number(value) : value);
 
     return {
-      value,
+      value: toNumber(value),
       formatedValue: value ? formatedValue() : "—"
     };
   },
 
   _bytesLabel(value) {
     return {
-      value,
+      value: toNumber(value),
       formatedValue: I18n.toHumanSize(value)
     };
   },

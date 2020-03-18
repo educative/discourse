@@ -1,18 +1,16 @@
 export default function() {
   this.route("admin", { resetNamespace: true }, function() {
-    this.route("dashboard", { path: "/dashboard-old" });
-
-    this.route("dashboardNext", { path: "/" }, function() {
+    this.route("dashboard", { path: "/" }, function() {
       this.route("general", { path: "/" });
-      this.route("admin.dashboardNextModeration", {
+      this.route("admin.dashboardModeration", {
         path: "/dashboard/moderation",
         resetNamespace: true
       });
-      this.route("admin.dashboardNextSecurity", {
+      this.route("admin.dashboardSecurity", {
         path: "/dashboard/security",
         resetNamespace: true
       });
-      this.route("admin.dashboardNextReports", {
+      this.route("admin.dashboardReports", {
         path: "/dashboard/reports",
         resetNamespace: true
       });
@@ -88,11 +86,29 @@ export default function() {
             this.route("edit", { path: "/:id" });
           }
         );
+        this.route("adminCustomizeRobotsTxt", {
+          path: "/robots",
+          resetNamespace: true
+        });
+        this.route(
+          "adminCustomizeEmailStyle",
+          { path: "/email_style", resetNamespace: true },
+          function() {
+            this.route("edit", { path: "/:field_name" });
+          }
+        );
       }
     );
 
     this.route("adminApi", { path: "/api", resetNamespace: true }, function() {
-      this.route("adminApiKeys", { path: "/keys", resetNamespace: true });
+      this.route(
+        "adminApiKeys",
+        { path: "/keys", resetNamespace: true },
+        function() {
+          this.route("show", { path: "/:api_key_id" });
+          this.route("new", { path: "/new" });
+        }
+      );
 
       this.route(
         "adminWebHooks",
@@ -121,18 +137,6 @@ export default function() {
     );
 
     this.route(
-      "adminFlags",
-      { path: "/flags", resetNamespace: true },
-      function() {
-        this.route("postsActive", { path: "active" });
-        this.route("postsOld", { path: "old" });
-        this.route("topics", { path: "topics" }, function() {
-          this.route("show", { path: ":id" });
-        });
-      }
-    );
-
-    this.route(
       "adminLogs",
       { path: "/logs", resetNamespace: true },
       function() {
@@ -145,7 +149,7 @@ export default function() {
           { path: "/search_logs", resetNamespace: true },
           function() {
             this.route("index", { path: "/" });
-            this.route("term", { path: "/term/:term" });
+            this.route("term", { path: "/term" });
           }
         );
         this.route(
@@ -186,6 +190,7 @@ export default function() {
       "adminBadges",
       { path: "/badges", resetNamespace: true },
       function() {
+        this.route("award", { path: "/award/:badge_id" });
         this.route("show", { path: "/:badge_id" });
       }
     );

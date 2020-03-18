@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 if ARGV.include?('bbcode-to-md')
   # Replace (most) bbcode with markdown before creating posts.
   # This will dramatically clean up the final posts in Discourse.
@@ -18,8 +20,6 @@ require_relative 'base/uploader'
 module ImportScripts; end
 
 class ImportScripts::Base
-
-  include ActionView::Helpers::NumberHelper
 
   def initialize
     preload_i18n
@@ -95,7 +95,7 @@ class ImportScripts::Base
     @site_settings_during_import = get_site_settings_for_import
 
     @site_settings_during_import.each do |key, value|
-      @old_site_settings[key] = SiteSetting.send(key)
+      @old_site_settings[key] = SiteSetting.get(key)
       SiteSetting.set(key, value)
     end
 
@@ -108,7 +108,7 @@ class ImportScripts::Base
 
   def reset_site_settings
     @old_site_settings.each do |key, value|
-      current_value = SiteSetting.send(key)
+      current_value = SiteSetting.get(key)
       SiteSetting.set(key, value) unless current_value != @site_settings_during_import[key]
     end
 
@@ -125,14 +125,21 @@ class ImportScripts::Base
     raise NotImplementedError
   end
 
-  %i{ post_id_from_imported_post_id
-      topic_lookup_from_imported_post_id
-      group_id_from_imported_group_id
-      find_group_by_import_id
-      user_id_from_imported_user_id
-      find_user_by_import_id
-      category_id_from_imported_category_id
-      add_group add_user add_category add_topic add_post
+  %i{
+    add_category
+    add_group
+    add_post
+    add_topic
+    add_user
+    category_id_from_imported_category_id
+    find_group_by_import_id
+    find_user_by_import_id
+    group_id_from_imported_group_id
+    post_already_imported?
+    post_id_from_imported_post_id
+    topic_lookup_from_imported_post_id
+    user_already_imported?
+    user_id_from_imported_user_id
   }.each do |method_name|
     delegate method_name, to: :@lookup
   end
@@ -222,7 +229,7 @@ class ImportScripts::Base
 
     if existing == import_ids.length
       puts "Skipping #{import_ids.length} already imported #{type}"
-      return true
+      true
     end
   ensure
     connection.exec('DROP TABLE import_ids') unless connection.nil?
@@ -299,18 +306,8 @@ class ImportScripts::Base
     original_name = opts[:name]
     original_email = opts[:email] = opts[:email].downcase
 
-    # Allow the || operations to work with empty strings ''
-    opts[:username] = nil if opts[:username].blank?
-
-    opts[:name] = User.suggest_name(opts[:email]) unless opts[:name]
-
-    if opts[:username].blank? ||
-      opts[:username].length < User.username_length.begin ||
-      opts[:username].length > User.username_length.end ||
-      !User.username_available?(opts[:username]) ||
-      !UsernameValidator.new(opts[:username]).valid_format?
-
-      opts[:username] = UserNameSuggester.suggest(opts[:username] || opts[:name].presence || opts[:email])
+    if !UsernameValidator.new(opts[:username]).valid_format? || !User.username_available?(opts[:username])
+      opts[:username] = UserNameSuggester.suggest(opts[:username].presence || opts[:name].presence || opts[:email])
     end
 
     unless opts[:email][EmailValidator.email_regex]
@@ -374,9 +371,8 @@ class ImportScripts::Base
 
       user_option = u.user_option
       user_option.email_digests = false
-      user_option.email_private_messages = false
-      user_option.email_direct = false
-      user_option.email_always = false
+      user_option.email_level = UserOption.email_level_types[:never]
+      user_option.email_messages_level = UserOption.email_level_types[:never]
       user_option.save!
       if u.save
         StaffActionLogger.new(Discourse.system_user).log_user_suspend(u, ban_reason)
@@ -443,8 +439,13 @@ class ImportScripts::Base
   end
 
   def create_category(opts, import_id)
-    existing = Category.where("LOWER(name) = ?", opts[:name].downcase).first
-    return existing if existing && existing.parent_category.try(:id) == opts[:parent_category_id]
+    existing =
+      Category
+        .where(parent_category_id: opts[:parent_category_id])
+        .where("LOWER(name) = ?", opts[:name].downcase.strip)
+        .first
+
+    return existing if existing
 
     post_create_action = opts.delete(:post_create_action)
 
@@ -565,7 +566,7 @@ class ImportScripts::Base
     post_creator = PostCreator.new(user, opts)
     post = post_creator.create
     post_create_action.try(:call, post) if post
-    post ? post : post_creator.errors.full_messages
+    post && post_creator.errors.empty? ? post : post_creator.errors.full_messages
   end
 
   def create_upload(user_id, path, source_filename)
@@ -599,12 +600,9 @@ class ImportScripts::Base
           skipped += 1
           puts "Skipping bookmark for user id #{params[:user_id]} and post id #{params[:post_id]}"
         else
-          begin
-            PostAction.act(user, post, PostActionType.types[:bookmark])
-            created += 1
-          rescue PostAction::AlreadyActed
-            skipped += 1
-          end
+          result = PostActionCreator.create(user, post, :bookmark)
+          created += 1 if result.success?
+          skipped += 1 if result.failed?
         end
       end
 
@@ -887,6 +885,6 @@ class ImportScripts::Base
   end
 
   def fake_email
-    SecureRandom.hex << "@domain.com"
+    SecureRandom.hex << "@email.invalid"
   end
 end

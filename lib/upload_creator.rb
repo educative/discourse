@@ -1,15 +1,15 @@
+# frozen_string_literal: true
+
 require "fastimage"
-require_dependency "image_sizer"
 
 class UploadCreator
-
-  TYPES_CONVERTED_TO_JPEG ||= %i{bmp png}
 
   TYPES_TO_CROP ||= %w{avatar card_background custom_emoji profile_background}.each(&:freeze)
 
   WHITELISTED_SVG_ELEMENTS ||= %w{
-    circle clippath defs ellipse g line linearGradient path polygon polyline
-    radialGradient rect stop svg text textpath tref tspan use
+    circle clippath defs ellipse feGaussianBlur filter g line linearGradient
+    path polygon polyline radialGradient rect stop style svg text textpath
+    tref tspan use
   }.each(&:freeze)
 
   # Available options
@@ -20,6 +20,7 @@ class UploadCreator
   #  - for_private_message (boolean)
   #  - pasted (boolean)
   #  - for_export (boolean)
+  #  - for_gravatar (boolean)
   def initialize(file, filename, opts = {})
     @file = file
     @filename = (filename || "").gsub(/[^[:print:]]/, "")
@@ -39,6 +40,7 @@ class UploadCreator
 
       is_image = FileHelper.is_supported_image?(@filename)
       is_image ||= @image_info && FileHelper.is_supported_image?("test.#{@image_info.type}")
+      is_image = false if @opts[:for_theme]
 
       if is_image
         extract_image_info!
@@ -47,7 +49,7 @@ class UploadCreator
         if @image_info.type.to_s == "svg"
           whitelist_svg!
         elsif !Rails.env.test? || @opts[:force_optimize]
-          convert_to_jpeg! if should_convert_to_jpeg?
+          convert_to_jpeg! if convert_png_to_jpeg?
           downsize!        if should_downsize?
 
           return @upload   if is_still_too_big?
@@ -61,22 +63,31 @@ class UploadCreator
         image_type = @image_info.type.to_s
       end
 
-      # compute the sha of the file
+      # compute the sha of the file and generate a unique hash
+      # which is only used for secure uploads
       sha1 = Upload.generate_digest(@file)
+      unique_hash = SecureRandom.hex(20) if SiteSetting.secure_media
 
-      # do we already have that upload?
-      @upload = Upload.find_by(sha1: sha1)
+      # we do not check for duplicate uploads if secure media is
+      # enabled because we use a unique access hash to differentiate
+      # between uploads instead of the sha1, and to get around various
+      # access/permission issues for uploads
+      if !SiteSetting.secure_media
 
-      # make sure the previous upload has not failed
-      if @upload && @upload.url.blank?
-        @upload.destroy
-        @upload = nil
-      end
+        # do we already have that upload?
+        @upload = Upload.find_by(sha1: sha1)
 
-      # return the previous upload if any
-      if @upload
-        UserUpload.find_or_create_by!(user_id: user_id, upload_id: @upload.id) if user_id
-        return @upload
+        # make sure the previous upload has not failed
+        if @upload && @upload.url.blank?
+          @upload.destroy
+          @upload = nil
+        end
+
+        # return the previous upload if any
+        if @upload
+          UserUpload.find_or_create_by!(user_id: user_id, upload_id: @upload.id) if user_id
+          return @upload
+        end
       end
 
       fixed_original_filename = nil
@@ -99,7 +110,8 @@ class UploadCreator
       @upload.user_id           = user_id
       @upload.original_filename = fixed_original_filename || @filename
       @upload.filesize          = filesize
-      @upload.sha1              = sha1
+      @upload.sha1              = SiteSetting.secure_media? ? unique_hash : sha1
+      @upload.original_sha1     = SiteSetting.secure_media? ? sha1 : nil
       @upload.url               = ""
       @upload.origin            = @opts[:origin][0...1000] if @opts[:origin]
       @upload.extension         = image_type || File.extname(@filename)[1..10]
@@ -114,6 +126,8 @@ class UploadCreator
       @upload.for_theme           = true if @opts[:for_theme]
       @upload.for_export          = true if @opts[:for_export]
       @upload.for_site_setting    = true if @opts[:for_site_setting]
+      @upload.for_gravatar        = true if @opts[:for_gravatar]
+      @upload.secure = UploadSecurity.new(@upload, @opts).should_be_secure?
 
       return @upload unless @upload.save
 
@@ -130,7 +144,7 @@ class UploadCreator
       end
 
       if @upload.errors.empty? && is_image && @opts[:type] == "avatar" && @upload.extension != "svg"
-        Jobs.enqueue(:create_avatar_thumbnails, upload_id: @upload.id, user_id: user_id)
+        Jobs.enqueue(:create_avatar_thumbnails, upload_id: @upload.id)
       end
 
       if @upload.errors.empty?
@@ -140,7 +154,9 @@ class UploadCreator
       @upload
     end
   ensure
-    @file&.close
+    if @file
+      @file.respond_to?(:close!) ? @file.close! : @file.close
+    end
   end
 
   def extract_image_info!
@@ -158,8 +174,8 @@ class UploadCreator
 
   MIN_PIXELS_TO_CONVERT_TO_JPEG ||= 1280 * 720
 
-  def should_convert_to_jpeg?
-    return false if !TYPES_CONVERTED_TO_JPEG.include?(@image_info.type)
+  def convert_png_to_jpeg?
+    return false unless @image_info.type == :png
     return true  if @opts[:pasted]
     return false if SiteSetting.png_to_jpg_quality == 100
     pixels > MIN_PIXELS_TO_CONVERT_TO_JPEG
@@ -194,10 +210,11 @@ class UploadCreator
     keep_jpeg &&= (filesize - new_size) > MIN_CONVERT_TO_JPEG_BYTES_SAVED
 
     if keep_jpeg
+      @file.respond_to?(:close!) ? @file.close! : @file.close
       @file = jpeg_tempfile
       extract_image_info!
     else
-      jpeg_tempfile&.close
+      jpeg_tempfile.close!
     end
   end
 
@@ -224,16 +241,24 @@ class UploadCreator
   def downsize!
     3.times do
       original_size = filesize
-      downsized_pixels = [pixels, max_image_pixels].min / 2
+      down_tempfile = Tempfile.new(["down", ".#{@image_info.type}"])
+
+      from = @file.path
+      to = down_tempfile.path
+
+      OptimizedImage.ensure_safe_paths!(from, to)
 
       OptimizedImage.downsize(
-        @file.path,
-        @file.path,
-        "#{downsized_pixels}@",
+        from,
+        to,
+        "50%",
         filename: @filename,
         allow_animation: allow_animation,
         raise_on_error: true
       )
+
+      @file.respond_to?(:close!) ? @file.close! : @file.close
+      @file = down_tempfile
 
       extract_image_info!
 
@@ -256,6 +281,7 @@ class UploadCreator
   def whitelist_svg!
     doc = Nokogiri::XML(@file)
     doc.xpath(svg_whitelist_xpath).remove
+    doc.xpath("//@*[starts-with(name(), 'on')]").remove
     File.write(@file.path, doc.to_s)
     @file.rewind
   end

@@ -1,8 +1,12 @@
-import debounce from "discourse/lib/debounce";
+import { get } from "@ember/object";
+import { isEmpty } from "@ember/utils";
+import { next } from "@ember/runloop";
+import Component from "@ember/component";
+import discourseDebounce from "discourse/lib/debounce";
 import { searchForTerm } from "discourse/lib/search";
-import { observes } from "ember-addons/ember-computed-decorators";
+import { observes } from "discourse-common/utils/decorators";
 
-export default Ember.Component.extend({
+export default Component.extend({
   loading: null,
   noResults: null,
   messages: null,
@@ -14,22 +18,22 @@ export default Ember.Component.extend({
       noResults: true,
       selectedTopicId: null
     });
-    this.search(this.get("messageTitle"));
+    this.search(this.messageTitle);
   },
 
   @observes("messages")
   messagesChanged() {
-    const messages = this.get("messages");
+    const messages = this.messages;
     if (messages) {
       this.set("noResults", messages.length === 0);
     }
     this.set("loading", false);
   },
 
-  search: debounce(function(title) {
-    const currentTopicId = this.get("currentTopicId");
+  search: discourseDebounce(function(title) {
+    const currentTopicId = this.currentTopicId;
 
-    if (Ember.isEmpty(title)) {
+    if (isEmpty(title)) {
       this.setProperties({ messages: null, loading: false });
       return;
     }
@@ -54,11 +58,9 @@ export default Ember.Component.extend({
 
   actions: {
     chooseMessage(message) {
-      const messageId = Ember.get(message, "id");
+      const messageId = get(message, "id");
       this.set("selectedTopicId", messageId);
-      Ember.run.next(() =>
-        $(`#choose-message-${messageId}`).prop("checked", "true")
-      );
+      next(() => $(`#choose-message-${messageId}`).prop("checked", "true"));
       return false;
     }
   }

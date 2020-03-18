@@ -1,10 +1,5 @@
 # frozen_string_literal: true
 
-require_dependency 'site_settings/deprecated_settings'
-require_dependency 'site_settings/type_supervisor'
-require_dependency 'site_settings/defaults_provider'
-require_dependency 'site_settings/db_provider'
-
 module SiteSettingExtension
   include SiteSettings::DeprecatedSettings
 
@@ -13,6 +8,7 @@ module SiteSettingExtension
   # for site locale
   def self.extended(klass)
     if GlobalSetting.respond_to?(:default_locale) && GlobalSetting.default_locale.present?
+      # protected
       klass.send :setup_shadowed_methods, :default_locale, GlobalSetting.default_locale
     end
   end
@@ -136,8 +132,8 @@ module SiteSettingExtension
         hidden_settings << name
       end
 
-      if opts[:shadowed_by_global] && GlobalSetting.respond_to?(name)
-        val = GlobalSetting.send(name)
+      if GlobalSetting.respond_to?(name)
+        val = GlobalSetting.public_send(name)
 
         unless val.nil? || (val == ''.freeze)
           shadowed_val = val
@@ -186,9 +182,9 @@ module SiteSettingExtension
     defaults.all.keys.each do |s|
       result[s] =
         if deprecated_settings.include?(s.to_s)
-          send(s, warn: false).to_s
+          public_send(s, warn: false).to_s
         else
-          send(s).to_s
+          public_send(s).to_s
         end
     end
 
@@ -196,7 +192,7 @@ module SiteSettingExtension
   end
 
   def client_settings_json
-    Rails.cache.fetch(SiteSettingExtension.client_settings_cache_key, expires_in: 30.minutes) do
+    Discourse.cache.fetch(SiteSettingExtension.client_settings_cache_key, expires_in: 30.minutes) do
       client_settings_json_uncached
     end
   end
@@ -229,18 +225,26 @@ module SiteSettingExtension
       .reject { |s, _| !include_hidden && hidden_settings.include?(s) }
       .map do |s, v|
 
-      value = send(s)
+      value = public_send(s)
+      type_hash = type_supervisor.type_hash(s)
+      default = defaults.get(s, default_locale).to_s
+
+      if type_hash[:type].to_s == "upload" &&
+         default.to_i < Upload::SEEDED_ID_THRESHOLD
+
+        default = default_uploads[default.to_i]
+      end
 
       opts = {
         setting: s,
         description: description(s),
-        default: defaults.get(s, default_locale).to_s,
+        default: default,
         value: value.to_s,
         category: categories[s],
         preview: previews[s],
         secret: secret_settings.include?(s),
         placeholder: placeholder(s)
-      }.merge(type_supervisor.type_hash(s))
+      }.merge!(type_hash)
 
       opts
     end.unshift(locale_setting_hash)
@@ -253,6 +257,8 @@ module SiteSettingExtension
   def placeholder(setting)
     if !I18n.t("site_settings.placeholder.#{setting}", default: "").empty?
       I18n.t("site_settings.placeholder.#{setting}")
+    elsif SiteIconManager.respond_to?("#{setting}_url")
+      SiteIconManager.public_send("#{setting}_url")
     end
   end
 
@@ -278,19 +284,13 @@ module SiteSettingExtension
       new_hash = defaults_view.merge!(new_hash)
 
       # add shadowed
-      shadowed_settings.each { |ss| new_hash[ss] = GlobalSetting.send(ss) }
+      shadowed_settings.each { |ss| new_hash[ss] = GlobalSetting.public_send(ss) }
 
       changes, deletions = diff_hash(new_hash, current)
 
-      changes.each do |name, val|
-        current[name] = val
-        clear_uploads_cache(name)
-      end
-
-      deletions.each do |name, _|
-        current[name] = defaults_view[name]
-        clear_uploads_cache(name)
-      end
+      changes.each { |name, val| current[name] = val }
+      deletions.each { |name, _| current[name] = defaults_view[name] }
+      uploads.clear
 
       clear_cache!
     end
@@ -336,19 +336,23 @@ module SiteSettingExtension
   end
 
   def remove_override!(name)
+    old_val = current[name]
     provider.destroy(name)
     current[name] = defaults.get(name, default_locale)
     clear_uploads_cache(name)
     clear_cache!
+    DiscourseEvent.trigger(:site_setting_changed, name, old_val, current[name]) if old_val != current[name]
   end
 
   def add_override!(name, val)
+    old_val = current[name]
     val, type = type_supervisor.to_db_value(name, val)
     provider.save(name, val, type)
     current[name] = type_supervisor.to_rb_value(name, val)
     clear_uploads_cache(name)
     notify_clients!(name) if client_settings.include? name
     clear_cache!
+    DiscourseEvent.trigger(:site_setting_changed, name, old_val, current[name]) if old_val != current[name]
   end
 
   def notify_changed!
@@ -356,7 +360,7 @@ module SiteSettingExtension
   end
 
   def notify_clients!(name)
-    MessageBus.publish('/client_settings', name: name, value: self.send(name))
+    MessageBus.publish('/client_settings', name: name, value: self.public_send(name))
   end
 
   def requires_refresh?(name)
@@ -370,16 +374,20 @@ module SiteSettingExtension
 
   def filter_value(name, value)
     if HOSTNAME_SETTINGS.include?(name)
-      value.split("|").map { |url| get_hostname(url) }.compact.uniq.join("|")
+      value.split("|").map { |url| url.strip!; get_hostname(url) }.compact.uniq.join("|")
     else
       value
     end
   end
 
-  def set(name, value)
+  def set(name, value, options = nil)
     if has_setting?(name)
       value = filter_value(name, value)
-      self.send("#{name}=", value)
+      if options
+        self.public_send("#{name}=", value, options)
+      else
+        self.public_send("#{name}=", value)
+      end
       Discourse.request_refresh! if requires_refresh?(name)
     else
       raise Discourse::InvalidParameters.new("Either no setting named '#{name}' exists or value provided is invalid")
@@ -387,18 +395,44 @@ module SiteSettingExtension
   end
 
   def set_and_log(name, value, user = Discourse.system_user)
-    prev_value = send(name)
-    set(name, value)
     if has_setting?(name)
+      prev_value = public_send(name)
+      set(name, value)
       value = prev_value = "[FILTERED]" if secret_settings.include?(name.to_sym)
       StaffActionLogger.new(user).log_site_setting_change(name, prev_value, value)
+    else
+      raise Discourse::InvalidParameters.new("No setting named '#{name}' exists")
+    end
+  end
+
+  def get(name)
+    if has_setting?(name)
+      self.public_send(name)
+    else
+      raise Discourse::InvalidParameters.new("No setting named '#{name}' exists")
+    end
+  end
+
+  if defined?(Rails::Console)
+    # Convenience method for debugging site setting issues
+    # Returns a hash with information about a specific setting
+    def info(name)
+      {
+        resolved_value: get(name),
+        default_value: defaults[name],
+        global_override: GlobalSetting.respond_to?(name) ? GlobalSetting.public_send(name) : nil,
+        database_value: provider.find(name)&.value,
+        refresh?: refresh_settings.include?(name),
+        client?: client_settings.include?(name),
+        secret?: secret_settings.include?(name),
+      }
     end
   end
 
   protected
 
   def clear_cache!
-    Rails.cache.delete(SiteSettingExtension.client_settings_cache_key)
+    Discourse.cache.delete(SiteSettingExtension.client_settings_cache_key)
     Site.clear_anon_cache!
   end
 
@@ -450,7 +484,7 @@ module SiteSettingExtension
 
         value = value.to_i
 
-        if value > 0
+        if value != Upload::SEEDED_ID_THRESHOLD
           upload = Upload.find_by(id: value)
           uploads[name] = upload if upload
         end
@@ -467,7 +501,7 @@ module SiteSettingExtension
     end
 
     define_singleton_method "#{clean_name}?" do
-      self.send clean_name
+      self.public_send clean_name
     end
 
     define_singleton_method "#{clean_name}=" do |val|
@@ -476,7 +510,6 @@ module SiteSettingExtension
   end
 
   def get_hostname(url)
-    url.strip!
 
     host = begin
       URI.parse(url)&.host
@@ -494,6 +527,14 @@ module SiteSettingExtension
   end
 
   private
+
+  def default_uploads
+    @default_uploads ||= {}
+
+    @default_uploads[provider.current_site] ||= begin
+      Upload.where("id < ?", Upload::SEEDED_ID_THRESHOLD).pluck(:id, :url).to_h
+    end
+  end
 
   def uploads
     @uploads ||= {}

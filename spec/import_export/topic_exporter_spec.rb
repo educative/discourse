@@ -1,5 +1,7 @@
+# frozen_string_literal: true
+
 require "rails_helper"
-require "import_export/topic_exporter"
+require "import_export"
 
 describe ImportExport::TopicExporter do
 
@@ -7,9 +9,9 @@ describe ImportExport::TopicExporter do
     STDOUT.stubs(:write)
   end
 
-  let(:user) { Fabricate(:user) }
-  let(:topic) { Fabricate(:topic, user: user) }
-  let!(:post) { Fabricate(:post, topic: topic, user: user) }
+  fab!(:user) { Fabricate(:user) }
+  fab!(:topic) { Fabricate(:topic, user: user) }
+  fab!(:post) { Fabricate(:post, topic: topic, user: user) }
 
   context '.perform' do
     it 'export a single topic' do
@@ -23,7 +25,7 @@ describe ImportExport::TopicExporter do
 
     it 'export multiple topics' do
       topic2 = Fabricate(:topic, user: user)
-      post2 = Fabricate(:post, user: user, topic: topic2)
+      _post2 = Fabricate(:post, user: user, topic: topic2)
       data = ImportExport::TopicExporter.new([topic.id, topic2.id]).perform.export_data
 
       expect(data[:categories].blank?).to eq(true)

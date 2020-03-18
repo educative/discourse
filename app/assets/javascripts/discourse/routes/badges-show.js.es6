@@ -1,8 +1,10 @@
+import DiscourseRoute from "discourse/routes/discourse";
 import UserBadge from "discourse/models/user-badge";
 import Badge from "discourse/models/badge";
 import PreloadStore from "preload-store";
+import { hash } from "rsvp";
 
-export default Discourse.Route.extend({
+export default DiscourseRoute.extend({
   queryParams: {
     username: {
       refreshModel: true
@@ -30,14 +32,16 @@ export default Discourse.Route.extend({
   },
 
   afterModel(model, transition) {
-    const username = transition.queryParams && transition.queryParams.username;
+    const usernameFromParams =
+      transition.to.queryParams && transition.to.queryParams.username;
 
     const userBadgesGrant = UserBadge.findByBadgeId(model.get("id"), {
-      username
+      username: usernameFromParams
     }).then(userBadges => {
       this.userBadgesGrant = userBadges;
     });
 
+    const username = this.currentUser && this.currentUser.username_lower;
     const userBadgesAll = UserBadge.findByUsername(username).then(
       userBadges => {
         this.userBadgesAll = userBadges;
@@ -49,7 +53,7 @@ export default Discourse.Route.extend({
       userBadgesAll
     };
 
-    return Ember.RSVP.hash(promises);
+    return hash(promises);
   },
 
   titleToken() {

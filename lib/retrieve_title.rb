@@ -1,4 +1,4 @@
-require_dependency 'final_destination'
+# frozen_string_literal: true
 
 module RetrieveTitle
   CRAWL_TIMEOUT = 1
@@ -67,6 +67,6 @@ module RetrieveTitle
       title = extract_title(current)
       throw :done if title || max_size < current.length
     end
-    return title
+    title
   end
 end

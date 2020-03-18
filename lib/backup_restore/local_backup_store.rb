@@ -1,5 +1,4 @@
-require_dependency "backup_restore/backup_store"
-require_dependency "disk_space"
+# frozen_string_literal: true
 
 module BackupRestore
   class LocalBackupStore < BackupStore

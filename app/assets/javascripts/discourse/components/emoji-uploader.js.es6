@@ -1,13 +1,21 @@
-import { default as computed } from "ember-addons/ember-computed-decorators";
+import { notEmpty, not } from "@ember/object/computed";
+import Component from "@ember/component";
+import discourseComputed from "discourse-common/utils/decorators";
 import UploadMixin from "discourse/mixins/upload";
 
-export default Ember.Component.extend(UploadMixin, {
+export default Component.extend(UploadMixin, {
   type: "emoji",
   uploadUrl: "/admin/customize/emojis",
-  hasName: Ember.computed.notEmpty("name"),
-  addDisabled: Ember.computed.not("hasName"),
+  hasName: notEmpty("name"),
+  addDisabled: not("hasName"),
 
-  @computed("hasName", "name")
+  uploadOptions() {
+    return {
+      sequentialUploads: true
+    };
+  },
+
+  @discourseComputed("hasName", "name")
   data(hasName, name) {
     return hasName ? { name } : {};
   },

@@ -1,14 +1,18 @@
-export default Ember.Component.extend({
+import discourseComputed from "discourse-common/utils/decorators";
+import Component from "@ember/component";
+
+export default Component.extend({
   classNames: ["controls"],
 
-  label: function() {
-    return I18n.t(this.get("labelKey"));
-  }.property("labelKey"),
+  @discourseComputed("labelKey")
+  label(labelKey) {
+    return I18n.t(labelKey);
+  },
 
   change() {
-    const warning = this.get("warning");
+    const warning = this.warning;
 
-    if (warning && this.get("checked")) {
+    if (warning && this.checked) {
       this.warning();
       return false;
     }

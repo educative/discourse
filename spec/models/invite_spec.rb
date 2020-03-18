@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe Invite do
@@ -9,8 +11,8 @@ describe Invite do
   let(:iceking) { 'iceking@adventuretime.ooo' }
 
   context 'user validators' do
-    let(:coding_horror) { Fabricate(:coding_horror) }
-    let(:user) { Fabricate(:user) }
+    fab!(:coding_horror) { Fabricate(:coding_horror) }
+    fab!(:user) { Fabricate(:user) }
     let(:invite) { Invite.create(email: user.email, invited_by: coding_horror) }
 
     it "should not allow an invite with the same email as an existing user" do
@@ -24,10 +26,16 @@ describe Invite do
   end
 
   context 'email validators' do
-    let(:coding_horror) { Fabricate(:coding_horror) }
-    let(:invite) { Invite.create(email: "test@mailinator.com", invited_by: coding_horror) }
+    fab!(:coding_horror) { Fabricate(:coding_horror) }
+
+    it "should not allow an invite with unformatted email address" do
+      expect {
+        Fabricate(:invite, email: "John Doe <john.doe@example.com>")
+      }.to raise_error(ActiveRecord::RecordInvalid)
+    end
 
     it "should not allow an invite with blacklisted email" do
+      invite = Invite.create(email: "test@mailinator.com", invited_by: coding_horror)
       expect(invite).not_to be_valid
     end
 
@@ -54,7 +62,7 @@ describe Invite do
     end
 
     context 'to a topic' do
-      let!(:topic) { Fabricate(:topic) }
+      fab!(:topic) { Fabricate(:topic) }
       let(:inviter) { topic.user }
 
       context 'email' do
@@ -62,6 +70,14 @@ describe Invite do
           expect do
             Invite.invite_by_email(iceking, inviter, topic)
           end.to change { Jobs::InviteEmail.jobs.size }
+        end
+      end
+
+      context 'links' do
+        it 'does not enqueue a job to email the invite' do
+          expect do
+            Invite.generate_invite_link(iceking, inviter, topic)
+          end.not_to change { Jobs::InviteEmail.jobs.size }
         end
       end
 
@@ -82,7 +98,7 @@ describe Invite do
         end
 
         context 'when added by another user' do
-          let(:coding_horror) { Fabricate(:coding_horror) }
+          fab!(:coding_horror) { Fabricate(:coding_horror) }
 
           let(:new_invite) do
             Invite.invite_by_email(iceking, coding_horror, topic)
@@ -93,7 +109,6 @@ describe Invite do
             expect(new_invite.invite_key).not_to eq(invite.invite_key)
             expect(new_invite.topics).to eq([topic])
           end
-
         end
 
         context 'when adding a duplicate' do
@@ -121,7 +136,7 @@ describe Invite do
 
           it 'returns a new invite if the other has expired' do
             SiteSetting.invite_expiry_days = 1
-            invite.update!(created_at: 2.days.ago)
+            invite.update!(updated_at: 2.days.ago)
 
             new_invite = Invite.invite_by_email(
               'iceking@adventuretime.ooo', inviter, topic
@@ -133,7 +148,7 @@ describe Invite do
         end
 
         context 'when adding to another topic' do
-          let!(:another_topic) { Fabricate(:topic, user: topic.user) }
+          fab!(:another_topic) { Fabricate(:topic, user: topic.user) }
 
           it 'should be the same invite' do
             new_invite = Invite.invite_by_email(iceking, inviter, another_topic)
@@ -143,33 +158,41 @@ describe Invite do
           end
         end
 
-        it 'correctly marks invite as sent via email' do
-          expect(invite.via_email).to eq(true)
+        it 'resets expiry of a resent invite' do
+          SiteSetting.invite_expiry_days = 2
+          invite.update!(updated_at: 10.days.ago)
+          expect(invite).to be_expired
 
-          Invite.invite_by_email(iceking, inviter, topic)
-          expect(invite.reload.via_email).to eq(true)
+          invite.resend_invite
+          expect(invite).not_to be_expired
         end
 
-        it 'does not mark invite as sent via email after generating invite link' do
-          expect(invite.via_email).to eq(true)
-
-          Invite.generate_invite_link(iceking, inviter, topic)
-          expect(invite.reload.via_email).to eq(false)
+        it 'correctly marks invite emailed_status for email invites' do
+          expect(invite.emailed_status).to eq(Invite.emailed_status_types[:sending])
 
           Invite.invite_by_email(iceking, inviter, topic)
-          expect(invite.reload.via_email).to eq(false)
-
-          Invite.generate_invite_link(iceking, inviter, topic)
-          expect(invite.reload.via_email).to eq(false)
+          expect(invite.reload.emailed_status).to eq(Invite.emailed_status_types[:sending])
         end
 
+        it 'does not mark emailed_status as sending after generating invite link' do
+          expect(invite.emailed_status).to eq(Invite.emailed_status_types[:sending])
+
+          Invite.generate_invite_link(iceking, inviter, topic)
+          expect(invite.reload.emailed_status).to eq(Invite.emailed_status_types[:not_required])
+
+          Invite.invite_by_email(iceking, inviter, topic)
+          expect(invite.reload.emailed_status).to eq(Invite.emailed_status_types[:not_required])
+
+          Invite.generate_invite_link(iceking, inviter, topic)
+          expect(invite.reload.emailed_status).to eq(Invite.emailed_status_types[:not_required])
+        end
       end
     end
   end
 
   context 'an existing user' do
-    let(:topic) { Fabricate(:topic, category_id: nil, archetype: 'private_message') }
-    let(:coding_horror) { Fabricate(:coding_horror) }
+    fab!(:topic) { Fabricate(:topic, category_id: nil, archetype: 'private_message') }
+    fab!(:coding_horror) { Fabricate(:coding_horror) }
 
     it "works" do
       expect do
@@ -191,15 +214,15 @@ describe Invite do
 
   context '.redeem' do
 
-    let(:invite) { Fabricate(:invite) }
+    fab!(:invite) { Fabricate(:invite) }
 
     it 'creates a notification for the invitee' do
       expect { invite.redeem }.to change(Notification, :count)
     end
 
     it 'wont redeem an expired invite' do
-      SiteSetting.expects(:invite_expiry_days).returns(10)
-      invite.update_column(:created_at, 20.days.ago)
+      SiteSetting.invite_expiry_days = 10
+      invite.update_column(:updated_at, 20.days.ago)
       expect(invite.redeem).to be_blank
     end
 
@@ -214,7 +237,7 @@ describe Invite do
     end
 
     context "deletes duplicate invites" do
-      let(:another_user) { Fabricate(:user) }
+      fab!(:another_user) { Fabricate(:user) }
 
       it 'delete duplicate invite' do
         another_invite = Fabricate(:invite, email: invite.email, invited_by: another_user)
@@ -311,8 +334,8 @@ describe Invite do
     end
 
     context 'invited to topics' do
-      let(:tl2_user) { Fabricate(:user, trust_level: 2) }
-      let!(:topic) { Fabricate(:private_message_topic, user: tl2_user) }
+      fab!(:tl2_user) { Fabricate(:user, trust_level: 2) }
+      fab!(:topic) { Fabricate(:private_message_topic, user: tl2_user) }
 
       let!(:invite) do
         topic.invite(topic.user, 'jake@adventuretime.ooo')
@@ -329,7 +352,7 @@ describe Invite do
       end
 
       context 'invited by another user to the same topic' do
-        let(:another_tl2_user) { Fabricate(:user, trust_level: 2) }
+        fab!(:another_tl2_user) { Fabricate(:user, trust_level: 2) }
         let!(:another_invite) { topic.invite(another_tl2_user, 'jake@adventuretime.ooo') }
         let!(:user) { invite.redeem }
 
@@ -341,8 +364,8 @@ describe Invite do
 
       context 'invited by another user to a different topic' do
         let!(:user) { invite.redeem }
-        let(:another_tl2_user) { Fabricate(:user, trust_level: 2) }
-        let(:another_topic) { Fabricate(:topic, user: another_tl2_user) }
+        fab!(:another_tl2_user) { Fabricate(:user, trust_level: 2) }
+        fab!(:another_topic) { Fabricate(:topic, user: another_tl2_user) }
 
         it 'adds the user to the topic_users of the first topic' do
           expect(another_topic.invite(another_tl2_user, user.username)).to be_truthy # invited via username
@@ -453,9 +476,9 @@ describe Invite do
   end
 
   describe '.redeem_from_email' do
-    let(:inviter) { Fabricate(:user) }
-    let(:invite) { Fabricate(:invite, invited_by: inviter, email: 'test@example.com', user_id: nil) }
-    let(:user) { Fabricate(:user, email: invite.email) }
+    fab!(:inviter) { Fabricate(:user) }
+    fab!(:invite) { Fabricate(:invite, invited_by: inviter, email: 'test@example.com', user_id: nil) }
+    fab!(:user) { Fabricate(:user, email: invite.email) }
 
     it 'redeems the invite from email' do
       Invite.redeem_from_email(user.email)
@@ -471,16 +494,37 @@ describe Invite do
 
   end
 
-  describe '.rescind_all_invites_from' do
-    it 'removes all invites sent by a user' do
+  describe '.rescind_all_expired_invites_from' do
+    it 'removes all expired invites sent by a user' do
+      SiteSetting.invite_expiry_days = 1
       user = Fabricate(:user)
       invite_1 = Fabricate(:invite, invited_by: user)
       invite_2 = Fabricate(:invite, invited_by: user)
-      Invite.rescind_all_invites_from(user)
+      expired_invite = Fabricate(:invite, invited_by: user)
+      expired_invite.update!(updated_at: 2.days.ago)
+      Invite.rescind_all_expired_invites_from(user)
       invite_1.reload
       invite_2.reload
-      expect(invite_1.deleted_at).to be_present
-      expect(invite_2.deleted_at).to be_present
+      expired_invite.reload
+      expect(invite_1.deleted_at).to eq(nil)
+      expect(invite_2.deleted_at).to eq(nil)
+      expect(expired_invite.deleted_at).to be_present
+    end
+  end
+
+  describe '#emailed_status_types' do
+    context "verify enum sequence" do
+      before do
+        @emailed_status_types = Invite.emailed_status_types
+      end
+
+      it "'not_required' should be at 0 position" do
+        expect(@emailed_status_types[:not_required]).to eq(0)
+      end
+
+      it "'sent' should be at 4th position" do
+        expect(@emailed_status_types[:sent]).to eq(4)
+      end
     end
   end
 end

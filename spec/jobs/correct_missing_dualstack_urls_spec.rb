@@ -1,6 +1,6 @@
-require 'rails_helper'
+# frozen_string_literal: true
 
-require_dependency 'jobs/onceoff/correct_missing_dualstack_urls'
+require 'rails_helper'
 
 describe Jobs::CorrectMissingDualstackUrls do
 

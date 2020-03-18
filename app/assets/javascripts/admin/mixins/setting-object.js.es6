@@ -1,19 +1,51 @@
-export default Ember.Mixin.create({
-  overridden: function() {
-    let val = this.get("value"),
-      defaultVal = this.get("default");
+import discourseComputed from "discourse-common/utils/decorators";
+import { computed } from "@ember/object";
+import Mixin from "@ember/object/mixin";
+import { isPresent } from "@ember/utils";
 
+export default Mixin.create({
+  @discourseComputed("value", "default")
+  overridden(val, defaultVal) {
     if (val === null) val = "";
     if (defaultVal === null) defaultVal = "";
 
     return val.toString() !== defaultVal.toString();
-  }.property("value", "default"),
+  },
 
-  validValues: function() {
+  computedValueProperty: computed(
+    "valueProperty",
+    "validValues.[]",
+    function() {
+      if (isPresent(this.valueProperty)) {
+        return this.valueProperty;
+      }
+
+      if (isPresent(this.validValues.get("firstObject.value"))) {
+        return "value";
+      } else {
+        return null;
+      }
+    }
+  ),
+
+  computedNameProperty: computed("nameProperty", "validValues.[]", function() {
+    if (isPresent(this.nameProperty)) {
+      return this.nameProperty;
+    }
+
+    if (isPresent(this.validValues.get("firstObject.name"))) {
+      return "name";
+    } else {
+      return null;
+    }
+  }),
+
+  @discourseComputed("valid_values")
+  validValues(validValues) {
     const vals = [],
-      translateNames = this.get("translate_names");
+      translateNames = this.translate_names;
 
-    this.get("valid_values").forEach(v => {
+    validValues.forEach(v => {
       if (v.name && v.name.length > 0 && translateNames) {
         vals.addObject({ name: I18n.t(v.name), value: v.value });
       } else {
@@ -21,12 +53,12 @@ export default Ember.Mixin.create({
       }
     });
     return vals;
-  }.property("valid_values"),
+  },
 
-  allowsNone: function() {
-    const validValues = this.get("valid_values");
+  @discourseComputed("valid_values")
+  allowsNone(validValues) {
     if (validValues && validValues.indexOf("") >= 0) {
       return "admin.settings.none";
     }
-  }.property("valid_values")
+  }
 });

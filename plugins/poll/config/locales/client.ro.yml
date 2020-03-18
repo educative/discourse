@@ -40,7 +40,8 @@ ro:
         label: "Afișează rezultate"
       hide-results:
         title: "Înapoi la voturile tale"
-        label: "Ascunde rezultate"
+      export-results:
+        label: "Exportă"
       open:
         title: "Deschide sondajul"
         label: "Deschide sondajul"
@@ -49,9 +50,6 @@ ro:
         title: "Închide sondajul"
         label: "Închide sondajul"
         confirm: "Ești sigur că vrei să închizi acest sondaj?"
-      automatic_close:
-        closes_in: "se închide în <strong>%{timeLeft}</strong>"
-        age: "închis <strong>%{age}</strong>"
       error_while_toggling_status: "Ne pare rău, a apărut o eroare la schimbarea stării acestui sondaj."
       error_while_casting_votes: "Ne pare rău, a apărut o eroare la exercitarea voturilor tale."
       error_while_fetching_voters: "Ne pare rău, a apărut o eroare la afișarea votanților."
@@ -59,7 +57,6 @@ ro:
         title: Creează sondaj
         insert: Introdu sondaj
         help:
-          options_count: Trebuie să introduci cel puțin 2 opțiuni
           invalid_values: Valoarea minimă trebuie să fie mai mică decât valoarea maximă.
           min_step_value: Valoarea minimă a pasului este 1
         poll_type:
@@ -67,6 +64,8 @@ ro:
           regular: Opțiune unică
           multiple: Opțiune multiplă
           number: Ordonare numerică
+        poll_result:
+          label: Rezultate
         poll_config:
           max: Maxim
           min: Minim

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 desc "generate a release note from the important commits"
 task "release_note:generate", :from, :to do |t, args|
   from = args[:from] || `git describe --tags --abbrev=0`.strip
@@ -45,8 +47,12 @@ def better(line)
   line = remove_prefix(line)
   line = escape_brackets(line)
   line[0] = '\#' if line[0] == '#'
-  line[0] = line[0].capitalize
-  "- " + line
+  if line[0]
+    line[0] = line[0].capitalize
+    "- " + line
+  else
+    nil
+  end
 end
 
 def remove_prefix(line)
@@ -64,6 +70,7 @@ def split_comments(text)
   text = normalize_terms(text)
   terms = ["FIX:", "FEATURE:", "UX:", "SECURITY:" , "PERF:"]
   terms.each do |term|
+    text = text.gsub(/(#{term})+/i, term)
     text = newlines_at_term(text, term)
   end
   text.split("\n")

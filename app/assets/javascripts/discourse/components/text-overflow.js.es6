@@ -1,11 +1,16 @@
-export default Ember.Component.extend({
+import { next } from "@ember/runloop";
+import Component from "@ember/component";
+export default Component.extend({
   didInsertElement() {
     this._super(...arguments);
-    Ember.run.next(null, () => {
-      this.$()
-        .find("hr")
-        .remove();
-      this.$().ellipsis();
+    next(null, () => {
+      const $this = $(this.element);
+
+      if ($this) {
+        $this.find("br").replaceWith(" ");
+        $this.find("hr").remove();
+        $this.ellipsis();
+      }
     });
   }
 });

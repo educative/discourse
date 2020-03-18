@@ -1,11 +1,12 @@
-require 'rails_helper'
-require_dependency 'validators/upload_validator'
+# frozen_string_literal: true
 
-describe Validators::UploadValidator do
+require 'rails_helper'
+
+describe UploadValidator do
   subject(:validator) { described_class.new }
 
   describe 'validate' do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
     let(:filename) { "discourse.csv" }
     let(:csv_file) { file_from_fixtures(filename, "csv") }
 
@@ -20,14 +21,14 @@ describe Validators::UploadValidator do
     it "allows 'gz' as extension when uploading export file" do
       SiteSetting.authorized_extensions = ""
 
-      expect(UploadCreator.new(csv_file, "#{filename}.gz", for_export: true).create_for(user.id)).to be_valid
+      expect(UploadCreator.new(csv_file, "#{filename}.zip", for_export: true).create_for(user.id)).to be_valid
     end
 
     it "allows uses max_export_file_size_kb when uploading export file" do
       SiteSetting.max_attachment_size_kb = "0"
-      SiteSetting.authorized_extensions = "gz"
+      SiteSetting.authorized_extensions = "zip"
 
-      expect(UploadCreator.new(csv_file, "#{filename}.gz", for_export: true).create_for(user.id)).to be_valid
+      expect(UploadCreator.new(csv_file, "#{filename}.zip", for_export: true).create_for(user.id)).to be_valid
     end
 
     describe 'when allow_staff_to_upload_any_file_in_pm is true' do
@@ -55,7 +56,7 @@ describe Validators::UploadValidator do
     end
 
     describe 'upload for site settings' do
-      let(:user) { Fabricate(:admin) }
+      fab!(:user) { Fabricate(:admin) }
 
       let(:upload) do
         Fabricate.build(:upload,
@@ -83,7 +84,7 @@ describe Validators::UploadValidator do
       end
 
       describe 'for normal user' do
-        let(:user) { Fabricate(:user) }
+        fab!(:user) { Fabricate(:user) }
 
         it 'should not allow the upload' do
           expect(subject.validate(upload)).to eq(nil)

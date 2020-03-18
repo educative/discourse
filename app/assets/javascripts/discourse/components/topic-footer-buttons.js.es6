@@ -1,66 +1,53 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { alias, or, and } from "@ember/object/computed";
+import Component from "@ember/component";
+import { getTopicFooterButtons } from "discourse/lib/register-topic-footer-button";
 
-export default Ember.Component.extend({
+export default Component.extend({
   elementId: "topic-footer-buttons",
 
   // Allow us to extend it
   layoutName: "components/topic-footer-buttons",
 
-  @computed("topic.isPrivateMessage")
+  @discourseComputed("topic.isPrivateMessage")
   canArchive(isPM) {
     return this.siteSettings.enable_personal_messages && isPM;
   },
 
-  @computed("topic.isPrivateMessage")
+  buttons: getTopicFooterButtons(),
+
+  @discourseComputed("buttons.[]")
+  inlineButtons(buttons) {
+    return buttons.filter(button => !button.dropdown);
+  },
+
+  // topic.assigned_to_user is for backward plugin support
+  @discourseComputed("buttons.[]", "topic.assigned_to_user")
+  dropdownButtons(buttons) {
+    return buttons.filter(button => button.dropdown);
+  },
+
+  @discourseComputed("topic.isPrivateMessage")
   showNotificationsButton(isPM) {
     return !isPM || this.siteSettings.enable_personal_messages;
   },
 
-  @computed("topic.details.can_invite_to")
-  canInviteTo(result) {
-    return !this.site.mobileView && result;
-  },
+  canInviteTo: alias("topic.details.can_invite_to"),
 
-  inviteDisabled: Ember.computed.or(
-    "topic.archived",
-    "topic.closed",
-    "topic.deleted"
-  ),
+  canDefer: alias("currentUser.enable_defer"),
 
-  @computed
-  showAdminButton() {
-    return (
-      !this.site.mobileView &&
-      this.currentUser &&
-      this.currentUser.get("canManageTopic")
-    );
-  },
+  inviteDisabled: or("topic.archived", "topic.closed", "topic.deleted"),
 
-  showEditOnFooter: Ember.computed.and(
-    "topic.isPrivateMessage",
-    "site.can_tag_pms"
-  ),
+  showEditOnFooter: and("topic.isPrivateMessage", "site.can_tag_pms"),
 
-  @computed("topic.message_archived")
-  archiveIcon: archived => (archived ? "" : "folder"),
+  @discourseComputed("topic.message_archived")
+  archiveIcon: archived => (archived ? "envelope" : "folder"),
 
-  @computed("topic.message_archived")
+  @discourseComputed("topic.message_archived")
   archiveTitle: archived =>
     archived ? "topic.move_to_inbox.help" : "topic.archive_message.help",
 
-  @computed("topic.message_archived")
+  @discourseComputed("topic.message_archived")
   archiveLabel: archived =>
-    archived ? "topic.move_to_inbox.title" : "topic.archive_message.title",
-
-  @computed("topic.bookmarked")
-  bookmarkClass: bookmarked =>
-    bookmarked ? "bookmark bookmarked" : "bookmark",
-
-  @computed("topic.bookmarked")
-  bookmarkLabel: bookmarked =>
-    bookmarked ? "bookmarked.clear_bookmarks" : "bookmarked.title",
-
-  @computed("topic.bookmarked")
-  bookmarkTitle: bookmarked =>
-    bookmarked ? "bookmarked.help.unbookmark" : "bookmarked.help.bookmark"
+    archived ? "topic.move_to_inbox.title" : "topic.archive_message.title"
 });

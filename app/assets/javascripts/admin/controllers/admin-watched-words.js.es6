@@ -1,33 +1,38 @@
-import debounce from "discourse/lib/debounce";
+import { isEmpty } from "@ember/utils";
+import { alias } from "@ember/object/computed";
+import EmberObject from "@ember/object";
+import Controller from "@ember/controller";
+import discourseDebounce from "discourse/lib/debounce";
+import { observes } from "discourse-common/utils/decorators";
 
-export default Ember.Controller.extend({
+export default Controller.extend({
   filter: null,
   filtered: false,
   showWords: false,
-  disableShowWords: Ember.computed.alias("filtered"),
+  disableShowWords: alias("filtered"),
   regularExpressions: null,
 
   filterContentNow() {
-    if (!!Ember.isEmpty(this.get("allWatchedWords"))) return;
+    if (!!isEmpty(this.allWatchedWords)) return;
 
     let filter;
-    if (this.get("filter")) {
-      filter = this.get("filter").toLowerCase();
+    if (this.filter) {
+      filter = this.filter.toLowerCase();
     }
 
     if (filter === undefined || filter.length < 1) {
-      this.set("model", this.get("allWatchedWords"));
+      this.set("model", this.allWatchedWords);
       return;
     }
 
     const matchesByAction = [];
 
-    this.get("allWatchedWords").forEach(wordsForAction => {
+    this.allWatchedWords.forEach(wordsForAction => {
       const wordRecords = wordsForAction.words.filter(wordRecord => {
         return wordRecord.word.indexOf(filter) > -1;
       });
       matchesByAction.pushObject(
-        Ember.Object.create({
+        EmberObject.create({
           nameKey: wordsForAction.nameKey,
           name: wordsForAction.name,
           words: wordRecords,
@@ -39,10 +44,11 @@ export default Ember.Controller.extend({
     this.set("model", matchesByAction);
   },
 
-  filterContent: debounce(function() {
+  @observes("filter")
+  filterContent: discourseDebounce(function() {
     this.filterContentNow();
-    this.set("filtered", !Ember.isEmpty(this.get("filter")));
-  }, 250).observes("filter"),
+    this.set("filtered", !isEmpty(this.filter));
+  }, 250),
 
   actions: {
     clearFilter() {

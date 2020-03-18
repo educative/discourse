@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class DownloadAvatarFromUrl < Jobs::Base
+  class DownloadAvatarFromUrl < ::Jobs::Base
     sidekiq_options retry: false
 
     def execute(args)

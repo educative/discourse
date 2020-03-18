@@ -1,25 +1,27 @@
-import AppEvents from "discourse/lib/app-events";
+import EmberObject from "@ember/object";
 import createStore from "helpers/create-store";
 import { autoLoadModules } from "discourse/initializers/auto-load-modules";
 import TopicTrackingState from "discourse/models/topic-tracking-state";
+import User from "discourse/models/user";
+import Site from "discourse/models/site";
 
 export default function(name, opts) {
   opts = opts || {};
 
+  if (opts.skip) {
+    return;
+  }
+
   test(name, function(assert) {
-    const appEvents = AppEvents.create();
-    this.site = Discourse.Site.current();
+    this.site = Site.current();
 
     this.registry.register("site-settings:main", Discourse.SiteSettings, {
       instantiate: false
     });
-    this.registry.register("app-events:main", appEvents, {
-      instantiate: false
-    });
-    this.registry.register("capabilities:main", Ember.Object);
+    this.registry.register("capabilities:main", EmberObject);
     this.registry.register("site:main", this.site, { instantiate: false });
     this.registry.injection("component", "siteSettings", "site-settings:main");
-    this.registry.injection("component", "appEvents", "app-events:main");
+    this.registry.injection("component", "appEvents", "service:app-events");
     this.registry.injection("component", "capabilities", "capabilities:main");
     this.registry.injection("component", "site", "site:main");
 
@@ -29,11 +31,12 @@ export default function(name, opts) {
 
     const store = createStore();
     if (!opts.anonymous) {
-      const currentUser = Discourse.User.create({ username: "eviltrout" });
+      const currentUser = User.create({ username: "eviltrout" });
       this.currentUser = currentUser;
       this.registry.register("current-user:main", this.currentUser, {
         instantiate: false
       });
+      this.registry.injection("component", "currentUser", "current-user:main");
       this.registry.register(
         "topic-tracking-state:main",
         TopicTrackingState.create({ currentUser }),
@@ -50,6 +53,15 @@ export default function(name, opts) {
     andThen(() => {
       return this.render(opts.template);
     });
-    andThen(() => opts.test.call(this, assert));
+
+    andThen(() => {
+      try {
+        opts.test.call(this, assert);
+      } finally {
+        if (opts.afterEach) {
+          opts.afterEach.call(opts);
+        }
+      }
+    });
   });
 }

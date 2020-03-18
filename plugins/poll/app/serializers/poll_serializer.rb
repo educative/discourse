@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class PollSerializer < ApplicationSerializer
   attributes :name,
              :type,
@@ -9,7 +11,10 @@ class PollSerializer < ApplicationSerializer
              :step,
              :options,
              :voters,
-             :close
+             :close,
+             :preloaded_voters,
+             :chart_type,
+             :groups
 
   def public
     true
@@ -31,6 +36,10 @@ class PollSerializer < ApplicationSerializer
     object.step.present? && object.number?
   end
 
+  def include_groups?
+    groups.present?
+  end
+
   def options
     object.poll_options.map { |o| PollOptionSerializer.new(o, root: false).as_json }
   end
@@ -45,6 +54,14 @@ class PollSerializer < ApplicationSerializer
 
   def include_close?
     object.close_at.present?
+  end
+
+  def preloaded_voters
+    DiscoursePoll::Poll.serialized_voters(object)
+  end
+
+  def include_preloaded_voters?
+    object.can_see_voters?(scope)
   end
 
 end

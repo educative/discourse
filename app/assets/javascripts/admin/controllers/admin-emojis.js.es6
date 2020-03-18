@@ -1,12 +1,20 @@
+import { sort } from "@ember/object/computed";
+import EmberObject from "@ember/object";
+import Controller from "@ember/controller";
 import { ajax } from "discourse/lib/ajax";
-export default Ember.Controller.extend({
-  sortedEmojis: Ember.computed.sort("model", "emojiSorting"),
-  emojiSorting: ["name"],
+export default Controller.extend({
+  sortedEmojis: sort("model", "emojiSorting"),
+
+  init() {
+    this._super(...arguments);
+
+    this.emojiSorting = ["name"];
+  },
 
   actions: {
     emojiUploaded(emoji) {
       emoji.url += "?t=" + new Date().getTime();
-      this.get("model").pushObject(Ember.Object.create(emoji));
+      this.model.pushObject(EmberObject.create(emoji));
     },
 
     destroy(emoji) {
@@ -19,7 +27,7 @@ export default Ember.Controller.extend({
             return ajax("/admin/customize/emojis/" + emoji.get("name"), {
               type: "DELETE"
             }).then(() => {
-              this.get("model").removeObject(emoji);
+              this.model.removeObject(emoji);
             });
           }
         }

@@ -1,29 +1,39 @@
-export default Ember.Object.extend({
-  localizedName: function() {
+import EmberObject from "@ember/object";
+import discourseComputed from "discourse-common/utils/decorators";
+
+export default EmberObject.extend({
+  @discourseComputed
+  localizedName() {
     if (this.forceName) {
       return this.forceName;
     }
 
     return this.name ? I18n.t(this.name) : "";
-  }.property(),
+  },
 
-  sortIcon: function() {
-    return "chevron-" + (this.parent.ascending ? "up" : "down");
-  }.property(),
+  @discourseComputed
+  sortIcon() {
+    const asc = this.parent.ascending ? "up" : "down";
+    return `chevron-${asc}`;
+  },
 
-  isSorting: function() {
+  @discourseComputed
+  isSorting() {
     return this.sortable && this.parent.order === this.order;
-  }.property(),
+  },
 
-  className: function() {
-    var name = [];
+  @discourseComputed
+  className() {
+    const name = [];
+
     if (this.order) {
       name.push(this.order);
     }
+
     if (this.sortable) {
       name.push("sortable");
 
-      if (this.get("isSorting")) {
+      if (this.isSorting) {
         name.push("sorting");
       }
     }
@@ -33,5 +43,5 @@ export default Ember.Object.extend({
     }
 
     return name.join(" ");
-  }.property()
+  }
 });

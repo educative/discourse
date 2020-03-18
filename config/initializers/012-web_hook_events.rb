@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 %i(
   topic_recovered
 ).each do |event|
@@ -72,23 +74,14 @@ end
   end
 end
 
-%i(
-  flag_created
-  flag_agreed
-  flag_disagreed
-  flag_deferred
-).each do |event|
-  DiscourseEvent.on(event) do |flag|
-    WebHook.enqueue_object_hooks(:flag, flag, event)
-  end
+DiscourseEvent.on(:reviewable_created) do |reviewable|
+  WebHook.enqueue_object_hooks(:reviewable, reviewable, :reviewable_created, reviewable.serializer)
 end
 
-%i(
-  queued_post_created
-  approved_post
-  rejected_post
-).each do |event|
-  DiscourseEvent.on(event) do |queued_post|
-    WebHook.enqueue_object_hooks(:queued_post, queued_post, event, QueuedPostSerializer)
-  end
+DiscourseEvent.on(:reviewable_transitioned_to) do |status, reviewable|
+  WebHook.enqueue_object_hooks(:reviewable, reviewable, :reviewable_transitioned_to, reviewable.serializer)
+end
+
+DiscourseEvent.on(:notification_created) do |notification|
+  WebHook.enqueue_object_hooks(:notification, notification, :notification_created, NotificationSerializer)
 end

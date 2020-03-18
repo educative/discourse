@@ -1,7 +1,9 @@
-require_dependency 'enum'
+# frozen_string_literal: true
 
 class SearchLog < ActiveRecord::Base
   validates_presence_of :term
+
+  belongs_to :user
 
   attr_reader :ctr
 
@@ -37,8 +39,8 @@ class SearchLog < ActiveRecord::Base
 
   # for testing
   def self.clear_debounce_cache!
-    $redis.keys("__SEARCH__LOG_*").each do |k|
-      $redis.del(k)
+    Discourse.redis.keys("__SEARCH__LOG_*").each do |k|
+      Discourse.redis.del(k)
     end
   end
 
@@ -54,7 +56,7 @@ class SearchLog < ActiveRecord::Base
 
     result = nil
 
-    if existing = $redis.get(key)
+    if existing = Discourse.redis.get(key)
       id, old_term = existing.split(",", 2)
 
       if term.start_with?(old_term)
@@ -78,7 +80,7 @@ class SearchLog < ActiveRecord::Base
       result = [:created, log.id]
     end
 
-    $redis.setex(key, 5, "#{result[1]},#{term}")
+    Discourse.redis.setex(key, 5, "#{result[1]},#{term}")
 
     result
   end
@@ -87,20 +89,22 @@ class SearchLog < ActiveRecord::Base
     details = []
 
     result = SearchLog.select("COUNT(*) AS count, created_at::date AS date")
-      .where('term LIKE ?', term)
-      .where('created_at > ?', start_of(period))
+      .where(
+        'lower(term) = ? AND created_at > ?',
+        term.downcase, start_of(period)
+      )
 
     result = result.where('search_type = ?', search_types[search_type]) if search_type == :header || search_type == :full_page
     result = result.where('search_result_id IS NOT NULL') if search_type == :click_through_only
 
-    result.group(:term)
+    result
       .order("date")
       .group("date")
       .each do |record|
         details << { x: Date.parse(record['date'].to_s), y: record['count'] }
       end
 
-    return {
+    {
       type: "search_log_term",
       title: I18n.t("search_logs.graph_title"),
       start_date: start_of(period),
@@ -144,17 +148,6 @@ class SearchLog < ActiveRecord::Base
       .limit(limit)
   end
 
-  def self.start_of(period)
-    case period
-    when :yearly    then 1.year.ago
-    when :monthly   then 1.month.ago
-    when :quarterly then 3.months.ago
-    when :weekly    then 1.week.ago
-    when :daily     then 1.day.ago
-    else 1000.years.ago
-    end
-  end
-
   def self.clean_up
     search_id = SearchLog.order(:id).offset(SiteSetting.search_query_log_max_size).limit(1).pluck(:id)
     if search_id.present?
@@ -162,6 +155,21 @@ class SearchLog < ActiveRecord::Base
     end
     SearchLog.where('created_at < TIMESTAMP ?', SiteSetting.search_query_log_max_retention_days.days.ago).delete_all
   end
+
+  def self.start_of(period)
+    period =
+      case period
+      when :yearly    then 1.year.ago
+      when :monthly   then 1.month.ago
+      when :quarterly then 3.months.ago
+      when :weekly    then 1.week.ago
+      when :daily     then Time.zone.now
+      else 1000.years.ago
+      end
+
+    period&.to_date
+  end
+  private_class_method :start_of
 end
 
 # == Schema Information
@@ -176,4 +184,8 @@ end
 #  search_type        :integer          not null
 #  created_at         :datetime         not null
 #  search_result_type :integer
+#
+# Indexes
+#
+#  index_search_logs_on_created_at  (created_at)
 #

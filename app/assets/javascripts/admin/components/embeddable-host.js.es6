@@ -1,26 +1,31 @@
+import discourseComputed from "discourse-common/utils/decorators";
+import { isEmpty } from "@ember/utils";
+import { or } from "@ember/object/computed";
+import { schedule } from "@ember/runloop";
+import Component from "@ember/component";
 import { bufferedProperty } from "discourse/mixins/buffered-content";
-import computed from "ember-addons/ember-computed-decorators";
-import { on, observes } from "ember-addons/ember-computed-decorators";
+import { on, observes } from "discourse-common/utils/decorators";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import Category from "discourse/models/category";
 
-export default Ember.Component.extend(bufferedProperty("host"), {
+export default Component.extend(bufferedProperty("host"), {
   editToggled: false,
   tagName: "tr",
   categoryId: null,
 
-  editing: Ember.computed.or("host.isNew", "editToggled"),
+  editing: or("host.isNew", "editToggled"),
 
   @on("didInsertElement")
   @observes("editing")
   _focusOnInput() {
-    Ember.run.schedule("afterRender", () => {
-      this.$(".host-name").focus();
+    schedule("afterRender", () => {
+      this.element.querySelector(".host-name").focus();
     });
   },
 
-  @computed("buffered.host", "host.isSaving")
+  @discourseComputed("buffered.host", "host.isSaving")
   cantSave(host, isSaving) {
-    return isSaving || Ember.isEmpty(host);
+    return isSaving || isEmpty(host);
   },
 
   actions: {
@@ -30,26 +35,23 @@ export default Ember.Component.extend(bufferedProperty("host"), {
     },
 
     save() {
-      if (this.get("cantSave")) {
+      if (this.cantSave) {
         return;
       }
 
-      const props = this.get("buffered").getProperties(
+      const props = this.buffered.getProperties(
         "host",
         "path_whitelist",
         "class_name"
       );
-      props.category_id = this.get("categoryId");
+      props.category_id = this.categoryId;
 
-      const host = this.get("host");
+      const host = this.host;
 
       host
         .save(props)
         .then(() => {
-          host.set(
-            "category",
-            Discourse.Category.findById(this.get("categoryId"))
-          );
+          host.set("category", Category.findById(this.categoryId));
           this.set("editToggled", false);
         })
         .catch(popupAjaxError);
@@ -58,17 +60,15 @@ export default Ember.Component.extend(bufferedProperty("host"), {
     delete() {
       bootbox.confirm(I18n.t("admin.embedding.confirm_delete"), result => {
         if (result) {
-          this.get("host")
-            .destroyRecord()
-            .then(() => {
-              this.deleteHost(this.get("host"));
-            });
+          this.host.destroyRecord().then(() => {
+            this.deleteHost(this.host);
+          });
         }
       });
     },
 
     cancel() {
-      const host = this.get("host");
+      const host = this.host;
       if (host.get("isNew")) {
         this.deleteHost(host);
       } else {

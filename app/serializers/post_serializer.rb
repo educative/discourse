@@ -1,8 +1,9 @@
+# frozen_string_literal: true
+
 class PostSerializer < BasicPostSerializer
 
   # To pass in additional information we might need
   INSTANCE_VARS ||= [
-    :topic_view,
     :parent_post,
     :add_raw,
     :add_title,
@@ -14,7 +15,7 @@ class PostSerializer < BasicPostSerializer
   ]
 
   INSTANCE_VARS.each do |v|
-    self.send(:attr_accessor, v)
+    self.public_send(:attr_accessor, v)
   end
 
   attributes :post_number,
@@ -23,9 +24,9 @@ class PostSerializer < BasicPostSerializer
              :reply_count,
              :reply_to_post_number,
              :quote_count,
-             :avg_time,
              :incoming_link_count,
              :reads,
+             :readers_count,
              :score,
              :yours,
              :topic_id,
@@ -48,6 +49,8 @@ class PostSerializer < BasicPostSerializer
              :user_title,
              :reply_to_user,
              :bookmarked,
+             :bookmarked_with_reminder,
+             :bookmark_reminder_at,
              :raw,
              :actions_summary,
              :moderator?,
@@ -70,15 +73,21 @@ class PostSerializer < BasicPostSerializer
              :is_auto_generated,
              :action_code,
              :action_code_who,
+             :notice_type,
+             :notice_args,
              :last_wiki_edit,
              :locked,
-             :excerpt
+             :excerpt,
+             :reviewable_id,
+             :reviewable_score_count,
+             :reviewable_score_pending_count
 
   def initialize(object, opts)
     super(object, opts)
+
     PostSerializer::INSTANCE_VARS.each do |name|
       if opts.include? name
-        self.send("#{name}=", opts[name])
+        self.public_send("#{name}=", opts[name])
       end
     end
   end
@@ -211,10 +220,6 @@ class PostSerializer < BasicPostSerializer
     }
   end
 
-  def bookmarked
-    true
-  end
-
   def deleted_by
     BasicUserSerializer.new(object.deleted_by, root: false).as_json
   end
@@ -238,7 +243,7 @@ class PostSerializer < BasicPostSerializer
     PostActionType.types.except(:bookmark).each do |sym, id|
       count_col = "#{sym}_count".to_sym
 
-      count = object.send(count_col) if object.respond_to?(count_col)
+      count = object.public_send(count_col) if object.respond_to?(count_col)
       summary = { id: id, count: count }
       summary[:hidden] = true if sym == :vote
 
@@ -246,16 +251,13 @@ class PostSerializer < BasicPostSerializer
         summary[:can_act] = true
       end
 
-      if sym == :notify_user && scope.current_user.present? && scope.current_user == object.user
-        summary.delete(:can_act)
-      end
+      if sym == :notify_user &&
+         (
+           (scope.current_user.present? && scope.current_user == object.user) ||
+           (object.user && object.user.bot?)
+         )
 
-      # The following only applies if you're logged in
-      if summary[:can_act] && scope.current_user.present?
-        summary[:can_defer_flags] = true if scope.is_staff? &&
-                                                   PostActionType.flag_types_without_custom.values.include?(id) &&
-                                                   active_flags.present? && active_flags.has_key?(id) &&
-                                                   active_flags[id].count > 0
+        summary.delete(:can_act)
       end
 
       if actions.present? && actions.has_key?(id)
@@ -305,8 +307,35 @@ class PostSerializer < BasicPostSerializer
     !(SiteSetting.suppress_reply_when_quoting && object.reply_quoted?) && object.reply_to_user
   end
 
+  # this atrtribute is not even included unless include_bookmarked? is true,
+  # which is why it is always true if included
+  def bookmarked
+    true
+  end
+
+  def bookmarked_with_reminder
+    true
+  end
+
   def include_bookmarked?
-    actions.present? && actions.keys.include?(PostActionType.types[:bookmark])
+    (actions.present? && actions.keys.include?(PostActionType.types[:bookmark]))
+  end
+
+  def include_bookmarked_with_reminder?
+    post_bookmark.present?
+  end
+
+  def include_bookmark_reminder_at?
+    include_bookmarked_with_reminder?
+  end
+
+  def post_bookmark
+    return nil if !SiteSetting.enable_bookmarks_with_reminders? || @topic_view.blank?
+    @post_bookmark ||= @topic_view.user_post_bookmarks.find { |bookmark| bookmark.post_id == object.id }
+  end
+
+  def bookmark_reminder_at
+    post_bookmark&.reminder_at
   end
 
   def include_display_username?
@@ -363,6 +392,35 @@ class PostSerializer < BasicPostSerializer
     include_action_code? && action_code_who.present?
   end
 
+  def notice_type
+    post_custom_fields[Post::NOTICE_TYPE]
+  end
+
+  def include_notice_type?
+    case notice_type
+    when Post.notices[:custom]
+      return true
+    when Post.notices[:new_user]
+      min_trust_level = SiteSetting.new_user_notice_tl
+    when Post.notices[:returning_user]
+      min_trust_level = SiteSetting.returning_user_notice_tl
+    else
+      return false
+    end
+
+    scope.user && scope.user.id && object.user &&
+    scope.user.id != object.user_id &&
+    scope.user.has_trust_level?(min_trust_level)
+  end
+
+  def notice_args
+    post_custom_fields[Post::NOTICE_ARGS]
+  end
+
+  def include_notice_args?
+    notice_args.present? && include_notice_type?
+  end
+
   def locked
     true
   end
@@ -386,7 +444,62 @@ class PostSerializer < BasicPostSerializer
     object.hidden
   end
 
-  private
+  # If we have a topic view, it has bulk values for the reviewable content we can use
+  def reviewable_id
+    if @topic_view.present?
+      for_post = @topic_view.reviewable_counts[object.id]
+      return for_post ? for_post[:reviewable_id] : 0
+    end
+
+    reviewable&.id
+  end
+
+  def include_reviewable_id?
+    can_review_topic?
+  end
+
+  def reviewable_score_count
+    if @topic_view.present?
+      for_post = @topic_view.reviewable_counts[object.id]
+      return for_post ? for_post[:total] : 0
+    end
+
+    reviewable_scores.size
+  end
+
+  def include_reviewable_score_count?
+    can_review_topic?
+  end
+
+  def reviewable_score_pending_count
+    if @topic_view.present?
+      for_post = @topic_view.reviewable_counts[object.id]
+      return for_post ? for_post[:pending] : 0
+    end
+
+    reviewable_scores.count { |rs| rs.pending? }
+  end
+
+  def include_reviewable_score_pending_count?
+    can_review_topic?
+  end
+
+private
+
+  def can_review_topic?
+    return @can_review_topic unless @can_review_topic.nil?
+    @can_review_topic = @topic_view&.can_review_topic
+    @can_review_topic ||= scope.can_review_topic?(object.topic)
+    @can_review_topic
+  end
+
+  def reviewable
+    @reviewable ||= Reviewable.where(target: object).includes(:reviewable_scores).first
+  end
+
+  def reviewable_scores
+    reviewable&.reviewable_scores&.to_a || []
+  end
 
   def user_custom_fields_object
     (@topic_view&.user_custom_fields || @options[:user_custom_fields] || {})
@@ -400,18 +513,6 @@ class PostSerializer < BasicPostSerializer
 
   def post_actions
     @post_actions ||= (@topic_view&.all_post_actions || {})[object.id]
-  end
-
-  def active_flags
-    @active_flags ||= (@topic_view&.all_active_flags || {})[object.id]
-  end
-
-  def post_custom_fields
-    @post_custom_fields ||= if @topic_view
-      (@topic_view.post_custom_fields || {})[object.id] || {}
-    else
-      object.custom_fields
-    end
   end
 
 end

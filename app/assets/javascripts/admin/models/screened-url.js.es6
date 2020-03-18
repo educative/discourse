@@ -1,8 +1,12 @@
+import discourseComputed from "discourse-common/utils/decorators";
 import { ajax } from "discourse/lib/ajax";
-const ScreenedUrl = Discourse.Model.extend({
-  actionName: function() {
-    return I18n.t("admin.logs.screened_actions." + this.get("action"));
-  }.property("action")
+import EmberObject from "@ember/object";
+
+const ScreenedUrl = EmberObject.extend({
+  @discourseComputed("action")
+  actionName(action) {
+    return I18n.t("admin.logs.screened_actions." + action);
+  }
 });
 
 ScreenedUrl.reopenClass({

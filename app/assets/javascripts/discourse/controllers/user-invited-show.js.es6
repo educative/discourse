@@ -1,9 +1,11 @@
+import { equal, reads, gte } from "@ember/object/computed";
+import Controller from "@ember/controller";
 import Invite from "discourse/models/invite";
-import debounce from "discourse/lib/debounce";
+import discourseDebounce from "discourse/lib/debounce";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
 
-// This controller handles actions related to a user's invitations
-export default Ember.Controller.extend({
+export default Controller.extend({
   user: null,
   model: null,
   filter: null,
@@ -13,84 +15,61 @@ export default Ember.Controller.extend({
   invitesLoading: false,
   reinvitedAll: false,
   rescindedAll: false,
+  searchTerm: null,
 
-  init: function() {
+  init() {
     this._super(...arguments);
+
     this.set("searchTerm", "");
   },
 
-  /**
-    Observe the search term box with a debouncer and change the results.
-
-    @observes searchTerm
-  **/
-  _searchTermChanged: debounce(function() {
-    var self = this;
+  @observes("searchTerm")
+  _searchTermChanged: discourseDebounce(function() {
     Invite.findInvitedBy(
-      self.get("user"),
-      this.get("filter"),
-      this.get("searchTerm")
-    ).then(function(invites) {
-      self.set("model", invites);
-    });
-  }, 250).observes("searchTerm"),
+      this.user,
+      this.filter,
+      this.searchTerm
+    ).then(invites => this.set("model", invites));
+  }, 250),
 
-  inviteRedeemed: Ember.computed.equal("filter", "redeemed"),
+  inviteRedeemed: equal("filter", "redeemed"),
 
-  showBulkActionButtons: function() {
+  @discourseComputed("filter")
+  showBulkActionButtons(filter) {
     return (
-      this.get("filter") === "pending" &&
-      this.get("model").invites.length > 4 &&
+      filter === "pending" &&
+      this.model.invites.length > 4 &&
       this.currentUser.get("staff")
     );
-  }.property("filter"),
+  },
 
-  /**
-    Can the currently logged in user invite users to the site
+  canInviteToForum: reads("currentUser.can_invite_to_forum"),
 
-    @property canInviteToForum
-  **/
-  canInviteToForum: function() {
-    return Discourse.User.currentProp("can_invite_to_forum");
-  }.property(),
+  canBulkInvite: reads("currentUser.admin"),
 
-  /**
-    Can the currently logged in user bulk invite users to the site (only Admin is allowed to perform this operation)
+  showSearch: gte("totalInvites", 10),
 
-    @property canBulkInvite
-  **/
-  canBulkInvite: function() {
-    return Discourse.User.currentProp("admin");
-  }.property(),
-
-  /**
-    Should the search filter input box be displayed?
-
-    @property showSearch
-  **/
-  showSearch: function() {
-    return this.get("totalInvites") > 9;
-  }.property("totalInvites"),
-
-  pendingLabel: function() {
-    if (this.get("invitesCount.total") > 50) {
+  @discourseComputed("invitesCount.total", "invitesCount.pending")
+  pendingLabel(invitesCountTotal, invitesCountPending) {
+    if (invitesCountTotal > 50) {
       return I18n.t("user.invited.pending_tab_with_count", {
-        count: this.get("invitesCount.pending")
+        count: invitesCountPending
       });
     } else {
       return I18n.t("user.invited.pending_tab");
     }
-  }.property("invitesCount"),
+  },
 
-  redeemedLabel: function() {
-    if (this.get("invitesCount.total") > 50) {
+  @discourseComputed("invitesCount.total", "invitesCount.redeemed")
+  redeemedLabel(invitesCountTotal, invitesCountRedeemed) {
+    if (invitesCountTotal > 50) {
       return I18n.t("user.invited.redeemed_tab_with_count", {
-        count: this.get("invitesCount.redeemed")
+        count: invitesCountRedeemed
       });
     } else {
       return I18n.t("user.invited.redeemed_tab");
     }
-  }.property("invitesCount"),
+  },
 
   actions: {
     rescind(invite) {
@@ -104,7 +83,6 @@ export default Ember.Controller.extend({
           Invite.rescindAll()
             .then(() => {
               this.set("rescindedAll", true);
-              this.get("model.invites").clear();
             })
             .catch(popupAjaxError);
         }
@@ -120,34 +98,31 @@ export default Ember.Controller.extend({
       bootbox.confirm(I18n.t("user.invited.reinvite_all_confirm"), confirm => {
         if (confirm) {
           Invite.reinviteAll()
-            .then(() => {
-              this.set("reinvitedAll", true);
-            })
+            .then(() => this.set("reinvitedAll", true))
             .catch(popupAjaxError);
         }
       });
     },
 
     loadMore() {
-      var self = this;
-      var model = self.get("model");
+      const model = this.model;
 
-      if (self.get("canLoadMore") && !self.get("invitesLoading")) {
-        self.set("invitesLoading", true);
+      if (this.canLoadMore && !this.invitesLoading) {
+        this.set("invitesLoading", true);
         Invite.findInvitedBy(
-          self.get("user"),
-          self.get("filter"),
-          self.get("searchTerm"),
+          this.user,
+          this.filter,
+          this.searchTerm,
           model.invites.length
-        ).then(function(invite_model) {
-          self.set("invitesLoading", false);
+        ).then(invite_model => {
+          this.set("invitesLoading", false);
           model.invites.pushObjects(invite_model.invites);
           if (
             invite_model.invites.length === 0 ||
             invite_model.invites.length <
               Discourse.SiteSettings.invites_per_page
           ) {
-            self.set("canLoadMore", false);
+            this.set("canLoadMore", false);
           }
         });
       }

@@ -1,5 +1,4 @@
-require_dependency 'oneboxer'
-require_dependency 'email_cook'
+# frozen_string_literal: true
 
 class PostAnalyzer
 
@@ -7,10 +6,11 @@ class PostAnalyzer
     @raw = raw
     @topic_id = topic_id
     @onebox_urls = []
+    @found_oneboxes = false
   end
 
   def found_oneboxes?
-    @onebox_urls.present?
+    @found_oneboxes
   end
 
   def has_oneboxes?
@@ -34,7 +34,9 @@ class PostAnalyzer
     result = Oneboxer.apply(cooked) do |url|
       @onebox_urls << url
       Oneboxer.invalidate(url) if opts[:invalidate_oneboxes]
-      Oneboxer.cached_onebox(url)
+      onebox = Oneboxer.cached_onebox(url)
+      @found_oneboxes = true if onebox.present?
+      onebox
     end
 
     cooked = result.to_html if result.changed?
@@ -68,7 +70,7 @@ class PostAnalyzer
     raw_mentions = cooked_stripped.css('.mention, .mention-group').map do |e|
       if name = e.inner_text
         name = name[1..-1]
-        name.downcase! if name
+        name = User.normalize_username(name)
         name
       end
     end
@@ -124,13 +126,13 @@ class PostAnalyzer
 
   # How many links are present in the post
   def link_count
-    raw_links.size
+    raw_links.size + @onebox_urls.size
   end
 
   def cooked_stripped
     @cooked_stripped ||= begin
       doc = Nokogiri::HTML.fragment(cook(@raw, topic_id: @topic_id))
-      doc.css("pre .mention, aside.quote > .title, aside.quote .mention, .onebox, .elided").remove
+      doc.css("pre .mention, aside.quote > .title, aside.quote .mention, aside.quote .mention-group, .onebox, .elided").remove
       doc
     end
   end

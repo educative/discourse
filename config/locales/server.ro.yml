@@ -27,7 +27,9 @@ ro:
   topics: "Subiecte"
   posts: "Postări"
   loading: "Se încarcă"
+  sign_up: "Înregistrare"
   log_in: "Autentificare"
+  submit: "Trimite"
   purge_reason: "Cont șters automat, ca fiind abandonat, dezactivat."
   disable_remote_images_download_reason: "Descărcarea de imagini la distanță a fost dezactivată deoarece nu mai era spațiu suficient pe disc."
   anonymous: "Anonime"
@@ -43,7 +45,6 @@ ro:
         auto_generated_email_error: "Apare când header-ul de 'precedență' este setat pe: list, junk, bulk sau auto_reply, sau atunci când orice alt header conține: auto-submitted, auto-replied sau auto-generated."
         no_body_detected_error: "Apare când nu am putut extrage corpul mesajului și nu existau fișiere atașate."
         inactive_user_error: "Apare când expeditorul nu este activ."
-        bad_destination_address: "Apare  când niciuna dintre adresele de email din câmpurile To/Cc/Bcc nu se potrivește cu o adresa de email expeditor configurată."
         strangers_not_allowed_error: "Apare când un utilizator a încercat să creeze un nou subiect într-o categorie în care nu este membru. "
         insufficient_trust_level_error: "Apare atunci când un utilizator a încercat să creeze un subiect nou într-o categorie pentru care nu are nivelul de încredere necesar."
         reply_user_not_matching_error: "Apare atunci când un răspuns a venit de la o adresă de email diferită de cea la care a fost trimisă notificarea."
@@ -96,7 +97,7 @@ ro:
     template:
       body: "Au apărut probleme cu următoarele câmpuri:"
       header:
-        one: O eroare a împiedicat acest %{model} să fie salvat
+        one: "O eroare a împiedicat acest %{model} să fie salvat"
         few: "%{count} erori au împiedicat acest %{model} să fie salvat"
         other: "%{count} de erori au împiedicat acest %{model} să fie salvat"
     embed:
@@ -121,10 +122,12 @@ ro:
   not_found: "Adresa URL sau resursa necesară nu poate fi găsită."
   invalid_access: "Nu ai permisiunea să vezi această resursă."
   read_only_mode_enabled: "Site-ul este în modul exclusiv-citire. Interacțiunile sunt dezactivate."
+  not_in_group:
+    join_group: "Alătură-te grupului"
   reading_time: "Durata citirii"
   likes: "Aprecieri"
   too_many_replies:
-    one: "Ne pare rău, dar utilizatorii noi sunt limitați la 1 răspuns pe discuție."
+    one: "Ne pare rău, dar utilizatorii noi sunt limitați la %{count} răspuns pe discuție."
     few: "Ne pare rău, dar utilizatorii noi sunt limitați la %{count} răspunsuri pe discuție."
     other: "Ne pare rău, dar utilizatori noi sunt limitați la %{count} de răspunsuri pe discuție."
   embed:
@@ -142,6 +145,7 @@ ro:
     permalink: "Link permanent"
     imported_from: "Acesta este un subiect de discuție adăugat la discuția originală de la %{link}"
     in_reply_to: "▶ %{username}"
+    created: "Creat"
   no_mentions_allowed: "Ne pare rău, nu poți menționa alți utilizatori."
   too_many_mentions:
     one: "Ne pare rău, poți menționa doar un utilizator într-o postare."
@@ -188,7 +192,6 @@ ro:
   private_message_abbrev: "Msg"
   rss_description:
     latest: "Ultimele subiecte"
-    hot: "Subiecte fierbinți"
     top: "Subiecte fierbinți"
     posts: "Ultimele postări"
     group_posts: "Ultimele postări de la %{group_name}"
@@ -199,8 +202,6 @@ ro:
   too_late_to_edit: "Acea postare este prea veche. Nu mai poate fi editată sau ștearsă."
   revert_version_same: "Versiunea curentă este identică cu cea la care încerci să revii."
   excerpt_image: "imagine"
-  queue:
-    delete_reason: "Şters via coadă de moderare"
   groups:
     errors:
       can_not_modify_automatic: "Nu poți modifica un grup automat"
@@ -258,6 +259,7 @@ ro:
       topic:
         title: "Titlu"
         featured_link: "Link promovat"
+        category_id: "Categorie"
       post:
         raw: "Corp"
       user_profile:
@@ -287,6 +289,9 @@ ro:
           attributes:
             hex:
               invalid: "nu este o culoare validă"
+        post_reply:
+          base:
+            different_topic: "Postarea și răspunsul trebuie să aparțină aceluiași subiect."
         web_hook:
           attributes:
             payload_url:
@@ -295,6 +300,10 @@ ro:
           attributes:
             name:
               taken: este deja folosit de un alt emoji
+        topic_timer:
+          attributes:
+            execute_at:
+              in_the_past: "trebuie să fie în viitor."
   vip_category_name: "Sufragerie"
   vip_category_description: "O categorie dedicată exclusiv celor cu nivelul de încredere 3 sau mai mare"
   meta_category_name: "Feedback la site"
@@ -314,7 +323,6 @@ ro:
       email_already_used_in_group: "'%{email}' este deja folosit de grupul '%{group_name}'."
       email_already_used_in_category: "'%{email}' este deja folosit de categoria '%{category_name}'."
     cannot_delete:
-      uncategorized: "Nu se poate șterge Necategorizat"
       has_subcategories: "Nu putem șterge categoria aceasta pentru că are sub-categorii."
       topic_exists_no_oldest: "Nu poți șterge categoria fiindcă numărul subiectelor este de %{count}."
     uncategorized_description: "Subiecte care nu au nevoie de o categorie, sau care nu se potrivesc în nicio categorie deja existentă."
@@ -347,27 +355,27 @@ ro:
     distance_in_words:
       half_a_minute: "de < 1m"
       less_than_x_seconds:
-        one: "de < 1s"
+        one: "de < %{count}s"
         few: "de < %{count}s"
         other: "de < %{count}s"
       x_seconds:
-        one: "de 1s"
+        one: "de %{count}s"
         few: "de %{count}s"
         other: "de %{count}s"
       less_than_x_minutes:
-        one: "de < 1m"
+        one: "de < %{count}m"
         few: " < %{count}m"
         other: "de < %{count}m"
       x_minutes:
-        one: "de 1m"
+        one: "de %{count}m"
         few: " de %{count}m"
         other: "de %{count}m"
       about_x_hours:
-        one: "de 1h"
+        one: "de %{count}h"
         few: " %{count}h"
         other: "de %{count}h"
       x_days:
-        one: "de 1z"
+        one: "de %{count}z"
         few: " %{count}z"
         other: "de %{count}z"
       about_x_months:
@@ -383,7 +391,7 @@ ro:
         few: "de %{count} ani"
         other: "de %{count} de ani"
       over_x_years:
-        one: "de > 1an"
+        one: "de > %{count}an"
         few: "de > %{count}ani"
         other: "de > %{count} de ani"
       almost_x_years:
@@ -392,16 +400,13 @@ ro:
         other: "de %{count} de ani"
     distance_in_words_verbose:
       half_a_minute: "chiar acum"
-      less_than_x_seconds:
-        one: "chiar acum"
-        few: "chiar acum"
-        other: "chiar acum"
+      less_than_x_seconds: "chiar acum"
       x_seconds:
         one: "cu o secundă în urmă"
         few: "cu %{count} secunde în urmă"
         other: "cu %{count} de secunde în urmă"
       less_than_x_minutes:
-        one: "cu mai puțin de 1 minut în urmă"
+        one: "cu mai puțin de %{count} minut în urmă"
         few: "cu mai puțin de %{count} minute în urmă"
         other: "mai puțin de %{count} de minute în urmă"
       x_minutes:
@@ -451,9 +456,6 @@ ro:
     error: "A apărut o eroare la schimbarea adresei de email. Poate adresa e deja folosită?"
     error_staged: "A apărut o eroare la schimbarea adresei tale de email. Adresa este deja folosită de un utilizator în așteptare."
     already_done: "Ne pare rău, dar acest link de confirmare nu mai este valid. Poate că emailul tău a fost deja schimbat?"
-    authorizing_old:
-      title: "Îți mulțumim că ne-ai confirmat noua ta adresă de email."
-      description: "Acum îți trimitem un email la noua ta adresă, pentru confirmare."
   activation:
     action: "Click aici pentru a-ți activa contul"
     already_done: "Ne pare rău, această adresă pentru confirmarea contului nu mai este valabilă. Poate contul tău este deja activ?"
@@ -465,10 +467,12 @@ ro:
     activated: "Acest cont a fost deja activat."
     admin_confirm:
       title: "Confirmă contul de Administrator"
-      description: "Eșți sigur că vrei ca <b>%{target_username}</b> să fie administrator?"
       grant: "Acordă titlu de admin"
       complete: "<b>%{target_username}</b> este administrator."
       back_to: "Întoarce-te la %{title}"
+  reviewable_score_types:
+    needs_approval:
+      title: "Necesită aprobare"
   post_action_types:
     off_topic:
       title: "În afara subiectului"
@@ -496,10 +500,12 @@ ro:
     bookmark:
       title: "Semn de carte"
       description: "Adaugă postarea la semne de carte"
+      short_description: "Adaugă postarea la semne de carte"
       long_form: "postarea a fost adăugată la semne de carte"
     like:
       title: "Apreciere"
       description: "Apreciază această postare"
+      short_description: "Apreciază această postare"
       long_form: "a apreciat asta"
   user_activity:
     no_bookmarks:
@@ -531,7 +537,6 @@ ro:
         make: "Acest subiect este de acum un banner. Va apărea în susul fiecărei pagini până când opțiunea va fi anulată de către utilizator."
         remove: "Acest subiect nu mai este un banner. Nu va mai apărea în susul fiecărei pagini."
   unsubscribed:
-    title: "Te-ai dezabonat!"
     topic_description: "Pentru a te abona din nou la %{link}, folosește controlul de notificări din partea dreaptă-jos a subiectului"
   unsubscribe:
     title: "Dezabonare"
@@ -539,17 +544,24 @@ ro:
     mute_topic: "Setează pe silențios toate notificările cu privire la acest subiect, %{link}"
     unwatch_category: "Încetează să urmărești activ toate subiectele din categoria %{category}"
     mailing_list_mode: "Dezactivează modul mailing list"
-    disable_digest_emails: "Nu îmi mai trimite emailuri-rezumat"
     all: "Nu îmi trimite nici un mail de la %{sitename}"
     different_user_description: "Pe moment, ești înregistrat cu un nume de utilizator diferit de cel căruia i-am trimis email. Te rugăm sa ieși sau să intri în modul anonim, și apoi să încerci din nou."
     not_found_description: "Ne pare rău, nu am putut găsi acest link de dezabonare. Poate că linkul de dezabonare pe care l-ai primit pe email a expirat?"
     log_out: "Ieșire"
+    digest_frequency:
+      never: "niciodată"
+      every_30_minutes: "La fiecare 30 de minute"
+      every_hour: "În fiecare oră"
+      daily: "Zilnic"
+      weekly: "Săptămânal"
   user_api_key:
     title: "Autorizează accesul aplicației"
     authorize: "Autorizează"
     read: "citire"
     read_write: "citire/scriere"
     description: '„%{application_name}” cere accesul la contul tău de:'
+    otp_confirmation:
+      confirm_title: "Continuă la %{site_name}"
     no_trust_level: "Ne pare rău, nu ai nivelul de încredere necesar pentru a accesa API utilizator"
     generic_error: "Ne pare rău, nu putem să emitem chei API utilizator: această funcționalitate este probabil dezactivată din administrarea site-ului"
     scopes:
@@ -560,14 +572,43 @@ ro:
       read: "Citește tot"
       write: "Scrie tot"
   reports:
+    default:
+      labels:
+        day: Zi
+    post_edits:
+      labels:
+        post: Postare
+        editor: Editor
+        edit_reason: Motiv
+    user_flagging_ratio:
+      labels:
+        user: Utilizatori
     moderators_activity:
       labels:
+        moderator: Moderator
         topic_count: Discuții create
+    flags_status:
+      labels:
+        flag: Tip
     visits:
       title: "Vizite ale utilizatorilor"
       xaxis: "Zi"
       yaxis: "Număr de vizite"
     signups:
+      xaxis: "Zi"
+    new_contributors:
+      xaxis: "Zi"
+    trust_level_growth:
+      yaxis: "Zi"
+    consolidated_page_views:
+      yaxis: "Zi"
+      labels:
+        post: Postare
+        editor: Editor
+        edit_reason: Motiv
+    dau_by_mau:
+      xaxis: "Zi"
+    daily_engaged_users:
       xaxis: "Zi"
     profile_views:
       title: "Vizualizări profil utilizator"
@@ -597,11 +638,27 @@ ro:
       title: "Utilizatori pe nivel de încredre"
       xaxis: "Nivel de încredere"
       yaxis: "Număr de utilizatori"
+    users_by_type:
+      xaxis: "Tip"
+      yaxis: "Număr de utilizatori"
+      labels:
+        type: Tip
+      xaxis_labels:
+        admin: Administrator
+        moderator: Moderator
+        suspended: Suspendați
+    trending_search:
+      labels:
+        term: Termen
+        searches: Căutări
     emails:
       title: "Emailuri trimise"
       xaxis: "Zi"
       yaxis: "Numărul de emailuri"
     user_to_user_private_messages:
+      xaxis: "Zi"
+      yaxis: "Număr de mesaje"
+    user_to_user_private_messages_with_replies:
       xaxis: "Zi"
       yaxis: "Număr de mesaje"
     system_private_messages:
@@ -625,6 +682,10 @@ ro:
       xaxis: "Utilizatori"
       num_clicks: "Click-uri"
       num_topics: "Subiecte"
+      labels:
+        user: "Utilizatori"
+        num_clicks: "Click-uri"
+        num_topics: "Discuții"
     top_traffic_sources:
       title: "Top surse de trafic"
       xaxis: "Domeniu"
@@ -632,10 +693,13 @@ ro:
       num_topics: "Subiecte"
       num_users: "Utilizatori"
       labels:
+        domain: Domeniu
+        num_clicks: Click-uri
         num_topics: Discuții
     top_referred_topics:
       title: "Top subiecte la care se face referire"
       labels:
+        num_clicks: "Click-uri"
         topic: "Discuție"
     page_view_anon_reqs:
       title: "Anonimi"
@@ -646,9 +710,11 @@ ro:
       xaxis: "Zi"
       yaxis: "Vizualizări de pagină înregistrate"
     page_view_crawler_reqs:
+      title: "Vizualizări de pagină făcute de roboți web"
       xaxis: "Zi"
       yaxis: "Vizualizări de pagină făcute de roboți web"
     page_view_total_reqs:
+      title: "Vizualizări"
       xaxis: "Zi"
       yaxis: "Total vizualizări de pagină"
     page_view_logged_in_mobile_reqs:
@@ -694,11 +760,25 @@ ro:
     mobile_visits:
       xaxis: "Zi"
       yaxis: "Număr de vizite"
+    web_crawlers:
+      labels:
+        page_views: "Vizualizări"
+    suspicious_logins:
+      labels:
+        user: Utilizatori
+        location: Locație
+    staff_logins:
+      labels:
+        user: Utilizatori
+        location: Locație
+    top_uploads:
+      labels:
+        filename: Numele fișierului
   dashboard:
     rails_env_warning: "Serverul funcționează în modul %{env}."
     host_names_warning: "Fișierul config/database.yml folosește numele implicit al localhost. Actualizează pentru a folosi numele de gazdă al site-ului."
     sidekiq_warning: 'Sidekiq nu este pornit. Multe acțiuni, cum ar fi trimiterea de emailuri, sunt executate asincron de către sidekiq. Asigură-te că măcar un proces din sidekiq este pornit. <a href="https://github.com/mperham/sidekiq" target="_blank"> Citește despre Sidekiq aici</a>.'
-    queue_size_warning: "Numărul de sarcini aflate în lista de așteptare este de %{queue_size}, ceea ce e mult. Asta poate indica o problemă cu procesul(ele) Sidekiq, sau că e necesar să adaugi mai multi  Sidekiq workers."
+    queue_size_warning: "Numărul de sarcini aflate în lista de așteptare este de %{queue_size}, ceea ce e mult. Asta poate indica o problemă cu procesul(ele) Sidekiq, sau că e necesar să adaugi mai multi Sidekiq workers."
     memory_warning: "Serverul tău lucrează cu mai puțin de 1 GB memorie. Se recomandă cel puțin 1 GB memorie."
     subfolder_ends_in_slash: "Setările subfolderului sunt incorecte; DISCOURSE_RELATIVE_URL_ROOT se termină cu slash."
     email_polling_errored_recently:
@@ -714,11 +794,13 @@ ro:
     set_locale_from_accept_language_header: "setează limba interfeței pentru utilizatorii anonimi pe baza header-elor de limbă ale web browser-elor lor. (EXPERIMENTAL, nu funcționează cu cache anonim)"
     min_post_length: "Lungimea minimă a postării, în caractere"
     min_first_post_length: "Numărul minim de caractere permis pentru prima postare (în corpul mesajului)"
+    min_personal_message_post_length: "Numărul minim de caractere permis pentru mesaje, per postare"
     max_post_length: "Lungimea maximă permisă a postării, în caractere"
     topic_featured_link_enabled: "Activează postarea unui link cu subiecte."
     show_topic_featured_link_in_digest: "Arată link-ul promovat al subiectului în rezumatul pe email."
     min_topic_title_length: "Minimul de caractere permis în titlul unui subiect"
     max_topic_title_length: "Maximul de caractere permis în titlul unui subiect"
+    min_personal_message_title_length: "Numărul minim de caractere permis în titlul unui mesaj"
     min_search_term_length: "Lungimea minimă a unui termen de căutare valid, în caractere."
     search_tokenize_chinese_japanese_korean: "Forțează căutarea să utilizeze tokens chineză/japoneză/coreană chiar și pe site-uri care nu sunt CJK."
     search_prefer_recent_posts: "Dacă ai un forum mare și căutarea este prea lentă, această opțiune încearcă să indexeze mai multe postări recente întâi."
@@ -755,14 +837,13 @@ ro:
     summary_posts_required: "Minimul de postări într-un subiect înainte de a se activa 'Rezumă acest subiect'."
     summary_likes_required: "Minimul de aprecieri într-un subiect înainte de a se activa 'Rezumă acest subiect'."
     summary_percent_filter: "Când un utilizator face click pe 'Rezumatul acestui subiect', arată primele % de postări"
-    summary_max_results: "Numărul maxim de postări returnate de \"Rezumatul acestui subiect\""
+    enable_personal_messages: "Acordă nivelul de încredere 1 (configurabil via nivel minim de încredere pentru trimiterea de mesaje) utilizatorilor, pentru a le permite să creeze și să răspundă la mesaje. Atenție: echipa poate oricând să trimită mesaje, indiferent de setări."
     enable_long_polling: "Bus-ul de mesaje folosit pentru notificări poate utiliza long polling."
     long_polling_base_url: "URL de bază folosit pentru long polling (atunci când un CDN servește conținut dinamic, asigură-te că setezi asta pe origin pull) ex: http://origin.site.com"
     long_polling_interval: "Durata cât serverul va trebui să aștepte înainte de a răspunde clienților atunci când nu există date de trimis (exclusiv utilizatori autentificați)"
     polling_interval: "Atunci când nu se face long polling, cât de des ar trebui clienții autentificați să facă interogări, în milisecunde."
     anon_polling_interval: "Cât de frecvent să interogheze clienții anonimi, în milisecunde"
     background_polling_interval: "Cât de des să interogheze clienții, în milisecunde (când fereastra este fundal)"
-    flags_required_to_hide_post: "Număr de marcaje de avertizare care fac ca o postare să fie automat ascunsă și utilizatorului să îi fie trimis automat un mesaj (0 pentru niciodată)"
     cooldown_minutes_after_hiding_posts: "Numărul de minute pe care un utilizator trebuie să le aștepte până când va putea edita o postare ascunsă prin marcaje de avertizare ale comunității."
     max_topics_in_first_day: "Numărul maxim de subiecte pe care un utilizator are voie să le creeze într-o perioadă de 24 de ore după ce și-a creat prima postare"
     max_replies_in_first_day: "Numărul maxim de răspunsuri pe care un utilizator are voie să le creeze într-o perioadă de 24 de ore după ce și-a creat prima postare"
@@ -771,10 +852,10 @@ ro:
     tl4_additional_likes_per_day_multiplier: "Crește numărul maxim de aprecieri pe zi pentru (membrii cu) nivelul de încredere 4, multiplicând cu această valoare"
     traditional_markdown_linebreaks: "Folosește întreruperi de rând tradiționale în Markdown, ceea ce necesită două spații pentru un capăt de rând. "
     post_undo_action_window_mins: "Numărul de minute în care utilizatorii pot anula acțiunile recente asupra unei postări (aprecieri, marcări cu marcaje de avertizare, etc)."
-    must_approve_users: "Membrii echipei trebuie să aprobe toate conturile noilor utilizatori înainte ca aceștia să poată accesa site-ul. ATENȚIE: activarea acestei opțiuni pentru un site în producție va revoca accesul tuturor utilizatorilor care nu sunt membri ai echipei!"
+    must_approve_users: "Personalul trebuie să aprobe toate conturile utilizatorilor noi înainte ca ei să aibă aces în site."
     pending_users_reminder_delay: "Notifică moderatorii dacă noii utilizatori sunt în așteptarea aprobării de mai mult de atâtea ore. Setează la -1 pentru a dezactiva notificările."
     maximum_session_age: "Utilizatorul va rămâne autentificat pentru n ore de la ultima vizită"
-    allow_moderators_to_create_categories: "Permite moderatorilor să creeze noi categorii"
+    moderators_create_categories: "Permite moderatorilor să creeze noi categorii"
     cors_origins: "Origini permise pentru interogările inter-origini (CORS). Fiecare origine trebuie să includă http:// sau https://. Variabila env DISCOURSE_ENABLE_CORS trebuie setată pe true pentru a activa CORS."
     use_admin_ip_whitelist: "Adminii se pot autentifica numai dacă au o adresă IP definită în lista de IP-uri verificate (Admin > Rapoarte > IP-uri verificate) "
     top_menu: "Determină ce elemente apar în navigare pe pagina principală și în ce ordine. Exemplu: ultimele|noi|necitite|categorii|top|citite|semnedecarte"
@@ -795,7 +876,6 @@ ro:
     email_token_valid_hours: "Tokenul uitat parolă / activează cont sunt valabili pentru (n) ore."
     enable_badges: "Activează sistemul de ecusoane"
     enable_whispers: "Permite membrilor echipei să comunice privat în cadrul subiectelor."
-    allow_index_in_robots_txt: "Specifică în robots.txt că acest site poate fi indexat de motoarele de căutare web."
     email_domains_blacklist: "O listă de domenii de email separate cu simbolul | (pipe) ale căror utilizatori nu au permisiunea să înregistreze conturi. Exemplu: mailinator.com|trashmail.net"
     email_domains_whitelist: "O listă de domenii de email (separate cu simbolul | (pipe)) cu care utilizatorii TREBUIE să se înregistreze. ATENȚIE: utilizatorii cu alte domenii de email decât cele listate nu vor avea permisiunea să se înregistreze."
     log_out_strict: "La ieșire, închide TOATE sesiunile pentru utilizator, pe toate dispozitivele."
@@ -816,7 +896,6 @@ ro:
     sso_allows_all_return_paths: "Nu restricționa domeniul pentru return_paths furnizate de SSO (implicit, calea de întoarcere trebuie să fie pe site-ul curent)"
     allow_new_registrations: "Permite înregistrarea noilor utilizatori. Debifați pentru a restricționa pe oricine să creeze un cont nou."
     enable_signup_cta: "Arată o notificare către utilizatorii anonimi care revin prin care să le ceri să se înscrie pentru a avea un cont pe site."
-    enable_yahoo_logins: "Activează autentificarea cu Yahoo"
     google_oauth2_client_id: "ID client al aplicației tale Google."
     google_oauth2_client_secret: "Secret client al aplicației tale Google."
     enable_instagram_logins: "Activează autentificarea prin Instagram, necesită instagram_consumer_key și instagram_consumer_secret"
@@ -846,11 +925,11 @@ ro:
     max_bookmarks_per_day: "Numărul maxim zilnic de semne de carte per utilizator."
     max_edits_per_day: "Numărul maxim zilnic de editări per utilizator."
     max_topics_per_day: "Numărul maxim de subiecte pe care un utilizator le poare crea zilnic."
+    max_personal_messages_per_day: "Număr maxim de mesaje pe care utilizatorii le pot crea pe zi."
     max_invites_per_day: "Număr maxim de invitații pe care un utilizator le poate trimite pe zi."
     max_topic_invitations_per_day: "Numărul maxim de invitații la subiect pe care un utilizator le poate trimite pe zi."
     alert_admins_if_errors_per_minute: "Numărul de erori pe minut la care să se declanșeze o alerta admin. Valoarea 0 dezactivează această funcționalitate. NOTĂ: necesită restart."
     alert_admins_if_errors_per_hour: "Numărul de erori pe oră la care să se declanșeze o alertă admin. Valoarea 0 dezactivează această funcționalitate. NOTĂ: necesită restart."
-    categories_topics: "Numărul de subiecte care să fie afișat în pagina /categories ."
     suggested_topics: "Numărul de subiecte sugerate în partea de jos a unui subiect."
     limit_suggested_to_category: "Arată doar subiectele din aceeași categorie, în subiecte sugerate."
     suggested_topics_max_days_old: "Subiectele sugerate nu trebuie să fie mai vechi de n zile."
@@ -859,9 +938,6 @@ ro:
     purge_deleted_uploads_grace_period_days: "Perioada de grație (în zile) înainte ca o încărcare ștearsă să fie eliminată."
     enable_s3_uploads: "Pune încărcările pe spațiul Amazon S3. IMPORTANT: necesită un acces valid (atât identificatorul cheii de acces cât și cheia secretă)."
     s3_upload_bucket: "Numele containerului Amazon S3 unde vor fi încărcate fișierele. ATENȚIE: trebuie să fie scris cu litere mici, fără puncte și fără underscore."
-    s3_access_key_id: "Id cheie de acces Amazon S3 ce va fi folosit la încărcarea imaginilor."
-    s3_secret_access_key: "Cheie secretă de acces Amazon S3 ce va fi folosită la încărcarea imaginilor."
-    s3_region: "Numele regiunii Amazon S3 ce va fi folosit la încărcarea imaginilor."
     s3_cdn_url: "URL-ul CDN care să fie folosit pentru toate resursele s3 (de exemplu: https://cdn.somewhere.com). ATENȚIE: după schimbarea acestui parametru trebuie regenerate toate postările existente."
     avatar_sizes: "Lista mărimilor avatarurilor generate automat."
     external_system_avatars_enabled: "Folosiți un serviciu extern de sisteme de avataruri"
@@ -893,7 +969,7 @@ ro:
     tl3_promotion_min_duration: "Numărul minim de zile cât durează promovarea la nivelul de încredere 3, înainte ca utilizatorul să fie retrogradat la nivelul de încredere 2."
     tl3_requires_likes_given: "Numărul minim de aprecieri care trebuie să fie acordate în ultimele (tl3 time period) zile pentru promovarea la nivelul de încredere 3."
     tl3_requires_likes_received: "Numărul minim de aprecieri care trebuie să fie primite în ultimele (tl3 time period) zile pentru promovarea la nivelul de încredere 3."
-    tl3_links_no_follow: "Nu scoate parametrul  rel=nofollow din linkurile postate de utilizatori cu nivelul de încredere 3."
+    tl3_links_no_follow: "Nu scoate parametrul rel=nofollow din linkurile postate de utilizatori cu nivelul de încredere 3."
     min_trust_to_create_topic: "Nivelul de încredere minim necesar pentru a crea un subiect nou."
     min_trust_to_edit_wiki_post: "Nivelul de încredere minim necesar pentru a edita o postare marcată ca wiki."
     min_trust_to_edit_post: "Nivelul de încredere minim necesar pentru a edita postări."
@@ -948,7 +1024,6 @@ ro:
     max_age_unmatched_emails: "șterge înregistrările emailurilor verificate, care nu corespund, după (N) zile."
     max_age_unmatched_ips: "șterge adresele de IP verificate, care nu corespund, după (N) zile."
     num_flaggers_to_close_topic: "Numărul minim de marcaje de avertizare unice care este necesar pentru a suspenda un subiect în vederea intervenției."
-    num_flags_to_close_topic: "Numărul minim de marcaje de avertizare active care este necesar pentru a suspenda un subiect în vederea intervenției"
     auto_respond_to_flag_actions: "Activează răspunsul automat la gestionarea unui marcaj de avertizare."
     min_first_post_typing_time: "Durata de timp minimă în milisecunde cât este nevoie ca un utilizator să tasteze la prima postare, dacă acest prag nu este atins postarea va intra automat în coada mesajelor care necesită aprobare. Valoarea 0 dezactivează (nerecomandat)"
     reply_by_email_enabled: "Activează răspunsurile către subiecte prin email."
@@ -970,11 +1045,9 @@ ro:
     soft_bounce_score: "Rata de ricoșeu adăugată unui utilizator atunci când se produce un ricoșeu temporar."
     hard_bounce_score: "Rata de ricoșeu adăugată unui utilizator atunci când se produce un ricoșeu permanent."
     bounce_score_threshold: "Rata maximă de ricoșeu înainte să nu îi mai trimitem emailuri utilizatorului."
-    bounce_score_threshold_deactivate: "Rata maximă de ricoșeu înainte să dezactivăm utilizatorul."
     reset_bounce_score_after_days: "Resetează automat rata de ricoșeu după X zile."
     attachment_content_type_blacklist: "Lista cuvintelor cheie folosite pentru filtrarea atașamentelor în funcție de tipul de conținut."
     attachment_filename_blacklist: "Lista cuvintelor cheie folosite la filtrarea atașamentelor în funcție de numele fișierului."
-    enable_forwarded_emails: "[BETA] Permite utilizatorilor să creeze un subiect prin forward-area unui email."
     always_show_trimmed_content: "Arată întotdeauna partea trunchiată a emailurilor sosite. ATENȚIE: s-ar putea dezvălui adresele de email."
     manual_polling_enabled: "Trimite emailuri folosind API-ul pentru răspunsuri prin email."
     pop3_polling_enabled: "Folosește POP3 pentru răspunsuri prin email."
@@ -1002,6 +1075,7 @@ ro:
     digest_posts: "Numărul maxim de postări notorii care să se afișeze în rezumatul-email."
     digest_other_topics: "Numărul maxim de subiecte care să fie afișate în secțiunea „Noutăți în subiectele și categoriile pe care le urmărești” din rezumatul pe email."
     digest_min_excerpt_length: "Lungimea minimă (în caractere) a extraselor de postări, ce vor fi incluse în emailul-rezumat."
+    suppress_digest_email_after_days: "Nu trimite emailuri-rezumat utilizatorilor care nu au fost văzuți pe site de mai mult de (n) zile."
     digest_suppress_categories: "Nu include aceste categorii în emailurile-rezumat."
     disable_digest_emails: "Dezactivează emailurile-rezumat pentru toți utilizatorii."
     email_accent_fg_color: "Culoarea textului redat pe culoarea de fundal a emailurilor HTML. Introdu un nume de culoare („alb”) sau o valoare hex ('#FFFFFF')."
@@ -1020,11 +1094,10 @@ ro:
     dominating_topic_minimum_percent: "Ce procent din postările unui subiect trebuie să scrie un utilizator înainte de i se aminti că domină excesiv subiectul."
     disable_avatar_education_message: "Dezactivează mesajul educațional pentru schimbarea avatarului."
     suppress_uncategorized_badge: "Nu arăta ecusonul pentru subiectele fără categorie în lista de subiecte."
-    permalink_normalizations: "Aplică următorul regex înainte de a detecta permalink-urile, de exemplu:  /(topic.*)\\?.*/\\1 va elimina șirurile de interogare din căile subiectelor. Formatul este regex+șir folosește \\1 etc.pentru a capturarea secvențelor"
-    disable_edit_notifications: "Deactivează editarea notificărilo de către utilizator atunci când setarea 'download_remote_images_to_local' este activată."
+    permalink_normalizations: "Aplică următorul regex înainte de a detecta permalink-urile, de exemplu: /(topic.*)\\?.*/\\1 va elimina șirurile de interogare din căile subiectelor. Formatul este regex+șir folosește \\1 etc.pentru a capturarea secvențelor"
+    disable_system_edit_notifications: "Deactivează editarea notificărilo de către utilizator atunci când setarea 'download_remote_images_to_local' este activată."
     automatically_unpin_topics: "Desprinde automat subiecte când utilizatorul ajunge la sfârșitul paginii."
     read_time_word_count: "Contor de cuvinte pe minut pentru calcularea timpului estimat de citire."
-    topic_page_title_includes_category: "Titlul paginii subiectului include un nume de categorie."
     max_prints_per_hour_per_user: "Numărul maxim de amprente de vizualizare lăsate pentru /print (0 pentru dezactivare)"
     full_name_required: "Numele întreg este un câmp obligatoriu în profilul utilizator."
     enable_names: "Afișează numele întreg al utilizatorului în profilul său, în cardul utilizator și în emailuri. Dezactivează pentru ascunde numele peste tot."
@@ -1039,7 +1112,7 @@ ro:
     embed_post_limit: "Numărul maxim de postări care să fie încorporate."
     embed_username_required: "Numele utilizator pentru acest subiect este obligatoriu."
     show_create_topics_notice: "Dacă site-ul are mai puțin de 5 subiecte publice, afișează o notificare prin care se cere adminilor să creeze subiecte."
-    delete_drafts_older_than_n_days: șterge drafturile mai vechi de (n) zile.
+    delete_drafts_older_than_n_days: "șterge drafturile mai vechi de (n) zile."
     bootstrap_mode_min_users: "Numărul minim de utilizatori necesar pentru dezactivarea modului bootstrap (0 pentru dezactivare)"
     prevent_anons_from_downloading_files: "Blochează utilizatorii anonimi de la descărcarea de atașamente. ATENȚIE: aceasta va face ca toate resursele site-ului care sunt postate ca atașamente să nu mai meargă."
     slug_generation_method: "Alege o metodă de generare de identificator. 'encodat' va genera șir de caractere encodate cu procentaje. 'nimic' va dezactiva complet identificatorii."
@@ -1053,11 +1126,9 @@ ro:
     code_formatting_style: "Butonul Cod din cadrul editorului va fi setat cu opțiunea implicită pe acest stil de formatare cod "
     default_email_digest_frequency: "Frecvența implicită cu care utilizatorii primesc emailuri-rezumat."
     default_include_tl0_in_digests: "Implicit, include postări de la utilizatori noi în emailurile-rezumat. Utilizatorii pot schimba această opțiune din preferințele lor."
-    default_email_direct: "Implicit, trimite un mesaj când cineva citează/răspunde/menționează sau invită un utilizator."
     default_email_mailing_list_mode: "Implicit, trimite un email pentru fiecare nou mesaj."
     default_email_mailing_list_mode_frequency: "Implicit, utilizatorii care activează modul mailing list vor primi emailuri cu această frecvență."
     disable_mailing_list_mode: "Anulează utilizatorilor permisiunea de a activa modul mailing list."
-    default_email_always: "Implicit, trimite o notificare prin email chiar și atunci când utilizatorul este activ."
     default_email_previous_replies: "Implicit, include răspunsurile anterioare în emailuri."
     default_email_in_reply_to: "Implicit, include în email un extras postarea căreia i se răspunde."
     default_other_new_topic_duration_minutes: "Condiție implicită globală referitoare la durata timpului pentru care subiectul este considerat nou"
@@ -1066,10 +1137,9 @@ ro:
     default_other_external_links_in_new_tab: "Implicit, deschide link-urile externe în taburi noi."
     default_other_enable_quoting: "Implicit, activează citarea textului evidențiat."
     default_other_dynamic_favicon: "Implicit, arată contorul de subiecte noi/actualizate în icoana browserului."
-    default_other_disable_jump_reply: "Implicit, nu sări la postarea utilizatorului după ce a răspuns."
     default_other_like_notification_frequency: "Implicit, notifică utilizatorul la primirea de aprecieri."
     default_topics_automatic_unpin: "Desprinde automat subiecte din fixate la vârf, atunci când utilizatorul ajunge la sfârșitul paginii."
-    default_categories_watching: "Implicit, listează categoriile care sunt urmărite în  mod activ."
+    default_categories_watching: "Implicit, listează categoriile care sunt urmărite în mod activ."
     default_categories_tracking: "Implicit, listează categoriile care sunt urmărite."
     default_categories_muted: "Implicit, listează categoriile care sunt setate pe silențios."
     default_categories_watching_first_post: "Lista categoriilor în care prima postare din fiecare topic va fi urmărită activ în mod implicit."
@@ -1077,7 +1147,6 @@ ro:
     allow_user_api_key_scopes: "Lista domeniilor pentru care se permit chei API pentru utilizatori"
     max_api_keys_per_user: "Numărul maxim de chei API utilizator pe utilizator"
     min_trust_level_for_user_api_key: "Nivelul de încredere necesar pentru generarea de chei API utilizator"
-    allowed_user_api_auth_redirects: "URL permis pentru redirecționarea autentificării pentru cheile API utilizator "
     allowed_user_api_push_urls: "URL-uri permise pentru serviciul push al serverului la API utilizator"
     tagging_enabled: "Activează etichetele la subiecte?"
     min_trust_to_create_tag: "Nivelul minim de încredere necesar pentru crearea unei etichete."
@@ -1090,7 +1159,6 @@ ro:
     tag_style: "Stil vizual pentru ecusoanele etichetă."
     min_trust_level_to_tag_topics: "Nivelul minim de încredere necesar pentru a pune etichete pe subiecte."
     suppress_overlapping_tags_in_list: "Dacă etichetele corespund exact cu cuvintele din titlul subiectelor, nu mai afișa aceste etichete."
-    remove_muted_tags_from_latest: "Nu afișa în lista subiectelor recente, subiectele ce au fost etichetate cu etichete setate pe silențios"
     errors:
       invalid_email: "Adresă de email invalidă."
       invalid_username: "Nu există nici un utilizator cu acest nume de utilizator."
@@ -1104,8 +1172,8 @@ ro:
       invalid_string_min_max: "Trebuie să aibă între %{min} și %{max} caractere."
       invalid_string_min: "Trebuie să aibă %{min} caractere."
       invalid_string_max: "Nu trebuie să depășească %{max} caractere."
-      invalid_reply_by_email_address: "Valoarea trebuie să conțină '%%{reply_key}' și să fie diferită de emailul de notificare."
-      invalid_alternative_reply_by_email_addresses: "Toate valorile trebuie să conțină '%%{reply_key}' și să fie diferite de emailul de notificare."
+      invalid_reply_by_email_address: "Valoarea trebuie să conțină '%{reply_key}' și să fie diferită de emailul de notificare."
+      invalid_alternative_reply_by_email_addresses: "Toate valorile trebuie să conțină '%{reply_key}' și să fie diferite de emailul de notificare."
       pop3_polling_host_is_empty: "Trebuie să setezi „numele serverului de POP3” înainte să poți activa retragerea de emailuri prin POP3"
       pop3_polling_username_is_empty: "Trebuie să setezi „numele utilizator pe serverul POP3” înainte să poți activa retragerea de emailuri prin POP3."
       pop3_polling_password_is_empty: "Trebuie să setezi „parola pe serverul POP3” înainte să poți activa retragerea de emailuri prin POP3."
@@ -1114,6 +1182,8 @@ ro:
       email_polling_disabled: "Trebuie să setezi fie retragerea manuala fie cea prin POP3 înainte să activezi răspunsul prin email."
       user_locale_not_enabled: "Trebuie să activezi întâi „permite locale utilizator” înainte de activa această setare."
       invalid_regex: "Regex invalid sau nepermis."
+      min_username_length_range: "Nu poți seta minimum cu o valoare mai mare decât a maximului."
+      max_username_length_range: "Nu poți seta maximum cu o valoare mai mică decât a minimului."
   search:
     within_post: "#%{post_number} de %{username}:"
     types:
@@ -1135,43 +1205,43 @@ ro:
   merge_posts:
     edit_reason:
       one: "o postare a fost comasată de către %{username}"
-      few: "%{count} postări au fost comasate de către  %{username}"
-      other: "%{count} de postări au fost comasate de către  %{username}"
+      few: "%{count} postări au fost comasate de către %{username}"
+      other: "%{count} de postări au fost comasate de către %{username}"
     errors:
       different_topics: "Postările care aparțin unor subiecte diferite nu pot fi comasate."
       different_users: "Postările care aparțin unor utilizatori diferiți nu pot fi comasate."
   topic_statuses:
     autoclosed_message_max_posts:
       one: "Acest mesaj va fi închis automat după ce atinge limita de maximă de un răspuns."
-      few: "Acest mesaj va fi închis automat după ce atinge limita de maximă de %{count}  răspunsuri."
+      few: "Acest mesaj va fi închis automat după ce atinge limita de maximă de %{count} răspunsuri."
       other: "Acest mesaj va fi închis automat după ce atinge limita de maximă de %{count} de răspunsuri."
     autoclosed_topic_max_posts:
       one: "Acest subiect a fost închis automat după ce a atins limita maximă de un răspuns."
-      few: "Acest subiect a fost închis automat după ce a atins limita maximă de %{count}  răspunsuri."
+      few: "Acest subiect a fost închis automat după ce a atins limita maximă de %{count} răspunsuri."
       other: "Acest subiect a fost închis automat după ce a atins limita maximă de %{count} de răspunsuri."
     autoclosed_enabled_days:
       one: "Acest subiect a fost închis automat după o zi. Nu mai sunt permise răspunsuri noi."
-      few: "Acest subiect a fost închis automat după %{count}  zile. Nu mai sunt permise răspunsuri noi."
+      few: "Acest subiect a fost închis automat după %{count} zile. Nu mai sunt permise răspunsuri noi."
       other: "Acest subiect a fost închis automat după %{count} de zile. Nu mai sunt permise răspunsuri noi."
     autoclosed_enabled_hours:
       one: "Acest subiect a fost închis automat după o oră. Nu mai sunt permise răspunsuri noi."
-      few: "Acest subiect a fost închis automat după %{count}  ore. Nu mai sunt permise răspunsuri noi."
+      few: "Acest subiect a fost închis automat după %{count} ore. Nu mai sunt permise răspunsuri noi."
       other: "Acest subiect a fost închis automat după %{count} de ore. Nu mai sunt permise răspunsuri noi."
     autoclosed_enabled_minutes:
       one: "Acest subiect a fost închis automat după un minut. Nu mai sunt permise răspunsuri noi."
-      few: "Acest subiect a fost închis automat după %{count}  minute. Nu mai sunt permise răspunsuri noi."
+      few: "Acest subiect a fost închis automat după %{count} minute. Nu mai sunt permise răspunsuri noi."
       other: "Acest subiect a fost închis automat după %{count} de minute. Nu mai sunt permise răspunsuri noi."
     autoclosed_enabled_lastpost_days:
       one: "Acest subiect a fost închis automat după o zi de la primul răspuns. Nu mai sunt permise răspunsuri noi."
-      few: "Acest subiect a fost închis automat după %{count}  zile de la primul răspuns. Nu mai sunt permise răspunsuri noi."
+      few: "Acest subiect a fost închis automat după %{count} zile de la primul răspuns. Nu mai sunt permise răspunsuri noi."
       other: "Acest subiect a fost închis automat după %{count} de zile de la primul răspuns. Nu mai sunt permise răspunsuri noi."
     autoclosed_enabled_lastpost_hours:
       one: "Acest subiect a fost închis automat după o oră de la primul răspuns. Nu mai sunt permise răspunsuri noi."
-      few: "Acest subiect a fost închis automat după %{count}  ore de la primul răspuns. Nu mai sunt permise răspunsuri noi."
+      few: "Acest subiect a fost închis automat după %{count} ore de la primul răspuns. Nu mai sunt permise răspunsuri noi."
       other: "Acest subiect a fost închis automat după %{count} de ore de la primul răspuns. Nu mai sunt permise răspunsuri noi."
     autoclosed_enabled_lastpost_minutes:
       one: "Acest subiect a fost închis automat după un minut de la primul răspuns. Nu mai sunt permise răspunsuri noi."
-      few: "Acest subiect a fost închis automat după %{count}  minute de la primul răspuns. Nu mai sunt permise răspunsuri noi."
+      few: "Acest subiect a fost închis automat după %{count} minute de la primul răspuns. Nu mai sunt permise răspunsuri noi."
       other: "Acest subiect a fost închis automat după %{count} de minute de la primul răspuns. Nu mai sunt permise răspunsuri noi."
     autoclosed_disabled: "Acest subiect este acum deschis. Sunt permise răspunsuri noi."
     autoclosed_disabled_lastpost: "Acest subiect este acum deschis. Sunt permise răspunsuri noi."
@@ -1188,8 +1258,8 @@ ro:
     errors: "%{errors}"
     not_available: "Nu este disponibil. Încearcă %{suggestion}?"
     something_already_taken: "Ceva nu a funcționat, poate numele de utilizator sau emailul este deja înregistrat. Încearcă opțiunea parola uitată."
-    omniauth_error: "Ne pare rău, a apărut o eroare la autorizarea contului tău. Poate că nu ai aprobat autorizarea?"
     omniauth_error_unknown: "Ceva a mers greșit la procesarea autentificării, te rugăm să încerci din nou."
+    omniauth_confirm_button: "Continuă"
     authenticator_error_no_valid_email: "Nu este permisă nicio adresă de email asociată cu %{account}. Ar trebui să îți configurezi contul cu o adresă de email diferită."
     new_registrations_disabled: "Înregistrarea de conturi noi nu este momentan permisă."
     password_too_long: "Parole sunt limitate la 200 caractere."
@@ -1197,6 +1267,9 @@ ro:
     reserved_username: "Acest nume utilizator nu este permis."
     missing_user_field: "Nu ai completat toate câmpurile utilizatorului"
     already_logged_in: "Oops, se pare că încerci să accepți o invitație de la un alt utilizator. Dacă nu ești %{current_user}, te rugăm ieși și intră din nou."
+  admin:
+    email:
+      sent_test: "trimis!"
   user:
     deactivated: "A fost dezactivat din cauza pre a multor emailuri ricoșate la '%{email}'."
     username:
@@ -1215,11 +1288,6 @@ ro:
     ip_address:
       blocked: "Nu sunt permise noi înregistrări de la adresa ta de IP."
       max_new_accounts_per_registration_ip: "Nu sunt permise noi înregistrări de la adresa ta de IP (limita maximă a fost atinsă). Contactează un membru al echipei."
-  flags_reminder:
-    subject_template:
-      one: "un marcaj de avertizare așteptând să fie gestionat"
-      few: "%{count}  marcaje de avertizare așteptând să fie gestionate"
-      other: "%{count} de marcaje de avertizare așteptând să fie gestionate"
   unsubscribe_mailer:
     subject_template: "Confirmă că nu mai vrei să primești actualizări pe email de la %{site_title}"
   invite_password_instructions:
@@ -1233,29 +1301,16 @@ ro:
     agreed: "Îți mulțumim pentru avertizare. Suntem de acord că există o problemă și ne vom interesa."
     agreed_and_deleted: "Îți mulțumim pentru avertizare. Suntem de acord că este o problemă și postarea va fi eliminată."
     disagreed: "Îți mulțumim pentru avertizare. O să aruncăm o privire."
-    deferred: "Îți mulțumim că ne-ai informat. O să aruncăm o privire."
-    deferred_and_deleted: "Îți mulțumim că ne-ai informat. Am șters postarea."
+    ignored: "Îți mulțumim pentru avertizare. O să aruncăm o privire."
+    ignored_and_deleted: "Îți mulțumim că ne-ai informat. Am șters postarea."
   system_messages:
     private_topic_title: "Discuția #%{id}"
     post_hidden:
       subject_template: "Postare ascunsă din cauza marcajelor de avertizare ale comunității"
-      text_body_template: |
-        Salut,
-
-        Acesta este un mesaj automat de pe %{site_name} pentru a te informa că mesajul tău a fost ascuns.
-
-        %{base_url}%{url}
-
-        %{flag_reason}
-
-        Mai mulți membri ai comunității au marcat acestă postare cu marcaje de avertizare înainte ca ea să fie ascunsă, așa că te rugăm să îți revizuiești postarea pentru a ține cont de feedback-ul primit. **Îți poți edita postarea după %{edit_delay} minute, și ea va fi automat re-afișată**
-
-        Totuși, dacă postarea este ascunsă de comunitate pentru a doua oară, va rămâne așa până ce va fi gestionată de un membru al echipei -- și asta ar putea atrage și alte consecințe, inclusiv posibilitatea suspendării contului tău.
-
-        Pentru informații suplimentare, te rugăm să citești [ghidul comunității](%{base_url}/guidelines).
     welcome_user:
       subject_template: "Bine ai venit pe %{site_name}!"
     welcome_tl1_user:
+      subject_template: "Îți mulțumim că petreci timp cu noi"
       text_body_template: |
         Salutare. Am obsevat că ai citit mult pe forum, ceea ce ne bucură, așa că te-am promovat cu un [nivel de încredere!](https://blog.discourse.org/2018/06/understanding-discourse-trust-levels/) suplimentar.
 
@@ -1345,6 +1400,7 @@ ro:
 
         Pentru informații suplimentare, te rugăm să citești [ghidul comunității](%{base_url}/guidelines).
     silenced_by_staff:
+      subject_template: "Cont suspendat temporar"
       text_body_template: |
         Salut,
 
@@ -1353,7 +1409,10 @@ ro:
         Poți să continui să răsfoiești, dar nu vei mai putea să răspunzi sau să creezi subiecte până când un [membru al echipei](%{base_url}/about) nu îți verifică postările recente. Ne cerem scuze pentru inconveniență.
 
         Pentru informații suplimentare, te rugăm să citești [ghidul comunității](%{base_url}/guidelines).
+    spam_post_blocked:
+      subject_template: "Utilizatorul nou %{username} are postările blocate datorită adreselor repetate"
     unsilenced:
+      subject_template: "Contul nu mai este în așteptare"
       text_body_template: |
         Salut,
 
@@ -1363,12 +1422,8 @@ ro:
     pending_users_reminder:
       subject_template:
         one: "un utilizator în așteptarea aprobării"
-        few: "%{count}  utilizatori în așteptarea aprobării"
+        few: "%{count} utilizatori în așteptarea aprobării"
         other: "%{count} de utilizatori în așteptarea aprobării"
-      text_body_template: |
-        Exista înscrieri de noi utilizatori ce așteaptă să fie aprobate (sau respinse) înainte de a putea accesa forumul.
-
-        [Te rugăm să le vizualizezi în secțiunea de admin](%{base_url}/admin/users/list/în așteptare).
     download_remote_images_disabled:
       subject_template: "Descărcarea de imagini la disanță este dezactivată"
       text_body_template: "Setarea `download_remote_images_to_local` a fost dezactivată pentru că limita de spațiu din `download_remote_images_threshold` a fost atinsă."
@@ -1399,7 +1454,15 @@ ro:
     only_reply_by_email: "Dă reply la acest email pentru a răspunde."
     visit_link_to_respond: "[Vizitează subiect](%{base_url}%{url}) pentru a răspunde."
     posted_by: "Postat de %{username} pe data %{post_date}"
+    user_invited_to_private_message_pm_group:
+      text_body_template: |
+        %{header_instructions}
+
+        %{message}
+
+        %{respond_instructions}
     user_invited_to_private_message_pm:
+      subject_template: "[%{email_prefix}] %{username} te-a invitat la o discuție prin mesaje - '%{topic_title}'"
       text_body_template: |
         %{header_instructions}
 
@@ -1431,6 +1494,7 @@ ro:
 
         %{respond_instructions}
     user_replied_pm:
+      subject_template: "[%{email_prefix}] [PM] %{topic_title}"
       text_body_template: |
         %{header_instructions}
 
@@ -1468,6 +1532,14 @@ ro:
         %{respond_instructions}
     user_mentioned_pm:
       subject_template: "[%{email_prefix}] [PM] %{topic_title}"
+      text_body_template: |
+        %{header_instructions}
+
+        %{message}
+
+        %{context}
+
+        %{respond_instructions}
     user_group_mentioned:
       text_body_template: |
         %{header_instructions}
@@ -1496,6 +1568,7 @@ ro:
 
         %{respond_instructions}
     user_posted_pm:
+      subject_template: "[%{email_prefix}] [PM] %{topic_title}"
       text_body_template: |
         %{header_instructions}
 
@@ -1516,15 +1589,17 @@ ro:
       unread_messages: "Mesaje necitite"
       unread_notifications: "Notificări necitite"
       liked_received: "Aprecieri primite"
-      new_posts: "Postări noi"
       new_users: "Utilizatori noi"
       popular_topics: "Subiecte notorii"
       follow_topic: "Urmărește acest subiect"
       join_the_discussion: "Citește mai mult"
       popular_posts: "Postări notorii"
       click_here: "click aici"
-      from: "%{site_name} rezumat"
       preheader: "Un scurt rezumat de la ultima ta vizită din %{last_seen_at}"
+    forgot_password:
+      title: "Parolă uitată"
+    set_password:
+      title: "Setează parola"
     notify_old_email:
       text_body_template: |
         Acesta este un mesaj automat pentru a te informa că adresa ta de email pentru %{site_name} a fost schimbată. Dacă acest lucru s-a întâmplat dintr-o eroare, contractează un administrator al site-lui.
@@ -1540,14 +1615,14 @@ ro:
     recent_topics: "Recente"
     see_more: "Mai multe"
     search_title: "Caută în site"
-  terms_of_service:
-    title: "Condițiile generale de utilizare"
+    search_button: "Caută"
   deleted: "șters"
+  image: "imagine"
   upload:
     edit_reason: "copii locale ale imaginilor descărcate"
     unauthorized: "Ne pare rău, fișierul pe care-l încerci să-l încarci nu este autorizat (extensii autorizate: %{authorized_extensions})."
     pasted_image_filename: "Imagine lipită"
-    store_failure: "Încercare eșuată de stocare a încărcarii  #%{upload_id} pentru utilizatorul #%{user_id}."
+    store_failure: "Încercare eșuată de stocare a încărcarii #%{upload_id} pentru utilizatorul #%{user_id}."
     file_missing: "Ne pare rău, trebuie să furnizezi un fișier pentru încărcare."
     attachments:
       too_large: "Ne pare rău, dar fișierul pe care încerci să îl încarci este prea mare (mărimea maximă este de %{max_size_kb}KB)."
@@ -1558,18 +1633,32 @@ ro:
     missing: "Ne pare rău, dar nu putem găsi avatarul asociat cu această adresă de email. Ai putea să îl încarci din nou?"
   flag_reason:
     sockpuppet: "Un utilizator nou a creat un subiect, și un alt utilizator nou de la aceeași adresă de IP (%{ip_address}) a răspuns. Vezi <a href='%{base_path}/admin/site_settings/category/spam'>`flag_sockpuppets`</a> la setările site-ului."
-    spam_hosts: "Acest nou utilizator a încrecat să creeze postări multiple cu link-uri către acelasi domeniu (%{domain}). Vezi <a href='%{base_path}/admin/site_settings/category/spam'>`newuser_spam_host_threshold`</a> la setările site-ului."
   skipped_email_log:
+    exceeded_emails_limit: "Depășit max_emails_per_day_per_user"
+    exceeded_bounces_limit: "Depășit bounce_score_threshold"
+    mailing_list_no_echo_mode: "Notificările pe mail dezactivate pentru postările proprii ale utilizatorului"
+    user_email_no_user: "Nu s-a găsit utilizatorul cu id-ul %{user_id}"
+    user_email_post_not_found: "Nu s-a găsit postarea cu id-ul %{post_id}"
+    user_email_anonymous_user: "Utilizatorul este anonim"
+    user_email_user_suspended_not_pm: "Utilizatorul este suspendat, nici un mesaj"
+    user_email_seen_recently: "Utilizatorul a fost văzut recent"
+    user_email_notification_already_read: "Notificarea ce face obiectul acestui email a fost deja citită"
     user_email_notification_topic_nil: "post.topic este nil"
+    user_email_post_user_deleted: "Utilizatorul acestei postări a fost șters."
+    user_email_post_deleted: "postarea a fost ștearsă de către autor"
+    user_email_user_suspended: "utilizatorul a fost suspendat"
+    user_email_already_read: "utilizatorul a citit deja această postare"
+    sender_message_blank: "mesajul este gol"
+    sender_message_to_blank: "message.to este gol"
+    sender_text_part_body_blank: "text_part.body e gol"
+    sender_body_blank: "conținutul este gol"
   color_schemes:
     base_theme_name: "Bază"
-  about: "Despre"
-  guidelines: "Ghid"
-  privacy: "Confidențialitate"
   edit_this_page: "Editează această pagină"
   csv_export:
     boolean_yes: "Da"
     boolean_no: "Nu"
+    rate_limit_error: "Postările pot fi descărcate doar o singură dată pe zi, te rugăm să încerci din nou mâine."
   static_topic_first_reply: |
     Editează prima postare în acest subiect pentru a schimba conținutul paginii %{page_name}.
   guidelines_topic:
@@ -1595,10 +1684,10 @@ ro:
 
       Orice informație pe care o colectăm de la tine poate fi folosită într-unul din următoarele moduri:
 
-      *   Pentru a-ți personaliza experiența &mdash; informațiile tale ne ajută să răspundem mai bine nevoilor tale specifice.
-      *   Să ne îmbunătățim site-ul &mdash; ne zbatem în permanență să ne îmbunătățim funcționalitățile site-ului pe baza informațiilor și al feedback-ului pe care îl primim de la tine.
-      *   Să îmbunătățim serviciul clienți &mdash; informațiile tale ne ajută să răspundem mai eficient cererilor tale de serviciu clienți și nevoilor tale de suport.
-      *   Să transmitem emailuri periodice &mdash; Adresa de email pe care ne-ai furnizat-o poate fi folosită să îți trimitem informații, notificări pe care le ceri cu privire la schimbări în subiecte sau în legătură cu numele tău utilizator, pentru a răspunde la solicitări și/sau alte cereri sau întrebări.
+      * Pentru a-ți personaliza experiența &mdash; informațiile tale ne ajută să răspundem mai bine nevoilor tale specifice.
+      * Să ne îmbunătățim site-ul &mdash; ne zbatem în permanență să ne îmbunătățim funcționalitățile site-ului pe baza informațiilor și al feedback-ului pe care îl primim de la tine.
+      * Să îmbunătățim serviciul clienți &mdash; informațiile tale ne ajută să răspundem mai eficient cererilor tale de serviciu clienți și nevoilor tale de suport.
+      * Să transmitem emailuri periodice &mdash; Adresa de email pe care ne-ai furnizat-o poate fi folosită să îți trimitem informații, notificări pe care le ceri cu privire la schimbări în subiecte sau în legătură cu numele tău utilizator, pentru a răspunde la solicitări și/sau alte cereri sau întrebări.
 
       <a name="protect"></a>
 
@@ -1612,8 +1701,8 @@ ro:
 
       Vom face eforturi cu bună-credință pentru a:
 
-      *   Nu reține mai mult de 90 de zile rapoartele server ce conțin adresele de IP ale tuturor interogărilor către serverul nostru.
-      *   Nu reține mai mult de 5 ani adresele de IP asociate cu utilizatorii înregistrați și postările lor.
+      * Nu reține mai mult de 90 de zile rapoartele server ce conțin adresele de IP ale tuturor interogărilor către serverul nostru.
+      * Nu reține mai mult de 5 ani adresele de IP asociate cu utilizatorii înregistrați și postările lor.
 
       <a name="cookies"></a>
 
@@ -1779,14 +1868,8 @@ ro:
         Acest ecuson se acordă când primești cel puțin câte 5 aprecieri în 300 de postări diferite. Wow! Comunitatea îți admiră contribuțiile frecvente și de înaltă calitate.
     out_of_love:
       name: Toată stima
-      description: Ai folosit 50 de aprecieri într-o zi
-      long_description: |
-        Acest ecuson se acordă atunci când îți folosești toate cele 50 de aprecieri zilnice. Faptul că îți amintești să îți rezervi un pic de timp pentru a aprecia postările de care te-ai bucurat și pe are le-ai prețuit încurajează colegii tăi de comunitate să creeze pe viitor discuții și mai interesante.
     higher_love:
       name: Înaltă stimă
-      description: Ai folosit de 5 ori 50 de aprecieri pe zi
-      long_description: |
-        Acest ecuson se acordă când îți folosești de 5 ori toate cele 50 de aprecieri zilnice. Îți mulțumim că îți aloci timp zilnic pentru a încuraja cele mai bune conversații.
     crazy_in_love:
       name: Maximă stimă
       description: Ai folosit de 20 de ori 50 de aprecieri pe zi
@@ -1835,7 +1918,6 @@ ro:
       help: "înregistrează un cont nou ca să începi"
     confirm_email:
       title: "Confirmare email"
-      message: "<p>Am trimis un email de activare la <b>%{email}</b>. Urmează instrucțiunile din email ca să-ți activezi contul.</p><p>Dacă nu primești email, verifică dacă l-ai introdus corect și verifică și dosarul de spam.</p>"
     resend_email:
       title: "Retrimite email de activare"
       message: "<p>Am trimis un email de activare la <b>%{email}</b>"
@@ -1876,10 +1958,8 @@ ro:
             choices:
               open:
                 label: "Public"
-                description: "Oricine poate să acceseze această comunitate și să se înscrie pentru un cont"
               restricted:
                 label: "Privat"
-                description: "Numai cei pe care i-am invitat sau aprobat pot să acceseze această comunitate."
       contact:
         title: "Contact"
         fields:
@@ -1896,17 +1976,18 @@ ro:
         title: "Organizație"
       colors:
         title: "Temă"
-        fields:
-          theme_id:
-            choices:
-              default:
-                label: "Luminos simplu"
-              dark:
-                label: "Întunecat simplu"
+      themes_further_reading:
+        title: "Teme"
       logos:
         title: "Logo-uri"
+        fields:
+          logo:
+            label: "Logo-ul principal"
       icons:
         title: "Iconițe"
+        fields:
+          large_icon:
+            label: "Iconiță mare"
       homepage:
         title: "Pagina principală"
         fields:
@@ -1914,6 +1995,8 @@ ro:
             choices:
               latest:
                 label: "Subiecte recente"
+              categories_only:
+                label: "Numai categorii"
               categories_with_featured_topics:
                 label: "Categorii cu discuții promovate"
               categories_and_latest_topics:
@@ -1927,6 +2010,7 @@ ro:
         description: "Aproape ai încheiat ! Hai să invităm câțiva prieteni să te ajute <a href='https://blog.discourse.org/2014/08/building-a-discourse-community/' target='blank'>cu demararea comunității </a> prin discuții și răspunsuri interesante."
       finished:
         title: "Discourse-ul tău e gata!"
+  joined: "Înscris"
   discourse_push_notifications:
     popup:
       mentioned: '%{username} te-a menționat în discuția "%{topic}" - %{site_title}'
@@ -1936,3 +2020,32 @@ ro:
       posted: '%{username} a postat în discuția "%{topic}" - %{site_title}'
       private_message: '%{username} ți-a trimis un mesaj privat în discuția "%{topic}" - %{site_title}'
       linked: '%{username} a creat o legătură către postarea ta din discuția "%{topic}" - %{site_title}'
+  reviewables:
+    actions:
+      agree_and_keep:
+        title: "Păstrează postarea"
+      agree_and_suspend:
+        title: "Suspendă utilizator"
+      agree_and_restore:
+        description: "Restabilește postarea pentru astfel încât toți utilizatorii să o poată vedea."
+      agree_and_hide:
+        title: "Ascunde postarea"
+      delete_spammer:
+        title: "Șterge spammer"
+      delete_single:
+        title: "Șterge"
+      disagree_and_restore:
+        description: "Restabilește postarea pentru astfel încât toți utilizatorii să o poată vedea."
+      disagree:
+        title: "Nu sunt de acord"
+      ignore:
+        title: "Ignoră"
+      approve:
+        title: "Aprobare"
+      reject_user:
+        delete:
+          title: "Şterge utilizatorul"
+      reject:
+        title: "Respingere"
+      delete_user:
+        title: "Şterge utilizatorul"

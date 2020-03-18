@@ -1,16 +1,25 @@
+# coding: utf-8
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe ApplicationHelper do
 
   describe "preload_script" do
+    def preload_link(url)
+      <<~HTML
+          <link rel="preload" href="#{url}" as="script">
+          <script src="#{url}"></script>
+      HTML
+    end
+
     it "provides brotli links to brotli cdn" do
       set_cdn_url "https://awesome.com"
-      set_env "COMPRESS_BROTLI", "1"
 
       helper.request.env["HTTP_ACCEPT_ENCODING"] = 'br'
       link = helper.preload_script('application')
 
-      expect(link).to eq("<link rel='preload' href='https://awesome.com/brotli_asset/application.js' as='script'/>\n<script src='https://awesome.com/brotli_asset/application.js'></script>")
+      expect(link).to eq(preload_link("https://awesome.com/brotli_asset/application.js"))
     end
 
     context "with s3 CDN" do
@@ -20,16 +29,18 @@ describe ApplicationHelper do
         global_setting :s3_access_key_id, '123'
         global_setting :s3_secret_access_key, '123'
         global_setting :s3_cdn_url, 'https://s3cdn.com'
-        set_env "COMPRESS_BROTLI", "1"
-      end
-
-      after do
-        ActionController::Base.config.relative_url_root = nil
       end
 
       it "deals correctly with subfolder" do
-        ActionController::Base.config.relative_url_root = "/community"
+        set_subfolder "/community"
         expect(helper.preload_script("application")).to include('https://s3cdn.com/assets/application.js')
+      end
+
+      it "replaces cdn URLs with s3 cdn subfolder paths" do
+        global_setting :s3_cdn_url, 'https://s3cdn.com/s3_subpath'
+        set_cdn_url "https://awesome.com"
+        set_subfolder "/community"
+        expect(helper.preload_script("application")).to include('https://s3cdn.com/s3_subpath/assets/application.js')
       end
 
       it "returns magic brotli mangling for brotli requests" do
@@ -37,20 +48,26 @@ describe ApplicationHelper do
         helper.request.env["HTTP_ACCEPT_ENCODING"] = 'br'
         link = helper.preload_script('application')
 
-        expect(link).to eq("<link rel='preload' href='https://s3cdn.com/assets/application.br.js' as='script'/>\n<script src='https://s3cdn.com/assets/application.br.js'></script>")
+        expect(link).to eq(preload_link("https://s3cdn.com/assets/application.br.js"))
       end
 
       it "gives s3 cdn if asset host is not set" do
         link = helper.preload_script('application')
 
-        expect(link).to eq("<link rel='preload' href='https://s3cdn.com/assets/application.js' as='script'/>\n<script src='https://s3cdn.com/assets/application.js'></script>")
+        expect(link).to eq(preload_link("https://s3cdn.com/assets/application.js"))
+      end
+
+      it "can fall back to gzip compression" do
+        helper.request.env["HTTP_ACCEPT_ENCODING"] = 'gzip'
+        link = helper.preload_script('application')
+        expect(link).to eq(preload_link("https://s3cdn.com/assets/application.gz.js"))
       end
 
       it "gives s3 cdn even if asset host is set" do
         set_cdn_url "https://awesome.com"
         link = helper.preload_script('application')
 
-        expect(link).to eq("<link rel='preload' href='https://s3cdn.com/assets/application.js' as='script'/>\n<script src='https://s3cdn.com/assets/application.js'></script>")
+        expect(link).to eq(preload_link("https://s3cdn.com/assets/application.js"))
       end
     end
   end
@@ -78,6 +95,24 @@ describe ApplicationHelper do
       it "is false if mobile_view is '0' in the session" do
         session[:mobile_view] = '0'
         expect(helper.mobile_view?).to eq(false)
+      end
+
+      context "mobile_view session is cleared" do
+        before do
+          params[:mobile_view] = 'auto'
+        end
+
+        it "is false if user agent is not mobile" do
+          session[:mobile_view] = '1'
+          controller.request.stubs(:user_agent).returns('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/49.0.2623.87 Safari/537.36')
+          expect(helper.mobile_view?).to be_falsey
+        end
+
+        it "is true for iPhone" do
+          session[:mobile_view] = '0'
+          controller.request.stubs(:user_agent).returns('Mozilla/5.0 (iPhone; CPU iPhone OS 9_2_1 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko) Version/9.0 Mobile/13D15 Safari/601.1')
+          expect(helper.mobile_view?).to eq(true)
+        end
       end
 
       context "mobile_view is not set" do
@@ -148,7 +183,7 @@ describe ApplicationHelper do
   end
 
   describe '#html_classes' do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
 
     it "includes 'rtl' when the I18n.locale is rtl" do
       I18n.stubs(:locale).returns(:he)
@@ -230,32 +265,86 @@ describe ApplicationHelper do
     end
   end
 
+  describe "client_side_setup_data" do
+    context "when Rails.env.development? is true" do
+      before do
+        Rails.env.stubs(:development?).returns(true)
+      end
+
+      it "returns the correct service worker url" do
+        expect(helper.client_side_setup_data[:service_worker_url]).to eq("service-worker.js")
+      end
+
+      it "returns the svg_icon_list in the setup data" do
+        expect(helper.client_side_setup_data[:svg_icon_list]).not_to eq(nil)
+      end
+
+      it "does not return debug_preloaded_app_data without the env var" do
+        expect(helper.client_side_setup_data.key?(:debug_preloaded_app_data)).to eq(false)
+      end
+
+      context "if the DEBUG_PRELOADED_APP_DATA env var is provided" do
+        before do
+          ENV['DEBUG_PRELOADED_APP_DATA'] = 'true'
+        end
+
+        it "returns that key as true" do
+          expect(helper.client_side_setup_data[:debug_preloaded_app_data]).to eq(true)
+        end
+      end
+    end
+  end
+
   describe 'crawlable_meta_data' do
     context "opengraph image" do
       it 'returns the correct image' do
-        SiteSetting.default_opengraph_image_url = '/images/og-image.png'
-        SiteSetting.twitter_summary_large_image_url = '/images/twitter.png'
-        SiteSetting.large_icon_url = '/images/large_icon.png'
-        SiteSetting.apple_touch_icon_url = '/images/default-apple-touch-icon.png'
-        SiteSetting.logo_url = '/images/d-logo-sketch.png'
+        SiteSetting.opengraph_image = Fabricate(:upload,
+          url: '/images/og-image.png'
+        )
 
-        expect(helper.crawlable_meta_data(image: "some-image.png")).to include("some-image.png")
-        expect(helper.crawlable_meta_data).to include("/images/og-image.png")
+        SiteSetting.twitter_summary_large_image = Fabricate(:upload,
+          url: '/images/twitter.png'
+        )
 
-        SiteSetting.default_opengraph_image_url = ''
-        expect(helper.crawlable_meta_data).to include("/images/twitter.png")
+        SiteSetting.large_icon = Fabricate(:upload,
+          url: '/images/large_icon.png'
+        )
 
-        SiteSetting.twitter_summary_large_image_url = ''
-        expect(helper.crawlable_meta_data).to include("/images/large_icon.png")
+        SiteSetting.apple_touch_icon = Fabricate(:upload,
+          url: '/images/default-apple-touch-icon.png'
+        )
 
-        SiteSetting.large_icon_url = ''
-        expect(helper.crawlable_meta_data).to include("/images/default-apple-touch-icon.png")
+        SiteSetting.logo = Fabricate(:upload, url: '/images/d-logo-sketch.png')
 
-        SiteSetting.apple_touch_icon_url = ''
-        expect(helper.crawlable_meta_data).to include("/images/d-logo-sketch.png")
+        expect(
+          helper.crawlable_meta_data(image: "some-image.png")
+        ).to include("some-image.png")
 
-        SiteSetting.logo_url = ''
-        expect(helper.crawlable_meta_data).to_not include("/images")
+        expect(helper.crawlable_meta_data).to include(
+          SiteSetting.site_opengraph_image_url
+        )
+
+        SiteSetting.opengraph_image = nil
+
+        expect(helper.crawlable_meta_data).to include(
+          SiteSetting.site_twitter_summary_large_image_url
+        )
+
+        SiteSetting.twitter_summary_large_image = nil
+
+        expect(helper.crawlable_meta_data).to include(
+          SiteSetting.site_large_icon_url
+        )
+
+        SiteSetting.large_icon = nil
+        SiteSetting.logo_small = nil
+
+        expect(helper.crawlable_meta_data).to include(SiteSetting.site_logo_url)
+
+        SiteSetting.logo = nil
+        SiteSetting.logo_url = nil
+
+        expect(helper.crawlable_meta_data).to include(Upload.find(SiteIconManager::SKETCH_LOGO_ID).url)
       end
     end
   end

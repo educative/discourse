@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'digest/sha1'
 require 'fileutils'
 require_dependency 'plugin/metadata'
@@ -15,6 +17,10 @@ class Plugin::CustomEmoji
   def self.register(name, url)
     @@cache_key = Digest::SHA1.hexdigest(cache_key + name)[0..10]
     emojis[name] = url
+  end
+
+  def self.unregister(name)
+    emojis.delete(name)
   end
 
   def self.translations
@@ -76,30 +82,40 @@ class Plugin::Instance
     @idx = 0
   end
 
+  def register_anonymous_cache_key(key, &block)
+    key_method = "key_#{key}"
+    add_to_class(Middleware::AnonymousCache::Helper, key_method, &block)
+    Middleware::AnonymousCache.cache_key_segments[key] = key_method
+    Middleware::AnonymousCache.compile_key_builder
+  end
+
   def add_admin_route(label, location)
     @admin_route = { label: label, location: location }
   end
 
   def enabled?
-    @enabled_site_setting ? SiteSetting.send(@enabled_site_setting) : true
+    @enabled_site_setting ? SiteSetting.get(@enabled_site_setting) : true
   end
 
   delegate :name, to: :metadata
 
   def add_to_serializer(serializer, attr, define_include_method = true, &block)
     reloadable_patch do |plugin|
-      klass = "#{serializer.to_s.classify}Serializer".constantize rescue "#{serializer.to_s}Serializer".constantize
+      base = "#{serializer.to_s.classify}Serializer".constantize rescue "#{serializer.to_s}Serializer".constantize
 
-      unless attr.to_s.start_with?("include_")
-        klass.attributes(attr)
+      # we have to work through descendants cause serializers may already be baked and cached
+      ([base] + base.descendants).each do |klass|
+        unless attr.to_s.start_with?("include_")
+          klass.attributes(attr)
 
-        if define_include_method
-          # Don't include serialized methods if the plugin is disabled
-          klass.send(:define_method, "include_#{attr}?") { plugin.enabled? }
+          if define_include_method
+            # Don't include serialized methods if the plugin is disabled
+            klass.public_send(:define_method, "include_#{attr}?") { plugin.enabled? }
+          end
         end
-      end
 
-      klass.send(:define_method, attr, &block)
+        klass.public_send(:define_method, attr, &block)
+      end
     end
   end
 
@@ -111,18 +127,14 @@ class Plugin::Instance
   end
 
   # Applies to all sites in a multisite environment. Ignores plugin.enabled?
-  def replace_flags
-    settings = ::FlagSettings.new
-    yield settings
+  def replace_flags(settings: ::FlagSettings.new)
+    next_flag_id = ReviewableScore.types.values.max + 1
+
+    yield(settings, next_flag_id)
 
     reloadable_patch do |plugin|
       ::PostActionType.replace_flag_settings(settings)
-    end
-  end
-
-  def whitelist_flag_post_custom_field(field)
-    reloadable_patch do |plugin|
-      ::FlagQuery.register_plugin_post_custom_field(field, plugin) # plugin.enabled? is checked at runtime
+      ::ReviewableScore.reload_types
     end
   end
 
@@ -138,9 +150,15 @@ class Plugin::Instance
     end
   end
 
-  def register_editable_user_custom_field(field)
+  def register_editable_user_custom_field(field, staff_only: false)
     reloadable_patch do |plugin|
-      ::User.register_plugin_editable_user_custom_field(field, plugin) # plugin.enabled? is checked at runtime
+      ::User.register_plugin_editable_user_custom_field(field, plugin, staff_only: staff_only) # plugin.enabled? is checked at runtime
+    end
+  end
+
+  def register_editable_group_custom_field(field)
+    reloadable_patch do |plugin|
+      ::Group.register_plugin_editable_group_custom_field(field, plugin) # plugin.enabled? is checked at runtime
     end
   end
 
@@ -170,10 +188,10 @@ class Plugin::Instance
     reloadable_patch do |plugin|
       klass = class_name.to_s.classify.constantize rescue class_name.to_s.constantize
       hidden_method_name = :"#{attr}_without_enable_check"
-      klass.send(:define_method, hidden_method_name, &block)
+      klass.public_send(:define_method, hidden_method_name, &block)
 
-      klass.send(:define_method, attr) do |*args|
-        send(hidden_method_name, *args) if plugin.enabled?
+      klass.public_send(:define_method, attr) do |*args|
+        public_send(hidden_method_name, *args) if plugin.enabled?
       end
     end
   end
@@ -184,10 +202,10 @@ class Plugin::Instance
       klass = klass_name.to_s.classify.constantize rescue klass_name.to_s.constantize
 
       hidden_method_name = :"#{attr}_without_enable_check"
-      klass.send(:define_singleton_method, hidden_method_name, &block)
+      klass.public_send(:define_singleton_method, hidden_method_name, &block)
 
-      klass.send(:define_singleton_method, attr) do |*args|
-        send(hidden_method_name, *args) if plugin.enabled?
+      klass.public_send(:define_singleton_method, attr) do |*args|
+        public_send(hidden_method_name, *args) if plugin.enabled?
       end
     end
   end
@@ -200,10 +218,10 @@ class Plugin::Instance
       method_name = "#{plugin.name}_#{klass.name}_#{callback}#{@idx}".underscore
       @idx += 1
       hidden_method_name = :"#{method_name}_without_enable_check"
-      klass.send(:define_method, hidden_method_name, &block)
+      klass.public_send(:define_method, hidden_method_name, &block)
 
-      klass.send(callback, options) do |*args|
-        send(hidden_method_name, *args) if plugin.enabled?
+      klass.public_send(callback, options) do |*args|
+        public_send(hidden_method_name, *args) if plugin.enabled?
       end
 
       hidden_method_name
@@ -234,16 +252,16 @@ class Plugin::Instance
   end
 
   # Add a permitted_create_param to Post, respecting if the plugin is enabled
-  def add_permitted_post_create_param(name)
+  def add_permitted_post_create_param(name, type = :string)
     reloadable_patch do |plugin|
-      ::Post.plugin_permitted_create_params[name] = plugin
+      ::Post.plugin_permitted_create_params[name] = { plugin: plugin, type: type }
     end
   end
 
   # Add validation method but check that the plugin is enabled
   def validate(klass, name, &block)
     klass = klass.to_s.classify.constantize
-    klass.send(:define_method, name, &block)
+    klass.public_send(:define_method, name, &block)
 
     plugin = self
     klass.validate(name, if: -> { plugin.enabled? })
@@ -257,7 +275,7 @@ class Plugin::Instance
     automatic_assets.each do |path, contents|
       write_asset(path, contents)
       paths << path
-      assets << [path]
+      assets << [path, nil, directory_name]
     end
 
     delete_extra_automatic_assets(paths)
@@ -362,6 +380,13 @@ class Plugin::Instance
     end
   end
 
+  # Applies to all sites in a multisite environment. Ignores plugin.enabled?
+  def register_user_custom_field_type(name, type)
+    reloadable_patch do |plugin|
+      ::User.register_custom_field_type(name, type)
+    end
+  end
+
   def register_seedfu_fixtures(paths)
     paths = [paths] if !paths.kind_of?(Array)
     SeedFu.fixture_paths.concat(paths)
@@ -402,7 +427,10 @@ class Plugin::Instance
   end
 
   def register_html_builder(name, &block)
-    DiscoursePluginRegistry.register_html_builder(name, &block)
+    plugin = self
+    DiscoursePluginRegistry.register_html_builder(name) do |*args|
+      block.call(*args) if plugin.enabled?
+    end
   end
 
   def register_asset(file, opts = nil)
@@ -412,7 +440,7 @@ class Plugin::Instance
       full_path = File.dirname(path) << "/assets/" << file
     end
 
-    assets << [full_path, opts]
+    assets << [full_path, opts, directory_name]
   end
 
   def register_service_worker(file, opts = nil)
@@ -469,10 +497,12 @@ class Plugin::Instance
       root_path = "#{File.dirname(@path)}/assets/javascripts"
       DiscoursePluginRegistry.register_glob(root_path, 'js.es6')
       DiscoursePluginRegistry.register_glob(root_path, 'hbs')
+      DiscoursePluginRegistry.register_glob(root_path, 'hbr')
 
       admin_path = "#{File.dirname(@path)}/admin/assets/javascripts"
       DiscoursePluginRegistry.register_glob(admin_path, 'js.es6', admin: true)
       DiscoursePluginRegistry.register_glob(admin_path, 'hbs', admin: true)
+      DiscoursePluginRegistry.register_glob(admin_path, 'hbr', admin: true)
     end
 
     self.instance_eval File.read(path), path
@@ -500,7 +530,7 @@ class Plugin::Instance
     Rake.add_rakelib(File.dirname(path) + "/lib/tasks")
 
     # Automatically include migrations
-    migration_paths = Rails.configuration.paths["db/migrate"]
+    migration_paths = ActiveRecord::Tasks::DatabaseTasks.migrations_paths
     migration_paths << File.dirname(path) + "/db/migrate"
 
     unless Discourse.skip_post_deployment_migrations?
@@ -517,6 +547,24 @@ class Plugin::Instance
       Discourse::Utils.execute_command('rm', '-f', target)
       Discourse::Utils.execute_command('ln', '-s', public_data, target)
     end
+
+    ensure_directory(Plugin::Instance.js_path)
+
+    contents = []
+    handlebars_includes.each { |hb| contents << "require_asset('#{hb}')" }
+    javascript_includes.each { |js| contents << "require_asset('#{js}')" }
+
+    each_globbed_asset do |f, is_dir|
+      contents << (is_dir ? "depend_on('#{f}')" : "require_asset('#{f}')")
+    end
+
+    File.delete(js_file_path) if js_asset_exists?
+
+    if contents.present?
+      contents.insert(0, "<%")
+      contents << "%>"
+      write_asset(js_file_path, contents.join("\n"))
+    end
   end
 
   def auth_provider(opts)
@@ -524,7 +572,7 @@ class Plugin::Instance
       provider = Auth::AuthProvider.new
 
       Auth::AuthProvider.auth_attributes.each do |sym|
-        provider.send "#{sym}=", opts.delete(sym) if opts.has_key?(sym)
+        provider.public_send("#{sym}=", opts.delete(sym)) if opts.has_key?(sym)
       end
 
       begin
@@ -532,7 +580,7 @@ class Plugin::Instance
       rescue NotImplementedError
         provider.authenticator.define_singleton_method(:enabled?) do
           Discourse.deprecate("#{provider.authenticator.class.name} should define an `enabled?` function. Patching for now.")
-          return SiteSetting.send(provider.enabled_setting) if provider.enabled_setting
+          return SiteSetting.get(provider.enabled_setting) if provider.enabled_setting
           Discourse.deprecate("#{provider.authenticator.class.name} has not defined an enabled_setting. Defaulting to true.")
           true
         end
@@ -597,18 +645,60 @@ class Plugin::Instance
       Dir.glob("#{root_path}/**/*") do |f|
         if File.directory?(f)
           yield [f, true]
-        elsif f.to_s.ends_with?(".js.es6") || f.to_s.ends_with?(".hbs")
+        elsif f.to_s.ends_with?(".js.es6") || f.to_s.ends_with?(".hbs") || f.to_s.ends_with?(".hbr")
           yield [f, false]
         end
       end
     end
   end
 
+  def register_reviewable_type(reviewable_type_class)
+    extend_list_method Reviewable, :types, [reviewable_type_class.name]
+  end
+
+  def extend_list_method(klass, method, new_attributes)
+    current_list = klass.public_send(method)
+    current_list.concat(new_attributes)
+
+    reloadable_patch do
+      klass.public_send(:define_singleton_method, method) { current_list }
+    end
+  end
+
+  def directory_name
+    @directory_name ||= File.dirname(path).split("/").last
+  end
+
+  def css_asset_exists?(target = nil)
+    DiscoursePluginRegistry.stylesheets_exists?(directory_name, target)
+  end
+
+  def js_asset_exists?
+    File.exists?(js_file_path)
+  end
+
+  # Receives an array with two elements:
+  # 1. A symbol that represents the name of the value to filter.
+  # 2. A Proc that takes the existing ActiveRecord::Relation and the value received from the front-end.
+  def add_custom_reviewable_filter(filter)
+    reloadable_patch do
+      Reviewable.add_custom_filter(filter)
+    end
+  end
+
   protected
 
+  def self.js_path
+    File.expand_path "#{Rails.root}/app/assets/javascripts/plugins"
+  end
+
+  def js_file_path
+    @file_path ||= "#{Plugin::Instance.js_path}/#{directory_name}.js.erb"
+  end
+
   def register_assets!
-    assets.each do |asset, opts|
-      DiscoursePluginRegistry.register_asset(asset, opts)
+    assets.each do |asset, opts, plugin_directory_name|
+      DiscoursePluginRegistry.register_asset(asset, opts, plugin_directory_name)
     end
   end
 
@@ -632,11 +722,15 @@ class Plugin::Instance
 
       path = File.join(lib_locale_path, "message_format")
       opts[:message_format] = find_locale_file(locale_chain, path)
-      opts[:message_format] = JsLocaleHelper.find_message_format_locale(locale_chain, false) unless opts[:message_format]
+      opts[:message_format] = JsLocaleHelper.find_message_format_locale(locale_chain, fallback_to_english: false) unless opts[:message_format]
 
       path = File.join(lib_locale_path, "moment_js")
       opts[:moment_js] = find_locale_file(locale_chain, path)
       opts[:moment_js] = JsLocaleHelper.find_moment_locale(locale_chain) unless opts[:moment_js]
+
+      path = File.join(lib_locale_path, "moment_js_timezones")
+      opts[:moment_js_timezones] = find_locale_file(locale_chain, path)
+      opts[:moment_js_timezones] = JsLocaleHelper.find_moment_locale(locale_chain, timezone_names: true) unless opts[:moment_js_timezones]
 
       if valid_locale?(opts)
         DiscoursePluginRegistry.register_locale(locale, opts)
@@ -650,6 +744,12 @@ class Plugin::Instance
           puts msg
         end
       end
+    end
+  end
+
+  def allow_new_queued_post_payload_attribute(attribute_name)
+    reloadable_patch do
+      NewPostManager.add_plugin_payload_attribute(attribute_name)
     end
   end
 

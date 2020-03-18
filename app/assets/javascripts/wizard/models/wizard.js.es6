@@ -1,14 +1,15 @@
 import Step from "wizard/models/step";
 import WizardField from "wizard/models/wizard-field";
 import { ajax } from "wizard/lib/ajax";
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import EmberObject from "@ember/object";
 
-const Wizard = Ember.Object.extend({
-  @computed("steps.length")
+const Wizard = EmberObject.extend({
+  @discourseComputed("steps.length")
   totalSteps: length => length,
 
   getTitle() {
-    const titleStep = this.get("steps").findBy("id", "forum-title");
+    const titleStep = this.steps.findBy("id", "forum-title");
     if (!titleStep) {
       return;
     }
@@ -16,7 +17,7 @@ const Wizard = Ember.Object.extend({
   },
 
   getLogoUrl() {
-    const logoStep = this.get("steps").findBy("id", "logos");
+    const logoStep = this.steps.findBy("id", "logos");
     if (!logoStep) {
       return;
     }
@@ -25,7 +26,7 @@ const Wizard = Ember.Object.extend({
 
   // A bit clunky, but get the current colors from the appropriate step
   getCurrentColors(schemeId) {
-    const colorStep = this.get("steps").findBy("id", "colors");
+    const colorStep = this.steps.findBy("id", "colors");
     if (!colorStep) {
       return;
     }

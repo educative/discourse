@@ -1,36 +1,39 @@
+import { gt, equal } from "@ember/object/computed";
+import Component from "@ember/component";
 import { THEMES, COMPONENTS } from "admin/models/theme";
-import { default as computed } from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { getOwner } from "@ember/application";
 
-export default Ember.Component.extend({
+export default Component.extend({
   THEMES: THEMES,
   COMPONENTS: COMPONENTS,
 
   classNames: ["themes-list"],
 
-  hasThemes: Ember.computed.gt("themesList.length", 0),
-  hasActiveThemes: Ember.computed.gt("activeThemes.length", 0),
-  hasInactiveThemes: Ember.computed.gt("inactiveThemes.length", 0),
+  hasThemes: gt("themesList.length", 0),
+  hasActiveThemes: gt("activeThemes.length", 0),
+  hasInactiveThemes: gt("inactiveThemes.length", 0),
 
-  themesTabActive: Ember.computed.equal("currentTab", THEMES),
-  componentsTabActive: Ember.computed.equal("currentTab", COMPONENTS),
+  themesTabActive: equal("currentTab", THEMES),
+  componentsTabActive: equal("currentTab", COMPONENTS),
 
-  @computed("themes", "components", "currentTab")
+  @discourseComputed("themes", "components", "currentTab")
   themesList(themes, components) {
-    if (this.get("themesTabActive")) {
+    if (this.themesTabActive) {
       return themes;
     } else {
       return components;
     }
   },
 
-  @computed(
+  @discourseComputed(
     "themesList",
     "currentTab",
     "themesList.@each.user_selectable",
     "themesList.@each.default"
   )
   inactiveThemes(themes) {
-    if (this.get("componentsTabActive")) {
+    if (this.componentsTabActive) {
       return themes.filter(theme => theme.get("parent_themes.length") <= 0);
     }
     return themes.filter(
@@ -38,14 +41,14 @@ export default Ember.Component.extend({
     );
   },
 
-  @computed(
+  @discourseComputed(
     "themesList",
     "currentTab",
     "themesList.@each.user_selectable",
     "themesList.@each.default"
   )
   activeThemes(themes) {
-    if (this.get("componentsTabActive")) {
+    if (this.componentsTabActive) {
       return themes.filter(theme => theme.get("parent_themes.length") > 0);
     } else {
       themes = themes.filter(
@@ -61,26 +64,14 @@ export default Ember.Component.extend({
     }
   },
 
-  didRender() {
-    this._super(...arguments);
-
-    // hide scrollbar
-    const $container = this.$(".themes-list-container");
-    const containerNode = $container[0];
-    if (containerNode) {
-      const width = containerNode.offsetWidth - containerNode.clientWidth;
-      $container.css("width", `calc(100% + ${width}px)`);
-    }
-  },
-
   actions: {
     changeView(newTab) {
-      if (newTab !== this.get("currentTab")) {
+      if (newTab !== this.currentTab) {
         this.set("currentTab", newTab);
       }
     },
     navigateToTheme(theme) {
-      Ember.getOwner(this)
+      getOwner(this)
         .lookup("router:main")
         .transitionTo("adminCustomizeThemes.show", theme);
     }

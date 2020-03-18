@@ -5,21 +5,41 @@
 .create-account {
   #login-buttons:not(.hidden) {
     display: flex;
+    flex: 0 1 auto;
     flex-direction: column;
-    flex-basis: 40%;
-    align-items: center;
-    min-height: 175px;
-    border-left: 1px solid $primary-low;
-    padding: 0 15px;
+    align-items: stretch;
+    min-height: 75px;
+    padding: s(0 6);
     order: 2;
 
     button {
+      display: flex;
+      text-align: left;
       margin: 0.35em;
-      width: 160px;
+      white-space: nowrap;
+      align-items: center;
       &:lang(zh_CN) {
         min-width: 200px;
       }
+      &:first-of-type:last-of-type {
+        &.oauth2_basic {
+          // Handles a strange fringe case where OAuth2 and account approval are enabled
+          margin-left: auto;
+          margin-right: auto;
+          justify-content: center;
+        }
+      }
     }
+  }
+
+  form {
+    min-width: 300px;
+    max-width: 100%;
+  }
+
+  #modal-alert {
+    max-width: 100%;
+    padding: s(2 4);
   }
 
   .login-modal {
@@ -39,12 +59,19 @@
     #login-buttons:not(.hidden) {
       justify-content: flex-start;
       padding-top: 2.7em;
+      + .login-form {
+        border-right: 1px solid $primary-low; // Only show border when login-form is present
+      }
     }
   }
 
   #login-form {
+    box-sizing: border-box;
     flex: 1 0 auto;
-    padding: 0 15px;
+    padding: s(0 6);
+    + #login-buttons {
+      border-left: 1px solid $primary-low; // Only show border when login-form is present
+    }
   }
 
   tr:not(.instructions) {
@@ -53,9 +80,23 @@
       padding: 5px 0 0 0;
     }
   }
-
-  tr.input label {
+  .tip,
+  td label {
+    display: block;
+    overflow: hidden;
+    word-wrap: break-word;
     margin-bottom: 0;
+    max-width: 280px;
+    @media screen and (min-width: 500px) {
+      max-width: 400px;
+    }
+  }
+}
+
+.has-alt-auth {
+  .tip,
+  td label {
+    max-width: 250px;
   }
 }
 
@@ -96,28 +137,32 @@
   .login-form {
     position: relative;
     display: flex;
-    flex: 1 1 50%;
     overflow: hidden;
+    flex: 1 1 auto;
 
     &:after,
     &:before {
       content: "";
       display: block;
-      height: 25px;
       position: absolute;
       width: 100%;
       pointer-events: none;
     }
     &:after {
       bottom: 0;
+      height: 35px;
+      @media screen and (max-height: 650px) {
+        height: 45px;
+      }
       background-image: linear-gradient(
         to bottom,
         rgba($secondary, 0) 0%,
-        rgba($secondary, 1) 100%
+        rgba($secondary, 0.9) 100%
       );
     }
     &:before {
       top: 0;
+      height: 25px;
       background-image: linear-gradient(
         to top,
         rgba($secondary, 0) 0%,
@@ -126,11 +171,14 @@
     }
     form {
       box-sizing: border-box;
-      padding: 15px;
-      margin-bottom: 5px;
+      padding: s(4 6);
+      margin-bottom: 0;
       max-height: 475px;
-      @media screen and (max-height: 768px) {
-        max-height: 60vh;
+      @media screen and (max-height: 650px) {
+        max-height: calc(65vh - 100px);
+        > *:last-child {
+          margin-bottom: 40px;
+        }
       }
       overflow-x: hidden;
       overflow-y: auto;
@@ -139,7 +187,6 @@
     form,
     table {
       width: 100%;
-      display: block; //IE11
     }
 
     tr {
@@ -161,6 +208,10 @@
     .tip {
       max-width: 340px;
     }
+  }
+
+  .user-fields {
+    margin-bottom: 20px;
   }
 
   .user-field {
@@ -219,14 +270,16 @@
     }
     &:not(:empty),
     &:empty + td {
-      display: block;
       min-height: 1.75em;
-      max-width: 240px;
+      &.bad .svg-icon {
+        vertical-align: middle;
+      }
     }
   }
 }
 
 .password-reset,
+.email-login,
 .invites-show {
   .col-form {
     padding-left: 20px;
@@ -242,7 +295,8 @@
   }
 }
 
-.password-reset {
+.password-reset,
+.email-login {
   .col-form {
     padding-top: 40px;
   }

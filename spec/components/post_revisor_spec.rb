@@ -1,10 +1,15 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 require 'post_revisor'
 
 describe PostRevisor do
 
-  let(:topic) { Fabricate(:topic) }
-  let(:newuser) { Fabricate(:newuser) }
+  fab!(:topic) { Fabricate(:topic) }
+  fab!(:newuser) { Fabricate(:newuser) }
+  fab!(:user) { Fabricate(:user) }
+  fab!(:admin) { Fabricate(:admin) }
+  fab!(:moderator) { Fabricate(:moderator) }
   let(:post_args) { { user: newuser, topic: topic } }
 
   context 'TopicChanges' do
@@ -86,7 +91,7 @@ describe PostRevisor do
     before do
       # There used to be a bug where wiki changes were considered posting "too similar"
       # so this is enabled and checked
-      $redis.delete_prefixed('unique-post')
+      Discourse.redis.delete_prefixed('unique-post')
       SiteSetting.unique_posts_mins = 10
     end
 
@@ -184,6 +189,66 @@ describe PostRevisor do
         expect(post.version).to eq(1)
         expect(post.public_version).to eq(1)
         expect(post.revisions.size).to eq(0)
+      end
+
+      it "should bump the topic" do
+        expect {
+          subject.revise!(post.user, { raw: 'updated body' }, revised_at: post.updated_at + SiteSetting.editing_grace_period + 1.seconds)
+        }.to change { post.topic.bumped_at }
+      end
+    end
+
+    describe 'edit reasons' do
+      it "does create a new version if an edit reason is provided" do
+        post = Fabricate(:post, raw: 'hello world')
+        revisor = PostRevisor.new(post)
+        revisor.revise!(post.user, { raw: 'hello world123456789', edit_reason: 'this is my reason' }, revised_at: post.updated_at + 1.second)
+        post.reload
+        expect(post.version).to eq(2)
+        expect(post.revisions.count).to eq(1)
+      end
+
+      it "resets the edit_reason attribute in post model" do
+        SiteSetting.editing_grace_period = 5
+        post = Fabricate(:post, raw: 'hello world')
+        revisor = PostRevisor.new(post)
+        revisor.revise!(post.user, { raw: 'hello world123456789', edit_reason: 'this is my reason' }, revised_at: post.updated_at + 1.second)
+        post.reload
+        expect(post.edit_reason).to eq('this is my reason')
+
+        revisor.revise!(post.user, { raw: 'hello world4321' }, revised_at: post.updated_at + 6.second)
+        post.reload
+        expect(post.edit_reason).not_to be_present
+      end
+
+      it "does not create a new version if an edit reason is provided and its the same as the current edit reason" do
+        post = Fabricate(:post, raw: 'hello world', edit_reason: 'this is my reason')
+        revisor = PostRevisor.new(post)
+        revisor.revise!(post.user, { raw: 'hello world123456789', edit_reason: 'this is my reason' }, revised_at: post.updated_at + 1.second)
+        post.reload
+        expect(post.version).to eq(1)
+        expect(post.revisions.count).to eq(0)
+      end
+
+      it "does not clobber the existing edit reason for a revision if it is not provided in a subsequent revision" do
+        post = Fabricate(:post, raw: 'hello world')
+        revisor = PostRevisor.new(post)
+        revisor.revise!(post.user, { raw: 'hello world123456789', edit_reason: 'this is my reason' }, revised_at: post.updated_at + 1.second)
+        post.reload
+        revisor.revise!(post.user, { raw: 'hello some other thing' }, revised_at: post.updated_at + 1.second)
+        expect(post.revisions.first.modifications[:edit_reason]).to eq([nil, 'this is my reason'])
+      end
+    end
+
+    describe 'hidden post' do
+      it "correctly stores the modification value" do
+        post.update(hidden: true, hidden_reason_id: Post.hidden_reasons[:flag_threshold_reached])
+        revisor = PostRevisor.new(post)
+        revisor.revise!(post.user, { raw: 'hello world' }, revised_at: post.updated_at + 11.minutes)
+        expect(post.revisions.first.modifications.symbolize_keys).to eq(
+          cooked: ["<p>Hello world</p>", "<p>hello world</p>"],
+          raw: ["Hello world", "hello world"]
+        )
       end
     end
 
@@ -334,7 +399,7 @@ describe PostRevisor do
     end
 
     describe 'rate limiter' do
-      let(:changed_by) { Fabricate(:coding_horror) }
+      fab!(:changed_by) { Fabricate(:coding_horror) }
 
       it "triggers a rate limiter" do
         EditRateLimiter.any_instance.expects(:performed!)
@@ -343,7 +408,7 @@ describe PostRevisor do
     end
 
     describe "admin editing a new user's post" do
-      let(:changed_by) { Fabricate(:admin) }
+      fab!(:changed_by) { Fabricate(:admin) }
 
       before do
         SiteSetting.newuser_max_images = 0
@@ -381,7 +446,7 @@ describe PostRevisor do
         SiteSetting.editing_grace_period_max_diff = 1000
       end
 
-      let(:changed_by) { Fabricate(:coding_horror) }
+      fab!(:changed_by) { Fabricate(:coding_horror) }
       let!(:result) { subject.revise!(changed_by, raw: "lets update the body. Здравствуйте") }
 
       it 'correctly updates raw' do
@@ -464,8 +529,6 @@ describe PostRevisor do
     end
 
     context "logging staff edits" do
-      let(:moderator) { Fabricate(:moderator) }
-
       it "doesn't log when a regular user revises a post" do
         subject.revise!(
           post.user,
@@ -491,6 +554,19 @@ describe PostRevisor do
         expect(log.details).to eq("Hello world\n\n---\n\nlets totally update the body")
       end
 
+      it "doesn't log an edit when skip_staff_log is true" do
+        subject.revise!(
+          moderator,
+          { raw: "lets totally update the body" },
+          skip_staff_log: true
+        )
+        log = UserHistory.where(
+          acting_user_id: moderator.id,
+          action: UserHistory.actions[:post_edit]
+        ).first
+        expect(log).to be_blank
+      end
+
       it "doesn't log an edit when a staff member edits their own post" do
         revisor = PostRevisor.new(
           Fabricate(:post, user: moderator)
@@ -511,8 +587,6 @@ describe PostRevisor do
     context "staff_edit_locks_post" do
 
       context "disabled" do
-        let(:moderator) { Fabricate(:moderator) }
-
         before do
           SiteSetting.staff_edit_locks_post = false
         end
@@ -530,7 +604,6 @@ describe PostRevisor do
       end
 
       context "enabled" do
-        let(:moderator) { Fabricate(:moderator) }
 
         before do
           SiteSetting.staff_edit_locks_post = true
@@ -570,7 +643,7 @@ describe PostRevisor do
 
         it "doesn't lock the post when revised by a regular user" do
           result = subject.revise!(
-            Fabricate(:user),
+            user,
             raw: "lets totally update the body"
           )
           expect(result).to eq(true)
@@ -605,15 +678,15 @@ describe PostRevisor do
 
     context "alerts" do
 
-      let(:mentioned_user) { Fabricate(:user) }
+      fab!(:mentioned_user) { Fabricate(:user) }
 
       before do
-        SiteSetting.queue_jobs = false
+        Jobs.run_immediately!
       end
 
       it "generates a notification for a mention" do
         expect {
-          subject.revise!(Fabricate(:user), raw: "Random user is mentioning @#{mentioned_user.username_lower}")
+          subject.revise!(user, raw: "Random user is mentioning @#{mentioned_user.username_lower}")
         }.to change { Notification.where(notification_type: Notification.types[:mentioned]).count }
       end
 
@@ -632,7 +705,7 @@ describe PostRevisor do
         end
 
         it "doesn't add the tags" do
-          result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags: ['totally', 'update'])
+          result = subject.revise!(user, raw: "lets totally update the body", tags: ['totally', 'update'])
           expect(result).to eq(true)
           post.reload
           expect(post.topic.tags.size).to eq(0)
@@ -652,7 +725,7 @@ describe PostRevisor do
 
           it "can create all tags if none exist" do
             expect {
-              @result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags: ['totally', 'update'])
+              @result = subject.revise!(user, raw: "lets totally update the body", tags: ['totally', 'update'])
             }.to change { Tag.count }.by(2)
             expect(@result).to eq(true)
             post.reload
@@ -662,7 +735,7 @@ describe PostRevisor do
           it "creates missing tags if some exist" do
             Fabricate(:tag, name: 'totally')
             expect {
-              @result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags: ['totally', 'update'])
+              @result = subject.revise!(user, raw: "lets totally update the body", tags: ['totally', 'update'])
             }.to change { Tag.count }.by(1)
             expect(@result).to eq(true)
             post.reload
@@ -671,15 +744,7 @@ describe PostRevisor do
 
           it "can remove all tags" do
             topic.tags = [Fabricate(:tag, name: "super"), Fabricate(:tag, name: "stuff")]
-            result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags: [])
-            expect(result).to eq(true)
-            post.reload
-            expect(post.topic.tags.size).to eq(0)
-          end
-
-          it "can remove all tags using tags_empty_array" do
-            topic.tags = [Fabricate(:tag, name: "stuff")]
-            result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags_empty_array: "true")
+            result = subject.revise!(user, raw: "lets totally update the body", tags: [])
             expect(result).to eq(true)
             post.reload
             expect(post.topic.tags.size).to eq(0)
@@ -687,14 +752,14 @@ describe PostRevisor do
 
           it "can't add staff-only tags" do
             create_staff_tags(['important'])
-            result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags: ['important', 'stuff'])
+            result = subject.revise!(user, raw: "lets totally update the body", tags: ['important', 'stuff'])
             expect(result).to eq(false)
             expect(post.topic.errors.present?).to eq(true)
           end
 
           it "staff can add staff-only tags" do
             create_staff_tags(['important'])
-            result = subject.revise!(Fabricate(:admin), raw: "lets totally update the body", tags: ['important', 'stuff'])
+            result = subject.revise!(admin, raw: "lets totally update the body", tags: ['important', 'stuff'])
             expect(result).to eq(true)
             post.reload
             expect(post.topic.tags.map(&:name).sort).to eq(['important', 'stuff'])
@@ -708,7 +773,7 @@ describe PostRevisor do
             end
 
             it "staff-only tags can't be removed" do
-              result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags: ['stuff'])
+              result = subject.revise!(user, raw: "lets totally update the body", tags: ['stuff'])
               expect(result).to eq(false)
               expect(post.topic.errors.present?).to eq(true)
               post.reload
@@ -716,7 +781,7 @@ describe PostRevisor do
             end
 
             it "can't remove all tags if some are staff-only" do
-              result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags: [])
+              result = subject.revise!(user, raw: "lets totally update the body", tags: [])
               expect(result).to eq(false)
               expect(post.topic.errors.present?).to eq(true)
               post.reload
@@ -724,20 +789,112 @@ describe PostRevisor do
             end
 
             it "staff-only tags can be removed by staff" do
-              result = subject.revise!(Fabricate(:admin), raw: "lets totally update the body", tags: ['stuff'])
+              result = subject.revise!(admin, raw: "lets totally update the body", tags: ['stuff'])
               expect(result).to eq(true)
               post.reload
               expect(post.topic.tags.map(&:name)).to eq(['stuff'])
             end
 
             it "staff can remove all tags" do
-              result = subject.revise!(Fabricate(:admin), raw: "lets totally update the body", tags: [])
+              result = subject.revise!(admin, raw: "lets totally update the body", tags: [])
               expect(result).to eq(true)
               post.reload
               expect(post.topic.tags.size).to eq(0)
             end
           end
 
+          context "hidden tags" do
+            let(:bumped_at) { 1.day.ago }
+
+            before do
+              topic.update!(bumped_at: bumped_at)
+              create_hidden_tags(['important', 'secret'])
+              topic = post.topic
+              topic.tags = [Fabricate(:tag, name: "super"), Tag.where(name: "important").first, Fabricate(:tag, name: "stuff")]
+            end
+
+            it "doesn't bump topic if only staff-only tags are added" do
+              expect {
+                result = subject.revise!(Fabricate(:admin), raw: post.raw, tags: topic.tags.map(&:name) + ['secret'])
+                expect(result).to eq(true)
+              }.to_not change { topic.reload.bumped_at }
+            end
+
+            it "doesn't bump topic if only staff-only tags are removed" do
+              expect {
+                result = subject.revise!(Fabricate(:admin), raw: post.raw, tags: topic.tags.map(&:name) - ['important', 'secret'])
+                expect(result).to eq(true)
+              }.to_not change { topic.reload.bumped_at }
+            end
+
+            it "doesn't bump topic if only staff-only tags are removed and there are no tags left" do
+              topic.tags = Tag.where(name: ['important', 'secret']).to_a
+              expect {
+                result = subject.revise!(Fabricate(:admin), raw: post.raw, tags: [])
+                expect(result).to eq(true)
+              }.to_not change { topic.reload.bumped_at }
+            end
+
+            it "doesn't bump topic if empty string is given" do
+              topic.tags = Tag.where(name: ['important', 'secret']).to_a
+              expect {
+                result = subject.revise!(Fabricate(:admin), raw: post.raw, tags: [""])
+                expect(result).to eq(true)
+              }.to_not change { topic.reload.bumped_at }
+            end
+
+            it "should bump topic if non staff-only tags are added" do
+              expect {
+                result = subject.revise!(Fabricate(:admin), raw: post.raw, tags: topic.tags.map(&:name) + [Fabricate(:tag).name])
+                expect(result).to eq(true)
+              }.to change { topic.reload.bumped_at }
+            end
+
+            it "creates a hidden revision" do
+              subject.revise!(Fabricate(:admin), raw: post.raw, tags: topic.tags.map(&:name) + ['secret'])
+              expect(post.reload.revisions.first.hidden).to eq(true)
+            end
+
+            it "doesn't notify topic owner about hidden tags" do
+              PostActionNotifier.enable
+              Jobs.run_immediately!
+              expect {
+                subject.revise!(Fabricate(:admin), raw: post.raw, tags: topic.tags.map(&:name) + ['secret'])
+              }.not_to change { Notification.where(notification_type: Notification.types[:edited]).count }
+            end
+          end
+
+          context "required tag group" do
+            fab!(:tag1) { Fabricate(:tag) }
+            fab!(:tag2) { Fabricate(:tag) }
+            fab!(:tag3) { Fabricate(:tag) }
+            fab!(:tag_group) { Fabricate(:tag_group, tags: [tag1, tag2]) }
+            fab!(:category) { Fabricate(:category, name: "beta", required_tag_group: tag_group, min_tags_from_required_group: 1) }
+
+            before do
+              post.topic.update(category: category)
+            end
+
+            it "doesn't allow removing all tags from the group" do
+              post.topic.tags = [tag1, tag2]
+              result = subject.revise!(user, raw: "lets totally update the body", tags: [])
+              expect(result).to eq(false)
+            end
+
+            it "allows removing some tags" do
+              post.topic.tags = [tag1, tag2, tag3]
+              result = subject.revise!(user, raw: "lets totally update the body", tags: [tag1.name])
+              expect(result).to eq(true)
+              expect(post.reload.topic.tags.map(&:name)).to eq([tag1.name])
+            end
+
+            it "allows admins to remove the tags" do
+              post.topic.tags = [tag1, tag2, tag3]
+              result = subject.revise!(admin, raw: "lets totally update the body", tags: [])
+              expect(result).to eq(true)
+              expect(post.reload.topic.tags.size).to eq(0)
+            end
+          end
         end
 
         context "cannot create tags" do
@@ -749,7 +906,7 @@ describe PostRevisor do
           it "only uses existing tags" do
             Fabricate(:tag, name: 'totally')
             expect {
-              @result = subject.revise!(Fabricate(:user), raw: "lets totally update the body", tags: ['totally', 'update'])
+              @result = subject.revise!(user, raw: "lets totally update the body", tags: ['totally', 'update'])
             }.to_not change { Tag.count }
             expect(@result).to eq(true)
             post.reload

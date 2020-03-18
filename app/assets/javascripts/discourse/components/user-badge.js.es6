@@ -1,14 +1,19 @@
-export default Ember.Component.extend({
+import discourseComputed from "discourse-common/utils/decorators";
+import Component from "@ember/component";
+
+export default Component.extend({
   tagName: "span",
 
-  showGrantCount: function() {
-    return this.get("count") && this.get("count") > 1;
-  }.property("count"),
+  @discourseComputed("count")
+  showGrantCount(count) {
+    return count && count > 1;
+  },
 
-  badgeUrl: function() {
+  @discourseComputed("badge", "user")
+  badgeUrl() {
     // NOTE: I tried using a link-to helper here but the queryParams mean it fails
     var username = this.get("user.username_lower") || "";
     username = username !== "" ? "?username=" + username : "";
     return this.get("badge.url") + username;
-  }.property("badge", "user")
+  }
 });

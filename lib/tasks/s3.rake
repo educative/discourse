@@ -1,4 +1,4 @@
-require_dependency "s3_helper"
+# frozen_string_literal: true
 
 def brotli_s3_path(path)
   ext = File.extname(path)
@@ -99,7 +99,7 @@ end
 
 def ensure_s3_configured!
   unless GlobalSetting.use_s3? || use_db_s3_config
-    STDERR.puts "ERROR: Ensure S3 is configured in config/discourse.conf of environment vars"
+    STDERR.puts "ERROR: Ensure S3 is configured in config/discourse.conf or environment vars"
     exit 1
   end
 end
@@ -127,6 +127,50 @@ task 's3:correct_acl' => :environment do
         key = url[(base_url.length + 1)..-1]
         object = Discourse.store.s3_helper.object(key)
         object.acl.put(acl: "public-read")
+      rescue => e
+        puts "Skipping #{type} #{id} url is #{url} #{e}"
+      end
+    end
+    if i % 100 == 0
+      puts "#{i} done"
+    end
+  end
+
+end
+
+task 's3:correct_cachecontrol' => :environment do
+  ensure_s3_configured!
+
+  puts "ensuring cache-control is set on every upload and optimized image"
+
+  i = 0
+
+  base_url = Discourse.store.absolute_base_url
+
+  acl = SiteSetting.prevent_anons_from_downloading_files ? 'private' : 'public-read'
+  cache_control = 'max-age=31556952, public, immutable'
+
+  objects = Upload.pluck(:id, :url).map { |array| array << :upload }
+  objects.concat(OptimizedImage.pluck(:id, :url).map { |array| array << :optimized_image })
+
+  puts "#{objects.length} objects found"
+
+  objects.each do |id, url, type|
+    i += 1
+    if !url.start_with?(base_url)
+      puts "Skipping #{type} #{id} since it is not stored on s3, url is #{url}"
+    else
+      begin
+        key = url[(base_url.length + 1)..-1]
+        object = Discourse.store.s3_helper.object(key)
+        object.copy_from(
+          copy_source: "#{object.bucket_name}/#{object.key}",
+          acl: acl,
+          cache_control: cache_control,
+          content_type: object.content_type,
+          content_disposition: object.content_disposition,
+          metadata_directive: 'REPLACE'
+        )
       rescue => e
         puts "Skipping #{type} #{id} url is #{url} #{e}"
       end

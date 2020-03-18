@@ -1,9 +1,11 @@
+import { next } from "@ember/runloop";
+import { debounce } from "@ember/runloop";
+import { scheduleOnce } from "@ember/runloop";
 import DiscourseURL from "discourse/lib/url";
 import MountWidget from "discourse/components/mount-widget";
 import { cloak, uncloak } from "discourse/widgets/post-stream";
 import { isWorkaroundActive } from "discourse/lib/safari-hacks";
 import offsetCalculator from "discourse/lib/offset-calculator";
-import optionalService from "discourse/lib/optional-service";
 
 function findTopView($posts, viewportTop, postsWrapperTop, min, max) {
   if (max < min) {
@@ -26,7 +28,6 @@ function findTopView($posts, viewportTop, postsWrapperTop, min, max) {
 }
 
 export default MountWidget.extend({
-  adminTools: optionalService(),
   widget: "post-stream",
   _topVisible: null,
   _bottomVisible: null,
@@ -42,7 +43,8 @@ export default MountWidget.extend({
       "gaps",
       "selectedQuery",
       "selectedPostsCount",
-      "searchService"
+      "searchService",
+      "showReadIndicator"
     );
   },
 
@@ -74,7 +76,11 @@ export default MountWidget.extend({
 
     // We use this because watching videos fullscreen in Chrome was super buggy
     // otherwise. Thanks to arrendek from q23 for the technique.
-    if (document.elementFromPoint(0, 0).tagName.toUpperCase() === "IFRAME") {
+    const topLeftCornerElement = document.elementFromPoint(0, 0);
+    if (
+      topLeftCornerElement &&
+      topLeftCornerElement.tagName.toUpperCase() === "IFRAME"
+    ) {
       return;
     }
 
@@ -87,7 +93,9 @@ export default MountWidget.extend({
     const windowTop = $w.scrollTop();
 
     const postsWrapperTop = $(".posts-wrapper").offset().top;
-    const $posts = this.$(".onscreen-post, .cloaked-post");
+    const $posts = $(
+      this.element.querySelectorAll(".onscreen-post, .cloaked-post")
+    );
     const viewportTop = windowTop - slack;
     const topView = findTopView(
       $posts,
@@ -199,7 +207,7 @@ export default MountWidget.extend({
               // will cause the browser to scroll to the top of the document
               // in Chrome. This makes sure the scroll works correctly if that
               // happens.
-              Ember.run.next(() => $("html, body").scrollTop(whereY));
+              next(() => $("html, body").scrollTop(whereY));
             }
           });
         };
@@ -238,15 +246,21 @@ export default MountWidget.extend({
     }
 
     const onscreenPostNumbers = [];
+    const readPostNumbers = [];
+
     const prev = this._previouslyNearby;
     const newPrev = {};
     nearby.forEach(idx => {
       const post = posts.objectAt(idx);
       const postNumber = post.post_number;
+
       delete prev[postNumber];
 
       if (onscreen.indexOf(idx) !== -1) {
         onscreenPostNumbers.push(postNumber);
+        if (post.read) {
+          readPostNumbers.push(postNumber);
+        }
       }
       newPrev[postNumber] = post;
       uncloak(post, this);
@@ -255,78 +269,82 @@ export default MountWidget.extend({
     Object.values(prev).forEach(node => cloak(node, this));
 
     this._previouslyNearby = newPrev;
-    this.screenTrack.setOnscreen(onscreenPostNumbers);
+    this.screenTrack.setOnscreen(onscreenPostNumbers, readPostNumbers);
   },
 
   _scrollTriggered() {
-    Ember.run.scheduleOnce("afterRender", this, this.scrolled);
+    scheduleOnce("afterRender", this, this.scrolled);
+  },
+
+  _posted(staged) {
+    this.queueRerender(() => {
+      if (staged) {
+        const postNumber = staged.get("post_number");
+        DiscourseURL.jumpToPost(postNumber, { skipIfOnScreen: true });
+      }
+    });
+  },
+
+  _refresh(args) {
+    if (args) {
+      if (args.id) {
+        this.dirtyKeys.keyDirty(`post-${args.id}`);
+
+        if (args.refreshLikes) {
+          this.dirtyKeys.keyDirty(`post-menu-${args.id}`, {
+            onRefresh: "refreshLikes"
+          });
+        }
+
+        if (args.refreshReaders) {
+          this.dirtyKeys.keyDirty(`post-menu-${args.id}`, {
+            onRefresh: "refreshReaders"
+          });
+        }
+      } else if (args.force) {
+        this.dirtyKeys.forceAll();
+      }
+    }
+    this.queueRerender();
+  },
+
+  _debouncedScroll() {
+    debounce(this, this._scrollTriggered, 10);
   },
 
   didInsertElement() {
     this._super(...arguments);
-    const debouncedScroll = () =>
-      Ember.run.debounce(this, this._scrollTriggered, 10);
+    const debouncedScroll = () => debounce(this, this._scrollTriggered, 10);
 
     this._previouslyNearby = {};
 
-    this.appEvents.on("post-stream:refresh", debouncedScroll);
+    this.appEvents.on("post-stream:refresh", this, "_debouncedScroll");
     $(document).bind("touchmove.post-stream", debouncedScroll);
     $(window).bind("scroll.post-stream", debouncedScroll);
     this._scrollTriggered();
 
-    this.appEvents.on("post-stream:posted", staged => {
-      const disableJumpReply = this.currentUser.get("disable_jump_reply");
+    this.appEvents.on("post-stream:posted", this, "_posted");
 
-      this.queueRerender(() => {
-        if (staged && !disableJumpReply) {
-          const postNumber = staged.get("post_number");
-          DiscourseURL.jumpToPost(postNumber, { skipIfOnScreen: true });
-        }
-      });
-    });
-
-    this.$().on("mouseenter.post-stream", "button.widget-button", e => {
+    $(this.element).on("mouseenter.post-stream", "button.widget-button", e => {
       $("button.widget-button").removeClass("d-hover");
       $(e.target).addClass("d-hover");
     });
 
-    this.$().on("mouseleave.post-stream", "button.widget-button", () => {
+    $(this.element).on("mouseleave.post-stream", "button.widget-button", () => {
       $("button.widget-button").removeClass("d-hover");
     });
 
-    this.appEvents.on("post-stream:refresh", args => {
-      if (args) {
-        if (args.id) {
-          this.dirtyKeys.keyDirty(`post-${args.id}`);
-
-          if (args.refreshLikes) {
-            this.dirtyKeys.keyDirty(`post-menu-${args.id}`, {
-              onRefresh: "refreshLikes"
-            });
-          }
-        } else if (args.force) {
-          this.dirtyKeys.forceAll();
-        }
-      }
-      this.queueRerender();
-    });
+    this.appEvents.on("post-stream:refresh", this, "_refresh");
   },
 
   willDestroyElement() {
     this._super(...arguments);
     $(document).unbind("touchmove.post-stream");
     $(window).unbind("scroll.post-stream");
-    this.appEvents.off("post-stream:refresh");
-    this.$().off("mouseenter.post-stream");
-    this.$().off("mouseleave.post-stream");
-    this.appEvents.off("post-stream:refresh");
-    this.appEvents.off("post-stream:posted");
-  },
-
-  showModerationHistory(post) {
-    this.get("adminTools").showModerationHistory({
-      filter: "post",
-      post_id: post.id
-    });
+    this.appEvents.off("post-stream:refresh", this, "_debouncedScroll");
+    $(this.element).off("mouseenter.post-stream");
+    $(this.element).off("mouseleave.post-stream");
+    this.appEvents.off("post-stream:refresh", this, "_refresh");
+    this.appEvents.off("post-stream:posted", this, "_posted");
   }
 });

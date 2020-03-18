@@ -1,7 +1,9 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { isEmpty } from "@ember/utils";
+import Controller from "@ember/controller";
 import PenaltyController from "admin/mixins/penalty-controller";
 
-export default Ember.Controller.extend(PenaltyController, {
+export default Controller.extend(PenaltyController, {
   suspendUntil: null,
   suspending: false,
 
@@ -10,29 +12,27 @@ export default Ember.Controller.extend(PenaltyController, {
     this.setProperties({ suspendUntil: null, suspending: false });
   },
 
-  @computed("suspendUntil", "reason", "suspending")
+  @discourseComputed("suspendUntil", "reason", "suspending")
   submitDisabled(suspendUntil, reason, suspending) {
-    return (
-      suspending || Ember.isEmpty(suspendUntil) || !reason || reason.length < 1
-    );
+    return suspending || isEmpty(suspendUntil) || !reason || reason.length < 1;
   },
 
   actions: {
     suspend() {
-      if (this.get("submitDisabled")) {
+      if (this.submitDisabled) {
         return;
       }
 
       this.set("suspending", true);
 
       this.penalize(() => {
-        return this.get("user").suspend({
-          suspend_until: this.get("suspendUntil"),
-          reason: this.get("reason"),
-          message: this.get("message"),
-          post_id: this.get("post.id"),
-          post_action: this.get("postAction"),
-          post_edit: this.get("postEdit")
+        return this.user.suspend({
+          suspend_until: this.suspendUntil,
+          reason: this.reason,
+          message: this.message,
+          post_id: this.postId,
+          post_action: this.postAction,
+          post_edit: this.postEdit
         });
       }).finally(() => this.set("suspending", false));
     }

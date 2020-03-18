@@ -1,4 +1,4 @@
-require 'validators/reply_by_email_address_validator'
+# frozen_string_literal: true
 
 class AlternativeReplyByEmailAddressesValidator
   def initialize(opts = {})

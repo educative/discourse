@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class DiscourseIIFE
   def initialize(options = {}, &block)
   end
@@ -33,6 +35,7 @@ class DiscourseIIFE
     return data if path =~ /\.shbrs/
     return data if path =~ /\.hbrs/
     return data if path =~ /\.hbs/
+    return data if path =~ /\.hbr/
 
     return data if path =~ /discourse-loader/
 

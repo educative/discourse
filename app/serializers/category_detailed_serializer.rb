@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class CategoryDetailedSerializer < BasicCategorySerializer
 
   attributes :topic_count,
@@ -7,7 +9,6 @@ class CategoryDetailedSerializer < BasicCategorySerializer
              :topics_month,
              :topics_year,
              :topics_all_time,
-             :description_excerpt,
              :is_uncategorized,
              :subcategory_ids
 
@@ -23,10 +24,6 @@ class CategoryDetailedSerializer < BasicCategorySerializer
 
   def include_is_uncategorized?
     is_uncategorized
-  end
-
-  def description_excerpt
-    PrettyText.excerpt(description, 300) if description
   end
 
   def include_subcategory_ids?
@@ -54,10 +51,12 @@ class CategoryDetailedSerializer < BasicCategorySerializer
   end
 
   def count_with_subcategories(method)
-    count = object.send(method) || 0
+    count = object.public_send(method) || 0
+
     object.subcategories.each do |category|
-      count += (category.send(method) || 0)
+      count += (category.public_send(method) || 0)
     end
+
     count
   end
 

@@ -1,4 +1,6 @@
-require_dependency 'email/message_builder'
+# frozen_string_literal: true
+
+require 'email/message_builder'
 
 class RejectionMailer < ActionMailer::Base
   include Email::BuildEmailHelper

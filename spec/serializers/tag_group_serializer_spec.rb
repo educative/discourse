@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "rails_helper"
 
 describe TagGroupSerializer do
@@ -16,6 +18,14 @@ describe TagGroupSerializer do
     serialized = TagGroupSerializer.new(tag_group, root: false).as_json
 
     expect(serialized[:permissions].keys).to contain_exactly("staff")
+  end
+
+  it "doesn't return tag synonyms" do
+    tag = Fabricate(:tag)
+    synonym = Fabricate(:tag, target_tag: tag)
+    tag_group = Fabricate(:tag_group, tags: [tag, synonym])
+    serialized = TagGroupSerializer.new(tag_group, root: false).as_json
+    expect(serialized[:tag_names]).to eq([tag.name])
   end
 
 end

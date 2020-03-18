@@ -1,7 +1,8 @@
+# frozen_string_literal: true
+
 desc "Runs the qunit test suite"
 
-task "qunit:test", [:timeout, :qunit_path] => :environment do |_, args|
-  require "rack"
+task "qunit:test", [:timeout, :qunit_path] do |_, args|
   require "socket"
   require 'rbconfig'
 
@@ -40,20 +41,23 @@ task "qunit:test", [:timeout, :qunit_path] => :environment do |_, args|
     port += 1
   end
 
-  unless pid = fork
-    Discourse.after_fork
-    Rack::Server.start(config: "config.ru",
-                       AccessLog: [],
-                       Port: port)
-    exit
-  end
+  pid = Process.spawn(
+    {
+      "RAILS_ENV" => "test",
+      "SKIP_ENFORCE_HOSTNAME" => "1",
+      "UNICORN_PID_PATH" => "#{Rails.root}/tmp/pids/unicorn_test.pid", # So this can run alongside development
+      "UNICORN_PORT" => port.to_s,
+      "UNICORN_SIDEKIQS" => "0"
+    },
+    "#{Rails.root}/bin/unicorn -c config/unicorn.conf.rb"
+  )
 
   begin
     success = true
     test_path = "#{Rails.root}/test"
     qunit_path = args[:qunit_path] || "/qunit"
     cmd = "node #{test_path}/run-qunit.js http://localhost:#{port}#{qunit_path}"
-    options = { seed: (ENV["QUNIT_SEED"] || Random.new.seed) }
+    options = { seed: (ENV["QUNIT_SEED"] || Random.new.seed), hidepassed: 1 }
 
     %w{module filter qunit_skip_core qunit_single_plugin}.each do |arg|
       options[arg] = ENV[arg.upcase] if ENV[arg.upcase].present?

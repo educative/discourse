@@ -1,5 +1,4 @@
-require_dependency 'wizard'
-require_dependency 'wizard/builder'
+# frozen_string_literal: true
 
 class WizardController < ApplicationController
   requires_login except: [:qunit]

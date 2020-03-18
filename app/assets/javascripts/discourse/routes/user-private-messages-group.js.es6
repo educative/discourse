@@ -1,19 +1,22 @@
 import createPMRoute from "discourse/routes/build-private-messages-route";
+import { findOrResetCachedTopicList } from "discourse/lib/cached-topic-list";
 
 export default createPMRoute("groups", "private-messages-groups").extend({
   groupName: null,
 
   titleToken() {
-    const groupName = this.get("groupName");
+    const groupName = this.groupName;
     if (groupName)
       return [groupName.capitalize(), I18n.t("user.private_messages")];
   },
 
   model(params) {
     const username = this.modelFor("user").get("username_lower");
-    return this.store.findFiltered("topicList", {
-      filter: `topics/private-messages-group/${username}/${params.name}`
-    });
+    const filter = `topics/private-messages-group/${username}/${params.name}`;
+    const lastTopicList = findOrResetCachedTopicList(this.session, filter);
+    return lastTopicList
+      ? lastTopicList
+      : this.store.findFiltered("topicList", { filter });
   },
 
   afterModel(model) {

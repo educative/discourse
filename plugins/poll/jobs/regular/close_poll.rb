@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class ClosePoll < Jobs::Base
+  class ClosePoll < ::Jobs::Base
 
     def execute(args)
       %i{

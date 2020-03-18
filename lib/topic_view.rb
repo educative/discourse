@@ -1,13 +1,30 @@
-require_dependency 'guardian'
-require_dependency 'topic_query'
-require_dependency 'filter_best_posts'
-require_dependency 'gaps'
+# frozen_string_literal: true
 
 class TopicView
   MEGA_TOPIC_POSTS_COUNT = 10000
+  MIN_POST_READ_TIME = 4.0
 
-  attr_reader :topic, :posts, :guardian, :filtered_posts, :chunk_size, :print, :message_bus_last_id
-  attr_accessor :draft, :draft_key, :draft_sequence, :user_custom_fields, :post_custom_fields, :post_number
+  attr_reader(
+    :topic,
+    :posts,
+    :guardian,
+    :filtered_posts,
+    :chunk_size,
+    :print,
+    :message_bus_last_id,
+    :queued_posts_enabled,
+    :personal_message,
+    :can_review_topic
+  )
+
+  attr_accessor(
+    :draft,
+    :draft_key,
+    :draft_sequence,
+    :user_custom_fields,
+    :post_custom_fields,
+    :post_number
+  )
 
   def self.print_chunk_size
     1000
@@ -18,7 +35,7 @@ class TopicView
   end
 
   def self.default_post_custom_fields
-    @default_post_custom_fields ||= ["action_code_who"]
+    @default_post_custom_fields ||= [Post::NOTICE_TYPE, Post::NOTICE_ARGS, "action_code_who", "requested_group_id"]
   end
 
   def self.post_custom_fields_whitelisters
@@ -51,6 +68,9 @@ class TopicView
     @post_number = [@post_number.to_i, 1].max
     @page = [@page.to_i, 1].max
 
+    @include_suggested = options.fetch(:include_suggested) { true }
+    @include_related = options.fetch(:include_related) { true }
+
     @chunk_size =
       case
       when @print then TopicView.print_chunk_size
@@ -78,10 +98,22 @@ class TopicView
 
     @draft_key = @topic.draft_key
     @draft_sequence = DraftSequence.current(@user, @draft_key)
+
+    @can_review_topic = @guardian.can_review_topic?(@topic)
+    @queued_posts_enabled = NewPostManager.queue_enabled?
+    @personal_message = @topic.private_message?
+  end
+
+  def show_read_indicator?
+    return false unless @user || topic.private_message?
+
+    topic.allowed_groups.any? do |group|
+      group.publish_read_state? && group.users.include?(@user)
+    end
   end
 
   def canonical_path
-    path = relative_url
+    path = relative_url.dup
     path <<
       if @page > 1
         "?page=#{@page}"
@@ -120,7 +152,7 @@ class TopicView
 
   def next_page
     @next_page ||= begin
-      if last_post && (@topic.highest_post_number > last_post.post_number)
+      if last_post && highest_post_number && (highest_post_number > last_post.post_number)
         @page + 1
       end
     end
@@ -180,7 +212,13 @@ class TopicView
 
   def read_time
     return nil if @post_number > 1 # only show for topic URLs
-    (@topic.word_count / SiteSetting.read_time_word_count).floor if @topic.word_count
+
+    if @topic.word_count && SiteSetting.read_time_word_count > 0
+      [
+        @topic.word_count / SiteSetting.read_time_word_count,
+        @topic.posts_count * MIN_POST_READ_TIME / 60
+      ].max.ceil
+    end
   end
 
   def like_count
@@ -198,16 +236,8 @@ class TopicView
   end
 
   def image_url
-    if @post_number > 1 && @desired_post.present?
-      if @desired_post.image_url.present?
-        @desired_post.image_url
-      elsif @desired_post.user
-        # show poster avatar
-        @desired_post.user.avatar_template_url.gsub("{size}", "200")
-      end
-    else
-      @topic.image_url
-    end
+    url = desired_post&.image_url if @post_number > 1
+    url || @topic.image_url
   end
 
   def filter_posts(opts = {})
@@ -327,13 +357,13 @@ class TopicView
         return {} if post_ids.blank?
 
         sql = <<~SQL
-          SELECT user_id, count(*) AS count_all
-            FROM posts
-           WHERE id in (:post_ids)
-             AND user_id IS NOT NULL
-        GROUP BY user_id
-        ORDER BY count_all DESC
-           LIMIT #{MAX_PARTICIPANTS}
+            SELECT user_id, count(*) AS count_all
+              FROM posts
+             WHERE id in (:post_ids)
+               AND user_id IS NOT NULL
+          GROUP BY user_id
+          ORDER BY count_all DESC
+             LIMIT #{MAX_PARTICIPANTS}
         SQL
 
         Hash[*DB.query_single(sql, post_ids: post_ids)]
@@ -375,16 +405,79 @@ class TopicView
     end
   end
 
+  def group_allowed_user_ids
+    return @group_allowed_user_ids unless @group_allowed_user_ids.nil?
+
+    group_ids = @topic.allowed_groups.map(&:id)
+    @group_allowed_user_ids = Set.new(GroupUser.where(group_id: group_ids).pluck('distinct user_id'))
+  end
+
   def all_post_actions
     @all_post_actions ||= PostAction.counts_for(@posts, @user)
   end
 
-  def all_active_flags
-    @all_active_flags ||= PostAction.active_flags_counts_for(@posts)
-  end
-
   def links
     @links ||= TopicLink.topic_map(@guardian, @topic.id)
+  end
+
+  def user_post_bookmarks
+    @user_post_bookmarks ||= Bookmark.where(user: @user, post_id: unfiltered_post_ids)
+  end
+
+  def reviewable_counts
+    if @reviewable_counts.nil?
+
+      post_ids = @posts.map(&:id)
+
+      sql = <<~SQL
+        SELECT target_id,
+          MAX(r.id) reviewable_id,
+          COUNT(*) total,
+          SUM(CASE WHEN s.status = :pending THEN 1 ELSE 0 END) pending
+        FROM reviewables r
+        JOIN reviewable_scores s ON reviewable_id = r.id
+        WHERE r.target_id IN (:post_ids) AND
+          r.target_type = 'Post'
+        GROUP BY target_id
+      SQL
+
+      @reviewable_counts = {}
+
+      DB.query(
+        sql,
+        pending: ReviewableScore.statuses[:pending],
+        post_ids: post_ids
+      ).each do |row|
+        @reviewable_counts[row.target_id] = {
+          total: row.total,
+          pending: row.pending,
+          reviewable_id: row.reviewable_id
+        }
+      end
+    end
+
+    @reviewable_counts
+  end
+
+  def pending_posts
+    @pending_posts ||= ReviewableQueuedPost.pending.where(created_by: @user, topic: @topic).order(:created_at)
+  end
+
+  def actions_summary
+    return @actions_summary unless @actions_summary.nil?
+
+    @actions_summary = []
+    return @actions_summary unless post = posts&.first
+    PostActionType.topic_flag_types.each do |sym, id|
+      @actions_summary << {
+        id: id,
+        count: 0,
+        hidden: false,
+        can_act: @guardian.post_can_act?(post, sym)
+      }
+    end
+
+    @actions_summary
   end
 
   def link_counts
@@ -402,18 +495,26 @@ class TopicView
   end
 
   def suggested_topics
-    @suggested_topics ||= TopicQuery.new(@user).list_suggested_for(topic, pm_params: pm_params)
+    if @include_suggested
+      @suggested_topics ||= TopicQuery.new(@user).list_suggested_for(topic, pm_params: pm_params)
+    else
+      nil
+    end
   end
 
   def related_messages
-    @related_messages ||= TopicQuery.new(@user).list_related_for(topic, pm_params: pm_params)
+    if @include_related
+      @related_messages ||= TopicQuery.new(@user).list_related_for(topic, pm_params: pm_params)
+    else
+      nil
+    end
   end
 
   # This is pending a larger refactor, that allows custom orders
-  #  for now we need to look for the highest_post_number in the stream
-  #  the cache on topics is not correct if there are deleted posts at
-  #  the end of the stream (for mods), nor is it correct for filtered
-  #  streams
+  # for now we need to look for the highest_post_number in the stream
+  # the cache on topics is not correct if there are deleted posts at
+  # the end of the stream (for mods), nor is it correct for filtered
+  # streams
   def highest_post_number
     @highest_post_number ||= @filtered_posts.maximum(:post_number)
   end
@@ -461,7 +562,7 @@ class TopicView
   end
 
   def filtered_post_id(post_number)
-    @filtered_posts.where(post_number: post_number).pluck(:id).first
+    @filtered_posts.where(post_number: post_number).pluck_first(:id)
   end
 
   def is_mega_topic?
@@ -469,17 +570,21 @@ class TopicView
   end
 
   def first_post_id
-    @filtered_posts.order(sort_order: :asc).limit(1).pluck(:id).first
+    @filtered_posts.order(sort_order: :asc).pluck_first(:id)
   end
 
   def last_post_id
-    @filtered_posts.order(sort_order: :desc).limit(1).pluck(:id).first
+    @filtered_posts.order(sort_order: :desc).pluck_first(:id)
   end
 
   def current_post_number
     if highest_post_number.present?
       post_number > highest_post_number ? highest_post_number : post_number
     end
+  end
+
+  def queued_posts_count
+    ReviewableQueuedPost.viewable_by(@user).where(topic_id: @topic.id).pending.count
   end
 
   protected
@@ -504,22 +609,22 @@ class TopicView
 
   def get_sort_order(post_number)
     sql = <<~SQL
-    SELECT posts.sort_order
-    FROM posts
-    WHERE posts.post_number = #{post_number.to_i}
-    AND posts.topic_id = #{@topic.id.to_i}
-    LIMIT 1
+      SELECT posts.sort_order
+      FROM posts
+      WHERE posts.post_number = #{post_number.to_i}
+      AND posts.topic_id = #{@topic.id.to_i}
+      LIMIT 1
     SQL
 
     sort_order = DB.query_single(sql).first
 
     if !sort_order
       sql = <<~SQL
-      SELECT posts.sort_order
-      FROM posts
-      WHERE posts.topic_id = #{@topic.id.to_i}
-      ORDER BY @(post_number - #{post_number.to_i})
-      LIMIT 1
+        SELECT posts.sort_order
+        FROM posts
+        WHERE posts.topic_id = #{@topic.id.to_i}
+        ORDER BY @(post_number - #{post_number.to_i})
+        LIMIT 1
       SQL
 
       sort_order = DB.query_single(sql).first
@@ -590,6 +695,23 @@ class TopicView
     # Certain filters might leave gaps between posts. If that's true, we can return a gap structure
     @contains_gaps = false
     @filtered_posts = unfiltered_posts
+
+    sql = <<~SQL
+        SELECT ignored_user_id
+        FROM ignored_users as ig
+        JOIN users as u ON u.id = ig.ignored_user_id
+        WHERE ig.user_id = :current_user_id
+          AND ig.ignored_user_id <> :current_user_id
+          AND NOT u.admin
+          AND NOT u.moderator
+    SQL
+
+    ignored_user_ids = DB.query_single(sql, current_user_id: @user&.id)
+
+    if ignored_user_ids.present?
+      @filtered_posts = @filtered_posts.where.not("user_id IN (?) AND id <> ?", ignored_user_ids, first_post_id)
+      @contains_gaps = true
+    end
 
     # Filters
     if @filter == 'summary'

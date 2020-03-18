@@ -1,4 +1,4 @@
-require_dependency 'jobs/regular/update_username'
+# frozen_string_literal: true
 
 class UsernameChanger
 
@@ -14,13 +14,13 @@ class UsernameChanger
   end
 
   def change(asynchronous: true, run_update_job: true)
-    if @actor && @old_username != @new_username
-      StaffActionLogger.new(@actor).log_username_change(@user, @old_username, @new_username)
-    end
-
     @user.username = @new_username
 
     if @user.save
+      if @actor && @old_username != @new_username
+        StaffActionLogger.new(@actor).log_username_change(@user, @old_username, @new_username)
+      end
+
       UsernameChanger.update_username(user_id: @user.id,
                                       old_username: @old_username,
                                       new_username: @new_username,

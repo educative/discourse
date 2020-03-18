@@ -1,4 +1,4 @@
-require_dependency "common_passwords/common_passwords"
+# frozen_string_literal: true
 
 class PasswordValidator < ActiveModel::EachValidator
 
@@ -13,6 +13,8 @@ class PasswordValidator < ActiveModel::EachValidator
       record.errors.add(attribute, :too_short, count: SiteSetting.min_password_length)
     elsif record.username.present? && value == record.username
       record.errors.add(attribute, :same_as_username)
+    elsif record.name.present? && value == record.name
+      record.errors.add(attribute, :same_as_name)
     elsif record.email.present? && value == record.email
       record.errors.add(attribute, :same_as_email)
     elsif record.confirm_password?(value)

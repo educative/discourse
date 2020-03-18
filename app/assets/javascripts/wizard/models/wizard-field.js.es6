@@ -1,6 +1,7 @@
+import EmberObject from "@ember/object";
 import ValidState from "wizard/mixins/valid-state";
 
-export default Ember.Object.extend(ValidState, {
+export default EmberObject.extend(ValidState, {
   id: null,
   type: null,
   value: null,
@@ -8,12 +9,12 @@ export default Ember.Object.extend(ValidState, {
   warning: null,
 
   check() {
-    if (!this.get("required")) {
+    if (!this.required) {
       this.setValid(true);
       return true;
     }
 
-    const val = this.get("value");
+    const val = this.value;
     const valid = val && val.length > 0;
 
     this.setValid(valid);

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative "base"
 
 class BulkImport::DiscourseMerger < BulkImport::Base
@@ -146,12 +148,12 @@ class BulkImport::DiscourseMerger < BulkImport::Base
 
     [
       UserEmail, UserStat, UserOption, UserProfile,
-      UserVisit, UserSearchData, GivenDailyLike, UserSecondFactor, UserOpenId
+      UserVisit, UserSearchData, GivenDailyLike, UserSecondFactor
     ].each do |c|
       copy_model(c, skip_if_merged: true, is_a_user_model: true, skip_processing: true)
     end
 
-    [UserAssociatedAccount, GithubUserInfo, GoogleUserInfo, InstagramUserInfo, Oauth2UserInfo,
+    [UserAssociatedAccount, GithubUserInfo, Oauth2UserInfo,
       SingleSignOnRecord, EmailChangeRequest
     ].each do |c|
       copy_model(c, skip_if_merged: true, is_a_user_model: true)
@@ -509,7 +511,7 @@ class BulkImport::DiscourseMerger < BulkImport::Base
   end
 
   def process_post_reply(post_reply)
-    post_reply['reply_id'] = post_id_from_imported_id(post_reply['reply_id']) if post_reply['reply_id']
+    post_reply['reply_post_id'] = post_id_from_imported_id(post_reply['reply_post_id']) if post_reply['reply_post_id']
     post_reply
   end
 
@@ -625,16 +627,6 @@ class BulkImport::DiscourseMerger < BulkImport::Base
 
   def process_github_user_info(r)
     return nil if GithubUserInfo.where(github_user_id: r['github_user_id']).exists?
-    r
-  end
-
-  def process_google_user_info(r)
-    return nil if GoogleUserInfo.where(google_user_id: r['google_user_id']).exists?
-    r
-  end
-
-  def process_instagram_user_info(r)
-    return nil if InstagramUserInfo.where(instagram_user_id: r['instagram_user_id']).exists?
     r
   end
 

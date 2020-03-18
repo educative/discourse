@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "rails_helper"
 
 describe PostsController do
@@ -51,7 +53,7 @@ describe PostsController do
       json = ::JSON.parse(response.body)
       post_id = json["id"]
 
-      expect(Poll.find_by(post_id: post_id).close_at).to eq(1.month.from_now)
+      expect(Poll.find_by(post_id: post_id).close_at).to be_within_one_second_of(1.month.from_now)
 
       job = Jobs::ClosePoll.jobs.first
       job_args = job["args"].first
@@ -70,18 +72,18 @@ describe PostsController do
       expect(json["errors"][0]).to eq(I18n.t("poll.default_poll_must_have_different_options"))
     end
 
-    it "should have at least 2 options" do
+    it "should have at least 1 options" do
       post :create, params: {
-        title: title, raw: "[poll]\n- A\n[/poll]"
+        title: title, raw: "[poll]\n[/poll]"
       }, format: :json
 
       expect(response).not_to be_successful
       json = ::JSON.parse(response.body)
-      expect(json["errors"][0]).to eq(I18n.t("poll.default_poll_must_have_at_least_2_options"))
+      expect(json["errors"][0]).to eq(I18n.t("poll.default_poll_must_have_at_least_1_option"))
     end
 
     it "should have at most 'SiteSetting.poll_maximum_options' options" do
-      raw = "[poll]\n"
+      raw = +"[poll]\n"
       (SiteSetting.poll_maximum_options + 1).times { |n| raw << "\n- #{n}" }
       raw << "\n[/poll]"
 
@@ -265,14 +267,14 @@ describe PostsController do
       expect(json["errors"][0]).to eq(I18n.t("poll.named_poll_must_have_different_options", name: "foo"))
     end
 
-    it "should have at least 2 options" do
+    it "should have at least 1 option" do
       post :create, params: {
-        title: title, raw: "[poll name='foo']\n- A\n[/poll]"
+        title: title, raw: "[poll name='foo']\n[/poll]"
       }, format: :json
 
       expect(response).not_to be_successful
       json = ::JSON.parse(response.body)
-      expect(json["errors"][0]).to eq(I18n.t("poll.named_poll_must_have_at_least_2_options", name: "foo"))
+      expect(json["errors"][0]).to eq(I18n.t("poll.named_poll_must_have_at_least_1_option", name: "foo"))
     end
 
   end

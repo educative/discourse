@@ -1,45 +1,52 @@
-import { observes } from "ember-addons/ember-computed-decorators";
+import { alias, reads } from "@ember/object/computed";
+import { schedule } from "@ember/runloop";
+import Component from "@ember/component";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
+import LoadMore from "discourse/mixins/load-more";
+import { on } from "@ember/object/evented";
 
-export default Ember.Component.extend({
+export default Component.extend(LoadMore, {
   tagName: "table",
   classNames: ["topic-list"],
   showTopicPostBadges: true,
   listTitle: "topic.title",
 
   // Overwrite this to perform client side filtering of topics, if desired
-  filteredTopics: Ember.computed.alias("topics"),
+  filteredTopics: alias("topics"),
 
-  _init: function() {
+  _init: on("init", function() {
     this.addObserver("hideCategory", this.rerender);
     this.addObserver("order", this.rerender);
     this.addObserver("ascending", this.rerender);
     this.refreshLastVisited();
-  }.on("init"),
+  }),
 
-  toggleInTitle: function() {
-    return !this.get("bulkSelectEnabled") && this.get("canBulkSelect");
-  }.property("bulkSelectEnabled"),
+  @discourseComputed("bulkSelectEnabled")
+  toggleInTitle(bulkSelectEnabled) {
+    return !bulkSelectEnabled && this.canBulkSelect;
+  },
 
-  sortable: function() {
-    return !!this.get("changeSort");
-  }.property(),
+  @discourseComputed
+  sortable() {
+    return !!this.changeSort;
+  },
 
-  skipHeader: function() {
-    return this.site.mobileView;
-  }.property(),
+  skipHeader: reads("site.mobileView"),
 
-  showLikes: function() {
-    return this.get("order") === "likes";
-  }.property("order"),
+  @discourseComputed("order")
+  showLikes(order) {
+    return order === "likes";
+  },
 
-  showOpLikes: function() {
-    return this.get("order") === "op_likes";
-  }.property("order"),
+  @discourseComputed("order")
+  showOpLikes(order) {
+    return order === "op_likes";
+  },
 
   @observes("topics.[]")
   topicsAdded() {
     // special case so we don't keep scanning huge lists
-    if (!this.get("lastVisitedTopic")) {
+    if (!this.lastVisitedTopic) {
       this.refreshLastVisited();
     }
   },
@@ -49,10 +56,32 @@ export default Ember.Component.extend({
     this.refreshLastVisited();
   },
 
+  scrolled() {
+    this._super(...arguments);
+    let onScroll = this.onScroll;
+    if (!onScroll) return;
+
+    onScroll.call(this);
+  },
+
+  scrollToLastPosition() {
+    if (!this.scrollOnLoad) return;
+
+    let scrollTo = this.session.get("topicListScrollPosition");
+    if (scrollTo && scrollTo >= 0) {
+      schedule("afterRender", () => $(window).scrollTop(scrollTo + 1));
+    }
+  },
+
+  didInsertElement() {
+    this._super(...arguments);
+    this.scrollToLastPosition();
+  },
+
   _updateLastVisitedTopic(topics, order, ascending, top) {
     this.set("lastVisitedTopic", null);
 
-    if (!this.get("highlightLastVisited")) {
+    if (!this.highlightLastVisited) {
       return;
     }
 
@@ -111,10 +140,10 @@ export default Ember.Component.extend({
 
   refreshLastVisited() {
     this._updateLastVisitedTopic(
-      this.get("topics"),
-      this.get("order"),
-      this.get("ascending"),
-      this.get("top")
+      this.topics,
+      this.order,
+      this.ascending,
+      this.top
     );
   },
 

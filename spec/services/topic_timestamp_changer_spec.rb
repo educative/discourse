@@ -1,9 +1,10 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 describe TopicTimestampChanger do
   describe "change!" do
     let(:old_timestamp) { Time.zone.now }
-    let(:new_timestamp) { old_timestamp + 1.day }
     let(:topic) { Fabricate(:topic, created_at: old_timestamp) }
     let!(:p1) { Fabricate(:post, topic: topic, created_at: old_timestamp) }
     let!(:p2) { Fabricate(:post, topic: topic, created_at: old_timestamp + 1.day) }
@@ -63,13 +64,13 @@ describe TopicTimestampChanger do
     end
 
     it 'deletes the stats cache' do
-      $redis.set AdminDashboardData.stats_cache_key, "X"
-      $redis.set About.stats_cache_key, "X"
+      Discourse.redis.set AdminDashboardData.stats_cache_key, "X"
+      Discourse.redis.set About.stats_cache_key, "X"
 
       TopicTimestampChanger.new(topic: topic, timestamp: Time.zone.now.to_f).change!
 
-      expect($redis.get(AdminDashboardData.stats_cache_key)).to eq(nil)
-      expect($redis.get(About.stats_cache_key)).to eq(nil)
+      expect(Discourse.redis.get(AdminDashboardData.stats_cache_key)).to eq(nil)
+      expect(Discourse.redis.get(About.stats_cache_key)).to eq(nil)
     end
   end
 end

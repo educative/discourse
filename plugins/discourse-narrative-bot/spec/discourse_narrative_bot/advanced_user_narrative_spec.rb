@@ -1,7 +1,9 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe DiscourseNarrativeBot::AdvancedUserNarrative do
-  let(:discobot_user) { User.find(-2) }
+  let(:discobot_user) { ::DiscourseNarrativeBot::Base.new.discobot_user }
   let(:first_post) { Fabricate(:post, user: discobot_user) }
   let(:user) { Fabricate(:user) }
 
@@ -22,7 +24,7 @@ RSpec.describe DiscourseNarrativeBot::AdvancedUserNarrative do
   let(:reset_trigger) { DiscourseNarrativeBot::TrackSelector.reset_trigger }
 
   before do
-    SiteSetting.queue_jobs = false
+    Jobs.run_immediately!
     SiteSetting.discourse_narrative_bot_enabled = true
   end
 
@@ -123,6 +125,14 @@ RSpec.describe DiscourseNarrativeBot::AdvancedUserNarrative do
         expect(new_post.raw).to eq(expected_raw.chomp)
         expect(new_post.topic.id).to_not eq(topic.id)
       end
+
+      it 'should not explode if title emojis are disabled' do
+        SiteSetting.max_emojis_in_title = 0
+        narrative.reset_bot(user, other_post)
+
+        expect(Topic.last.title).to eq(I18n.t('discourse_narrative_bot.advanced_user_narrative.title'))
+      end
+
     end
   end
 
@@ -390,7 +400,7 @@ RSpec.describe DiscourseNarrativeBot::AdvancedUserNarrative do
             .to change { Post.count }.by(1)
 
           expected_raw = <<~RAW
-          #{I18n.t('discourse_narrative_bot.advanced_user_narrative.recover.reply', base_uri: '')}
+          #{I18n.t('discourse_narrative_bot.advanced_user_narrative.recover.reply', base_uri: '', deletion_after: SiteSetting.delete_removed_posts_after)}
 
           #{I18n.t('discourse_narrative_bot.advanced_user_narrative.category_hashtag.instructions', category: "#a:b", base_uri: '')}
           RAW

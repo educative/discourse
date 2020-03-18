@@ -1,166 +1,146 @@
 import ComboBoxComponent from "select-kit/components/combo-box";
-import { on } from "ember-addons/ember-computed-decorators";
-import computed from "ember-addons/ember-computed-decorators";
 import PermissionType from "discourse/models/permission-type";
 import Category from "discourse/models/category";
 import { categoryBadgeHTML } from "discourse/helpers/category-link";
-const { get, isNone, isEmpty } = Ember;
+import { computed, set } from "@ember/object";
+import { isNone } from "@ember/utils";
+import { setting } from "discourse/lib/computed";
 
 export default ComboBoxComponent.extend({
   pluginApiIdentifiers: ["category-chooser"],
-  classNames: "category-chooser",
-  filterable: true,
-  castInteger: true,
-  allowUncategorized: false,
-  rowComponent: "category-row",
-  noneRowComponent: "none-category-row",
-  allowSubCategories: true,
-  permissionType: PermissionType.FULL,
+  classNames: ["category-chooser"],
+  allowUncategorizedTopics: setting("allow_uncategorized_topics"),
+  fixedCategoryPositionsOnCreate: setting("fixed_category_positions_on_create"),
 
-  init() {
-    this._super(...arguments);
-
-    this.get("rowComponentOptions").setProperties({
-      allowUncategorized: this.get("allowUncategorized")
-    });
+  selectKitOptions: {
+    filterable: true,
+    allowUncategorized: false,
+    allowSubCategories: true,
+    permissionType: PermissionType.FULL,
+    excludeCategoryId: null,
+    scopedCategoryId: null
   },
 
-  filterComputedContent(computedContent, computedValue, filter) {
-    if (isEmpty(filter)) {
-      return computedContent;
-    }
+  modifyComponentForRow() {
+    return "category-row";
+  },
 
-    if (this.get("scopedCategoryId")) {
-      computedContent = this.categoriesByScope().map(c =>
-        this.computeContentItem(c)
+  modifyNoSelection() {
+    if (!isNone(this.selectKit.options.none)) {
+      const none = this.selectKit.options.none;
+      const isString = typeof none === "string";
+      return this.defaultItem(
+        null,
+        I18n.t(
+          isString ? this.selectKit.options.none : "category.none"
+        ).htmlSafe()
       );
-    }
-
-    const _matchFunction = (f, text) => {
-      return this._normalize(text).indexOf(f) > -1;
-    };
-
-    return computedContent.filter(c => {
-      const category = Category.findById(get(c, "value"));
-      const text = get(c, "name");
-      if (category && category.get("parentCategory")) {
-        const categoryName = category.get("parentCategory.name");
-        return (
-          _matchFunction(filter, text) || _matchFunction(filter, categoryName)
-        );
-      } else {
-        return _matchFunction(filter, text);
-      }
-    });
-  },
-
-  @computed("rootNone", "rootNoneLabel")
-  none(rootNone, rootNoneLabel) {
-    if (
-      this.siteSettings.allow_uncategorized_topics ||
-      this.get("allowUncategorized")
+    } else if (
+      this.allowUncategorizedTopics ||
+      this.selectKit.options.allowUncategorized
     ) {
-      if (!isNone(rootNone)) {
-        return rootNoneLabel || "category.none";
-      } else {
-        return Category.findUncategorized();
-      }
+      return Category.findUncategorized();
     } else {
-      return "category.choose";
+      return this.defaultItem(null, I18n.t("category.choose").htmlSafe());
     }
   },
 
-  computeHeaderContent() {
-    let content = this._super(...arguments);
+  modifySelection(content) {
+    if (this.selectKit.hasSelection) {
+      const category = Category.findById(this.value);
 
-    if (this.get("hasSelection")) {
-      const category = Category.findById(content.value);
-      const parentCategoryId = category.get("parent_category_id");
-      const hasParentCategory = Ember.isPresent(parentCategoryId);
-
-      let badge = "";
-
-      if (hasParentCategory) {
-        const parentCategory = Category.findById(parentCategoryId);
-        badge += categoryBadgeHTML(parentCategory, {
+      set(
+        content,
+        "label",
+        categoryBadgeHTML(category, {
           link: false,
-          allowUncategorized: true
-        }).htmlSafe();
-      }
-
-      badge += categoryBadgeHTML(category, {
-        link: false,
-        hideParent: hasParentCategory ? true : false,
-        allowUncategorized: true
-      }).htmlSafe();
-
-      content.label = badge;
+          hideParent: !!category.parent_category_id,
+          allowUncategorized: true,
+          recursive: true
+        }).htmlSafe()
+      );
     }
 
     return content;
   },
 
-  @on("didRender")
-  _bindComposerResizing() {
-    this.appEvents.on("composer:resized", this, this.applyDirection);
-  },
+  search(filter) {
+    if (filter) {
+      return this.content.filter(item => {
+        const category = Category.findById(this.getValue(item));
+        const categoryName = this.getName(item);
 
-  @on("willDestroyElement")
-  _unbindComposerResizing() {
-    this.appEvents.off("composer:resized");
-  },
-
-  didSelect(computedContentItem) {
-    if (this.attrs.onChooseCategory) {
-      this.attrs.onChooseCategory(computedContentItem.originalContent);
+        if (category && category.parentCategory) {
+          const parentCategoryName = this.getName(category.parentCategory);
+          return (
+            this._matchCategory(filter, categoryName) ||
+            this._matchCategory(filter, parentCategoryName)
+          );
+        } else {
+          return this._matchCategory(filter, categoryName);
+        }
+      });
+    } else {
+      return this.content;
     }
   },
 
-  computeContent() {
-    return this.categoriesByScope(this.get("scopedCategoryId"));
-  },
+  content: computed("selectKit.{filter,options.scopedCategoryId}", function() {
+    if (!this.selectKit.filter && this.selectKit.options.scopedCategoryId) {
+      return this.categoriesByScope(this.selectKit.options.scopedCategoryId);
+    } else {
+      return this.categoriesByScope();
+    }
+  }),
 
   categoriesByScope(scopedCategoryId = null) {
-    const categories = Discourse.SiteSettings.fixed_category_positions_on_create
+    const categories = this.fixedCategoryPositionsOnCreate
       ? Category.list()
       : Category.listByActivity();
 
     if (scopedCategoryId) {
       const scopedCat = Category.findById(scopedCategoryId);
-      scopedCategoryId =
-        scopedCat.get("parent_category_id") || scopedCat.get("id");
+      scopedCategoryId = scopedCat.parent_category_id || scopedCat.id;
     }
 
-    const excludeCategoryId = this.get("excludeCategoryId");
+    const excludeCategoryId = this.selectKit.options.excludeCategoryId;
 
-    return categories.filter(c => {
-      const categoryId = this.valueForContentItem(c);
+    return categories.filter(category => {
+      const categoryId = this.getValue(category);
 
       if (
         scopedCategoryId &&
         categoryId !== scopedCategoryId &&
-        get(c, "parent_category_id") !== scopedCategoryId
+        category.parent_category_id !== scopedCategoryId
       ) {
         return false;
       }
 
-      if (this.get("allowSubCategories") === false && c.get("parentCategory")) {
+      if (
+        this.selectKit.options.allowSubCategories === false &&
+        category.parentCategory
+      ) {
         return false;
       }
 
       if (
-        (this.get("allowUncategorized") === false &&
-          get(c, "isUncategorizedCategory")) ||
+        (this.selectKit.options.allowUncategorized === false &&
+          category.isUncategorizedCategory) ||
         excludeCategoryId === categoryId
       ) {
         return false;
       }
 
-      if (this.get("permissionType")) {
-        return this.get("permissionType") === get(c, "permission");
+      const permissionType = this.selectKit.options.permissionType;
+      if (permissionType) {
+        return permissionType === category.permission;
       }
 
       return true;
     });
+  },
+
+  _matchCategory(filter, categoryName) {
+    return this._normalize(categoryName).indexOf(filter) > -1;
   }
 });

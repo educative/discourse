@@ -1,6 +1,4 @@
-require_dependency 'gap_serializer'
-require_dependency 'post_serializer'
-require_dependency 'timeline_lookup'
+# frozen_string_literal: true
 
 module PostStreamSerializerMixin
   def self.included(klass)

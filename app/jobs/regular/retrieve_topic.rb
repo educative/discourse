@@ -1,10 +1,9 @@
-require_dependency 'email/sender'
-require_dependency 'topic_retriever'
+# frozen_string_literal: true
 
 module Jobs
 
   # Asynchronously retrieve a topic from an embedded site
-  class RetrieveTopic < Jobs::Base
+  class RetrieveTopic < ::Jobs::Base
 
     def execute(args)
       raise Discourse::InvalidParameters.new(:embed_url) unless args[:embed_url].present?

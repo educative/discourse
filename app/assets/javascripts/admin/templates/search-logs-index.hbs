@@ -1,6 +1,11 @@
 <div class="admin-title">
-  {{period-chooser period=period}}
-  {{combo-box content=searchTypeOptions value=searchType class='search-logs-filter'}}
+  {{period-chooser period=period onChange=(action (mut period))}}
+  {{combo-box
+    content=searchTypeOptions
+    value=searchType
+    class="search-logs-filter"
+    onChange=(action (mut searchType))
+  }}
 </div>
 
 {{#conditional-loading-spinner condition=loading}}
@@ -16,7 +21,9 @@
       {{#each model as |item|}}
         <tr class="admin-list-item">
           <td class="col term">
-            {{#link-to 'adminSearchLogs.term' item.term}}{{item.term}}{{/link-to}}
+            {{#link-to 'adminSearchLogs.term' (query-params term=item.term period=period) class="test"}}
+              {{item.term}}
+            {{/link-to}}
           </td>
           <td class="col"><div class="label">{{i18n 'admin.logs.search_logs.searches'}}</div>{{item.searches}}</td>
           <td class="col"><div class="label">{{i18n 'admin.logs.search_logs.click_through_rate'}}</div>{{item.ctr}}%</td>

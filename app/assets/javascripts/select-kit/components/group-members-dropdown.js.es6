@@ -1,13 +1,15 @@
 import DropdownSelectBoxComponent from "select-kit/components/dropdown-select-box";
+import { action, computed } from "@ember/object";
 
 export default DropdownSelectBoxComponent.extend({
-  classNames: "group-members-dropdown",
-  headerIcon: ["bars"],
-  showFullTitle: false,
-  allowInitialValueMutation: false,
-  autoHighlight() {},
+  classNames: ["group-members-dropdown"],
 
-  computeContent() {
+  selectKitOptions: {
+    icon: "bars",
+    showFullTitle: false
+  },
+
+  content: computed(function() {
     const items = [
       {
         id: "showAddMembersModal",
@@ -25,9 +27,10 @@ export default DropdownSelectBoxComponent.extend({
     }
 
     return items;
-  },
+  }),
 
-  mutateValue(value) {
-    this.sendAction(value);
+  @action
+  onChange(id) {
+    this.attrs && this.attrs[id] && this.attrs[id]();
   }
 });

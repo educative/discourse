@@ -1,20 +1,20 @@
-import {
-  default as computed,
-  observes
-} from "ember-addons/ember-computed-decorators";
+import { inject } from "@ember/controller";
+import EmberObject from "@ember/object";
+import Controller from "@ember/controller";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
 
-export default Ember.Controller.extend({
-  group: Ember.inject.controller(),
+export default Controller.extend({
+  group: inject(),
   loading: false,
   offset: 0,
-  application: Ember.inject.controller(),
+  application: inject(),
 
   init() {
     this._super(...arguments);
-    this.set("filters", Ember.Object.create());
+    this.set("filters", EmberObject.create());
   },
 
-  @computed(
+  @discourseComputed(
     "filters.action",
     "filters.acting_user",
     "filters.target_user",
@@ -32,11 +32,11 @@ export default Ember.Controller.extend({
   )
   _refreshModel() {
     this.get("group.model")
-      .findLogs(0, this.get("filterParams"))
+      .findLogs(0, this.filterParams)
       .then(results => {
         this.set("offset", 0);
 
-        this.get("model").setProperties({
+        this.model.setProperties({
           logs: results.logs,
           all_loaded: results.all_loaded
         });
@@ -51,7 +51,7 @@ export default Ember.Controller.extend({
   reset() {
     this.setProperties({
       offset: 0,
-      filters: Ember.Object.create()
+      filters: EmberObject.create()
     });
   },
 
@@ -62,7 +62,7 @@ export default Ember.Controller.extend({
       this.set("loading", true);
 
       this.get("group.model")
-        .findLogs(this.get("offset") + 1, this.get("filterParams"))
+        .findLogs(this.offset + 1, this.filterParams)
         .then(results => {
           results.logs.forEach(result =>
             this.get("model.logs").addObject(result)

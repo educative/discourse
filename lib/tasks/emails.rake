@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 def process_popmail(popmail)
   begin
     mail_string = popmail.pop
@@ -35,7 +37,7 @@ task "emails:import" => :environment do
 
     mails_left = 1
     pop3 = Net::POP3.new(address, port)
-    pop3.enable_ssl if ssl
+    pop3.enable_ssl(max_version: OpenSSL::SSL::TLS1_2_VERSION) if ssl
 
     while mails_left > 0
       pop3.start(username, password) do |pop|
@@ -76,7 +78,7 @@ task 'emails:test', [:email] => [:environment] do |_, args|
       STR
     end
 
-    puts "Testing sending to #{email} using #{smtp[:user_name]}:#{smtp[:password]}@#{smtp[:address]}:#{smtp[:port]}."
+    puts "Testing sending to #{email} using #{smtp[:address]}:#{smtp[:port]}."
 
     # We would like to do this, but Net::SMTP errors out using starttls
     #Net::SMTP.start(smtp[:address], smtp[:port]) do |s|
@@ -84,8 +86,7 @@ task 'emails:test', [:email] => [:environment] do |_, args|
     #  s.auth_login(smtp[:user_name], smtp[:password])
     #end
 
-    Net::SMTP.start(smtp[:address], smtp[:port])
-      .auth_login(smtp[:user_name], smtp[:password])
+    Net::SMTP.start(smtp[:address], smtp[:port], 'localhost', smtp[:user_name], smtp[:password])
   rescue Exception => e
 
     if e.to_s.match(/execution expired/)

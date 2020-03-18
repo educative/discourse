@@ -1,19 +1,32 @@
 # encoding: utf-8
+# frozen_string_literal: true
 
 require 'rails_helper'
-require_dependency 'post_creator'
 
 describe Category do
+  fab!(:user) { Fabricate(:user) }
+
   it { is_expected.to validate_presence_of :user_id }
   it { is_expected.to validate_presence_of :name }
 
   it 'validates uniqueness of name' do
-    Fabricate(:category)
-    is_expected.to validate_uniqueness_of(:name).scoped_to(:parent_category_id)
+    Fabricate(:category_with_definition)
+    is_expected.to validate_uniqueness_of(:name).scoped_to(:parent_category_id).case_insensitive
+  end
+
+  it 'validates inclusion of search_priority' do
+    category = Fabricate.build(:category, user: user)
+
+    expect(category.valid?).to eq(true)
+
+    category.search_priority = Searchable::PRIORITIES.values.last + 1
+
+    expect(category.valid?).to eq(false)
+    expect(category.errors.to_hash.keys).to contain_exactly(:search_priority)
   end
 
   it 'validates uniqueness in case insensitive way' do
-    Fabricate(:category, name: "Cats")
+    Fabricate(:category_with_definition, name: "Cats")
     cats = Fabricate.build(:category, name: "cats")
     expect(cats).to_not be_valid
     expect(cats.errors[:name]).to be_present
@@ -30,72 +43,159 @@ describe Category do
 
   describe "permissions_params" do
     it "returns the right group names and permission type" do
-      category = Fabricate(:category)
+      category = Fabricate(:category_with_definition)
       group = Fabricate(:group)
       category_group = Fabricate(:category_group, category: category, group: group)
       expect(category.permissions_params).to eq("#{group.name}" => category_group.permission_type)
     end
   end
 
+  describe "#review_group_id" do
+    fab!(:group) { Fabricate(:group) }
+    fab!(:category) { Fabricate(:category_with_definition, reviewable_by_group: group) }
+    fab!(:topic) { Fabricate(:topic, category: category) }
+    fab!(:post) { Fabricate(:post, topic: topic) }
+    fab!(:user) { Fabricate(:user) }
+
+    it "will add the group to the reviewable" do
+      SiteSetting.enable_category_group_review = true
+      reviewable = PostActionCreator.spam(user, post).reviewable
+      expect(reviewable.reviewable_by_group_id).to eq(group.id)
+    end
+
+    it "will add the group to the reviewable even if created manually" do
+      SiteSetting.enable_category_group_review = true
+      reviewable = ReviewableFlaggedPost.create!(
+        created_by: user,
+        payload: { raw: 'test raw' },
+        category: category
+      )
+      expect(reviewable.reviewable_by_group_id).to eq(group.id)
+    end
+
+    it "will not add add the group to the reviewable" do
+      SiteSetting.enable_category_group_review = false
+      reviewable = PostActionCreator.spam(user, post).reviewable
+      expect(reviewable.reviewable_by_group_id).to be_nil
+    end
+
+    it "will nullify the group_id if destroyed" do
+      reviewable = PostActionCreator.spam(user, post).reviewable
+      group.destroy
+      expect(category.reload.reviewable_by_group).to be_blank
+      expect(reviewable.reload.reviewable_by_group_id).to be_blank
+    end
+
+    it "will remove the reviewable_by_group if the category is updated" do
+      SiteSetting.enable_category_group_review = true
+      reviewable = PostActionCreator.spam(user, post).reviewable
+      category.reviewable_by_group_id = nil
+      category.save!
+      expect(reviewable.reload.reviewable_by_group_id).to be_nil
+    end
+  end
+
   describe "topic_create_allowed and post_create_allowed" do
-    it "works" do
+    fab!(:group) { Fabricate(:group) }
 
-      # NOTE we also have the uncategorized category ... hence the increased count
-
-      _default_category = Fabricate(:category)
-      full_category = Fabricate(:category)
-      can_post_category = Fabricate(:category)
-      can_read_category = Fabricate(:category)
-
+    fab!(:user) do
       user = Fabricate(:user)
-      group = Fabricate(:group)
       group.add(user)
       group.save
+      user
+    end
 
-      admin = Fabricate(:admin)
+    fab!(:admin) { Fabricate(:admin) }
 
-      full_category.set_permissions(group => :full)
-      full_category.save
+    fab!(:default_category) { Fabricate(:category_with_definition) }
 
-      can_post_category.set_permissions(group => :create_post)
-      can_post_category.save
+    fab!(:full_category) do
+      c = Fabricate(:category_with_definition)
+      c.set_permissions(group => :full)
+      c.save
+      c
+    end
 
-      can_read_category.set_permissions(group => :readonly)
-      can_read_category.save
+    fab!(:can_post_category) do
+      c = Fabricate(:category_with_definition)
+      c.set_permissions(group => :create_post)
+      c.save
+      c
+    end
 
-      guardian = Guardian.new(admin)
-      expect(Category.topic_create_allowed(guardian).count).to be(5)
-      expect(Category.post_create_allowed(guardian).count).to be(5)
-      expect(Category.secured(guardian).count).to be(5)
+    fab!(:can_read_category) do
+      c = Fabricate(:category_with_definition)
+      c.set_permissions(group => :readonly)
+      c.save
+    end
 
-      guardian = Guardian.new(user)
-      expect(Category.secured(guardian).count).to be(5)
-      expect(Category.post_create_allowed(guardian).count).to be(4)
-      expect(Category.topic_create_allowed(guardian).count).to be(3) # explicitly allowed once, default allowed once
+    let(:user_guardian) { Guardian.new(user) }
+    let(:admin_guardian) { Guardian.new(admin) }
+    let(:anon_guardian) { Guardian.new(nil) }
 
-      expect(Category.scoped_to_permissions(nil, [:readonly]).count).to be(2)
+    context 'when disabling uncategorized' do
+      before do
+        SiteSetting.allow_uncategorized_topics = false
+      end
 
-      # everyone has special semantics, test it as well
+      it "allows everything to admins unconditionally" do
+        count = Category.count
+
+        expect(Category.topic_create_allowed(admin_guardian).count).to eq(count)
+        expect(Category.post_create_allowed(admin_guardian).count).to eq(count)
+        expect(Category.secured(admin_guardian).count).to eq(count)
+      end
+
+      it "allows normal users correct access to all categories" do
+
+        # Sam: I am mixed here, once disabling uncategorized maybe users should no
+        # longer be allowed to know about it so all counts should go down?
+        expect(Category.secured(user_guardian).count).to eq(5)
+        expect(Category.post_create_allowed(user_guardian).count).to eq(4)
+        expect(Category.topic_create_allowed(user_guardian).count).to eq(2)
+      end
+    end
+
+    it "allows everything to admins unconditionally" do
+      count = Category.count
+
+      expect(Category.topic_create_allowed(admin_guardian).count).to eq(count)
+      expect(Category.post_create_allowed(admin_guardian).count).to eq(count)
+      expect(Category.secured(admin_guardian).count).to eq(count)
+    end
+
+    it "allows normal users correct access to all categories" do
+      expect(Category.secured(user_guardian).count).to eq(5)
+      expect(Category.post_create_allowed(user_guardian).count).to eq(4)
+      expect(Category.topic_create_allowed(user_guardian).count).to eq(3)
+    end
+
+    it "allows anon correct access" do
+      expect(Category.scoped_to_permissions(anon_guardian, [:readonly]).count).to eq(2)
+      expect(Category.post_create_allowed(anon_guardian).count).to eq(0)
+      expect(Category.topic_create_allowed(anon_guardian).count).to eq(0)
+
+      # nil has special semantics
+      expect(Category.scoped_to_permissions(nil, [:readonly]).count).to eq(2)
+    end
+
+    it "handles :everyone scope" do
       can_post_category.set_permissions(everyone: :create_post)
       can_post_category.save
 
-      expect(Category.post_create_allowed(guardian).count).to be(4)
+      expect(Category.post_create_allowed(user_guardian).count).to eq(4)
 
       # anonymous has permission to create no topics
-      guardian = Guardian.new(nil)
-      expect(Category.post_create_allowed(guardian).count).to be(0)
-      expect(Category.topic_create_allowed(guardian).count).to be(0)
-      expect(Category.scoped_to_permissions(guardian, [:readonly]).count).to be(3)
-
+      expect(Category.scoped_to_permissions(user_guardian, [:readonly]).count).to eq(3)
     end
 
   end
 
   describe "security" do
-    let(:category) { Fabricate(:category) }
-    let(:category_2) { Fabricate(:category) }
-    let(:user) { Fabricate(:user) }
-    let(:group) { Fabricate(:group) }
+    fab!(:category) { Fabricate(:category_with_definition) }
+    fab!(:category_2) { Fabricate(:category_with_definition) }
+    fab!(:user) { Fabricate(:user) }
+    fab!(:group) { Fabricate(:group) }
 
     it "secures categories correctly" do
       expect(category.read_restricted?).to be false
@@ -133,23 +233,23 @@ describe Category do
   end
 
   it "strips leading blanks" do
-    expect(Fabricate(:category, name: " music").name).to eq("music")
+    expect(Fabricate(:category_with_definition, name: " music").name).to eq("music")
   end
 
   it "strips trailing blanks" do
-    expect(Fabricate(:category, name: "bugs ").name).to eq("bugs")
+    expect(Fabricate(:category_with_definition, name: "bugs ").name).to eq("bugs")
   end
 
   it "strips leading and trailing blanks" do
-    expect(Fabricate(:category, name: "  blanks ").name).to eq("blanks")
+    expect(Fabricate(:category_with_definition, name: "  blanks ").name).to eq("blanks")
   end
 
   it "sets name_lower" do
-    expect(Fabricate(:category, name: "Not MySQL").name_lower).to eq("not mysql")
+    expect(Fabricate(:category_with_definition, name: "Not MySQL").name_lower).to eq("not mysql")
   end
 
   it "has custom fields" do
-    category = Fabricate(:category, name: " music")
+    category = Fabricate(:category_with_definition, name: " music")
     expect(category.custom_fields["a"]).to be_nil
 
     category.custom_fields["bob"] = "marley"
@@ -161,7 +261,7 @@ describe Category do
   end
 
   describe "short name" do
-    let!(:category) { Fabricate(:category, name: 'xx') }
+    fab!(:category) { Fabricate(:category_with_definition, name: 'xx') }
 
     it "creates the category" do
       expect(category).to be_present
@@ -176,7 +276,7 @@ describe Category do
     context 'uses ascii slug generator' do
       before do
         SiteSetting.slug_generation_method = 'ascii'
-        @category = Fabricate(:category, name: "测试")
+        @category = Fabricate(:category_with_definition, name: "测试")
       end
       after { @category.destroy }
 
@@ -189,7 +289,7 @@ describe Category do
     context 'uses none slug generator' do
       before do
         SiteSetting.slug_generation_method = 'none'
-        @category = Fabricate(:category, name: "测试")
+        @category = Fabricate(:category_with_definition, name: "测试")
       end
       after do
         SiteSetting.slug_generation_method = 'ascii'
@@ -205,7 +305,7 @@ describe Category do
     context 'uses encoded slug generator' do
       before do
         SiteSetting.slug_generation_method = 'encoded'
-        @category = Fabricate(:category, name: "测试")
+        @category = Fabricate(:category_with_definition, name: "测试")
       end
       after do
         SiteSetting.slug_generation_method = 'ascii'
@@ -213,8 +313,14 @@ describe Category do
       end
 
       it "creates a slug" do
-        expect(@category.slug).to eq("测试")
-        expect(@category.slug_for_url).to eq("测试")
+        expect(@category.slug).to eq("%E6%B5%8B%E8%AF%95")
+        expect(@category.slug_for_url).to eq("%E6%B5%8B%E8%AF%95")
+      end
+
+      it "keeps the encoded slug after saving" do
+        @category.save
+        expect(@category.slug).to eq("%E6%B5%8B%E8%AF%95")
+        expect(@category.slug_for_url).to eq("%E6%B5%8B%E8%AF%95")
       end
     end
   end
@@ -230,8 +336,8 @@ describe Category do
 
   describe 'custom slug can be provided' do
     it 'can be sanitized' do
-      @c = Fabricate(:category, name: "Fun Cats", slug: "fun-cats")
-      @cat = Fabricate(:category, name: "love cats", slug: "love-cats")
+      @c = Fabricate(:category_with_definition, name: "Fun Cats", slug: "fun-cats")
+      @cat = Fabricate(:category_with_definition, name: "love cats", slug: "love-cats")
 
       @c.slug = '  invalid slug'
       @c.save
@@ -256,13 +362,13 @@ describe Category do
       c = Category.new
       expect(c.description_text).to be_nil
       c.description = "&lt;hello <a>test</a>."
-      expect(c.description_text).to eq("<hello test.")
+      expect(c.description_text).to eq("&lt;hello test.")
     end
   end
 
   describe 'after create' do
     before do
-      @category = Fabricate(:category, name: 'Amazing Category')
+      @category = Fabricate(:category_with_definition, name: 'Amazing Category')
       @topic = @category.topic
     end
 
@@ -298,64 +404,70 @@ describe Category do
     end
 
     it "renames the definition when renamed" do
-      @category.update_attributes(name: 'Troutfishing')
+      @category.update(name: 'Troutfishing')
       @topic.reload
       expect(@topic.title).to match(/Troutfishing/)
       expect(@topic.fancy_title).to match(/Troutfishing/)
     end
 
     it "doesn't raise an error if there is no definition topic to rename (uncategorized)" do
-      expect { @category.update_attributes(name: 'Troutfishing', topic_id: nil) }.to_not raise_error
+      expect { @category.update(name: 'Troutfishing', topic_id: nil) }.to_not raise_error
     end
 
     it "creates permalink when category slug is changed" do
-      @category.update_attributes(slug: 'new-category')
+      @category.update(slug: 'new-category')
       expect(Permalink.count).to eq(1)
     end
 
+    it "reuses existing permalink when category slug is changed" do
+      permalink = Permalink.create!(url: "c/#{@category.slug}", category_id: 42)
+
+      expect { @category.update(slug: 'new-slug') }.to_not change { Permalink.count }
+      expect(permalink.reload.category_id).to eq(@category.id)
+    end
+
     it "creates permalink when sub category slug is changed" do
-      sub_category = Fabricate(:category, slug: 'sub-category', parent_category_id: @category.id)
-      sub_category.update_attributes(slug: 'new-sub-category')
+      sub_category = Fabricate(:category_with_definition, slug: 'sub-category', parent_category_id: @category.id)
+      sub_category.update(slug: 'new-sub-category')
       expect(Permalink.count).to eq(1)
     end
 
     it "deletes permalink when category slug is reused" do
       Fabricate(:permalink, url: "/c/bikeshed-category")
-      Fabricate(:category, slug: 'bikeshed-category')
+      Fabricate(:category_with_definition, slug: 'bikeshed-category')
       expect(Permalink.count).to eq(0)
     end
 
     it "deletes permalink when sub category slug is reused" do
       Fabricate(:permalink, url: "/c/main-category/sub-category")
-      main_category = Fabricate(:category, slug: 'main-category')
-      Fabricate(:category, slug: 'sub-category', parent_category_id: main_category.id)
+      main_category = Fabricate(:category_with_definition, slug: 'main-category')
+      Fabricate(:category_with_definition, slug: 'sub-category', parent_category_id: main_category.id)
       expect(Permalink.count).to eq(0)
     end
 
     it "correctly creates permalink when category slug is changed in subfolder install" do
-      GlobalSetting.stubs(:relative_url_root).returns('/forum')
-      Discourse.stubs(:base_uri).returns("/forum")
+      set_subfolder '/forum'
       old_url = @category.url
-      @category.update_attributes(slug: 'new-category')
+      @category.update(slug: 'new-category')
       permalink = Permalink.last
       expect(permalink.url).to eq(old_url[1..-1])
     end
 
     it "should not set its description topic to auto-close" do
-      category = Fabricate(:category, name: 'Closing Topics', auto_close_hours: 1)
+      category = Fabricate(:category_with_definition, name: 'Closing Topics', auto_close_hours: 1)
       expect(category.topic.public_topic_timer).to eq(nil)
     end
 
     describe "creating a new category with the same slug" do
       it "should have a blank slug if at the same level" do
-        category = Fabricate(:category, name: "Amazing Categóry")
+        category = Fabricate(:category_with_definition, name: "Amazing Categóry")
         expect(category.slug).to be_blank
         expect(category.slug_for_url).to eq("#{category.id}-category")
       end
 
       it "doesn't have a blank slug if not at the same level" do
-        parent = Fabricate(:category, name: 'Other parent')
-        category = Fabricate(:category, name: "Amazing Categóry", parent_category_id: parent.id)
+        parent = Fabricate(:category_with_definition, name: 'Other parent')
+        category = Fabricate(:category_with_definition, name: "Amazing Categóry", parent_category_id: parent.id)
         expect(category.slug).to eq('amazing-category')
         expect(category.slug_for_url).to eq("amazing-category")
       end
@@ -363,7 +475,7 @@ describe Category do
 
     describe "trying to change the category topic's category" do
       before do
-        @new_cat = Fabricate(:category, name: '2nd Category', user: @category.user)
+        @new_cat = Fabricate(:category_with_definition, name: '2nd Category', user: @category.user)
         @topic.change_category_to_id(@new_cat.id)
         @topic.reload
         @category.reload
@@ -390,8 +502,8 @@ describe Category do
 
   describe "update" do
     it "should enforce uniqueness of slug" do
-      Fabricate(:category, slug: "the-slug")
-      c2 = Fabricate(:category, slug: "different-slug")
+      Fabricate(:category_with_definition, slug: "the-slug")
+      c2 = Fabricate(:category_with_definition, slug: "different-slug")
       c2.slug = "the-slug"
       expect(c2).to_not be_valid
       expect(c2.errors[:slug]).to be_present
@@ -400,7 +512,7 @@ describe Category do
 
   describe 'destroy' do
     before do
-      @category = Fabricate(:category)
+      @category = Fabricate(:category_with_definition)
       @category_id = @category.id
       @topic_id = @category.topic_id
       SiteSetting.shared_drafts_category = @category.id.to_s
@@ -414,7 +526,7 @@ describe Category do
     end
 
     it 'triggers a extensibility event' do
-      event = DiscourseEvent.track_events { @category.destroy }.first
+      event = DiscourseEvent.track(:category_destroyed) { @category.destroy }
 
       expect(event[:event_name]).to eq(:category_destroyed)
       expect(event[:params].first).to eq(@category)
@@ -423,7 +535,7 @@ describe Category do
 
   describe 'latest' do
     it 'should be updated correctly' do
-      category = Fabricate(:category)
+      category = Fabricate(:category_with_definition)
       post = create_post(category: category.id)
 
       category.reload
@@ -449,7 +561,7 @@ describe Category do
 
   describe 'update_stats' do
     before do
-      @category = Fabricate(:category)
+      @category = Fabricate(:category_with_definition)
     end
 
     context 'with regular topics' do
@@ -514,7 +626,7 @@ describe Category do
     context 'for uncategorized category' do
       before do
         @uncategorized = Category.find(SiteSetting.uncategorized_category_id)
-        create_post(user: Fabricate(:user), category: @uncategorized.name)
+        create_post(user: Fabricate(:user), category: @uncategorized.id)
         Category.update_stats
         @uncategorized.reload
       end
@@ -530,33 +642,55 @@ describe Category do
         expect(@uncategorized.posts_week).to eq(1)
       end
     end
+
+    context 'when there are no topics left' do
+      let!(:topic) { create_post(user: @category.user, category: @category.id).reload.topic }
+
+      it 'can update the topic count to zero' do
+        @category.reload
+        expect(@category.topic_count).to eq(1)
+        expect(@category.topics.count).to eq(2)
+        topic.delete # Delete so the post trash/destroy hook doesn't fire
+
+        Category.update_stats
+        @category.reload
+        expect(@category.topics.count).to eq(1)
+        expect(@category.topic_count).to eq(0)
+      end
+    end
   end
 
   describe "#url" do
     it "builds a url for normal categories" do
-      category = Fabricate(:category, name: "cats")
+      category = Fabricate(:category_with_definition, name: "cats")
       expect(category.url).to eq "/c/cats"
     end
 
     describe "for subcategories" do
       it "includes the parent category" do
-        parent_category = Fabricate(:category, name: "parent")
-        subcategory = Fabricate(:category, name: "child",
-                                           parent_category_id: parent_category.id)
+        parent_category = Fabricate(:category_with_definition, name: "parent")
+
+        subcategory =
+          Fabricate(
+            :category_with_definition,
+            name: "child",
+            parent_category_id: parent_category.id
+          )
+
         expect(subcategory.url).to eq "/c/parent/child"
       end
     end
   end
 
   describe "#url_with_id" do
-    let(:category) { Fabricate(:category, name: 'cats') }
+    fab!(:category) { Fabricate(:category_with_definition, name: 'cats') }
 
     it "includes the id in the URL" do
-      expect(category.url_with_id).to eq("/c/#{category.id}-cats")
+      expect(category.url_with_id).to eq("/c/cats/#{category.id}")
     end
 
     context "child category" do
-      let(:child_category) { Fabricate(:category, parent_category_id: category.id, name: 'dogs') }
+      fab!(:child_category) { Fabricate(:category_with_definition, parent_category_id: category.id, name: 'dogs') }
 
       it "includes the id in the URL" do
         expect(child_category.url_with_id).to eq("/c/cats/dogs/#{child_category.id}")
@@ -572,14 +706,14 @@ describe Category do
     end
 
     it "cannot have a parent category" do
-      cat.parent_category_id = Fabricate(:category).id
+      cat.parent_category_id = Fabricate(:category_with_definition).id
       expect(cat).to_not be_valid
     end
   end
 
   describe "parent categories" do
-    let(:user) { Fabricate(:user) }
-    let(:parent_category) { Fabricate(:category, user: user) }
+    fab!(:user) { Fabricate(:user) }
+    fab!(:parent_category) { Fabricate(:category_with_definition, user: user) }
 
     it "can be associated with a parent category" do
       sub_category = Fabricate.build(:category, parent_category_id: parent_category.id, user: user)
@@ -588,13 +722,13 @@ describe Category do
     end
 
     it "cannot associate a category with itself" do
-      category = Fabricate(:category, user: user)
+      category = Fabricate(:category_with_definition, user: user)
       category.parent_category_id = category.id
       expect(category).to_not be_valid
     end
 
     it "cannot have a category two levels deep" do
-      sub_category = Fabricate(:category, parent_category_id: parent_category.id, user: user)
+      sub_category = Fabricate(:category_with_definition, parent_category_id: parent_category.id, user: user)
       nested_sub_category = Fabricate.build(:category, parent_category_id: sub_category.id, user: user)
       expect(nested_sub_category).to_not be_valid
     end
@@ -608,7 +742,7 @@ describe Category do
 
     describe ".query_category" do
       it "should return the category" do
-        category = Fabricate(:category, name: "Amazing Category", parent_category_id: parent_category.id, user: user)
+        category = Fabricate(:category_with_definition, name: "Amazing Category", parent_category_id: parent_category.id, user: user)
         parent_category.name = "Amazing Parent Category"
         expect(category).to eq(Category.query_category(category.slug, parent_category.id))
       end
@@ -618,9 +752,9 @@ describe Category do
 
   describe "find_by_email" do
     it "is case insensitive" do
-      c1 = Fabricate(:category, email_in: 'lower@example.com')
-      c2 = Fabricate(:category, email_in: 'UPPER@EXAMPLE.COM')
-      c3 = Fabricate(:category, email_in: 'Mixed.Case@Example.COM')
+      c1 = Fabricate(:category_with_definition, email_in: 'lower@example.com')
+      c2 = Fabricate(:category_with_definition, email_in: 'UPPER@EXAMPLE.COM')
+      c3 = Fabricate(:category_with_definition, email_in: 'Mixed.Case@Example.COM')
       expect(Category.find_by_email('LOWER@EXAMPLE.COM')).to eq(c1)
       expect(Category.find_by_email('upper@example.com')).to eq(c2)
       expect(Category.find_by_email('mixed.case@example.com')).to eq(c3)
@@ -629,17 +763,41 @@ describe Category do
   end
 
   describe "find_by_slug" do
-    it "finds with category and sub category" do
-      category = Fabricate(:category, slug: 'awesome-category')
-      sub_category = Fabricate(:category, parent_category_id: category.id, slug: 'awesome-sub-category')
+    fab!(:category) do
+      Fabricate(:category_with_definition, slug: 'awesome-category')
+    end
 
+    fab!(:subcategory) do
+      Fabricate(
+        :category_with_definition,
+        parent_category_id: category.id,
+        slug: 'awesome-sub-category'
+      )
+    end
+
+    it "finds a category that exists" do
       expect(Category.find_by_slug('awesome-category')).to eq(category)
-      expect(Category.find_by_slug('awesome-sub-category', 'awesome-category')).to eq(sub_category)
+    end
+
+    it "finds a subcategory that exists" do
+      expect(Category.find_by_slug('awesome-sub-category', 'awesome-category')).to eq(subcategory)
+    end
+
+    it "produces nil if the parent doesn't exist" do
+      expect(Category.find_by_slug('awesome-sub-category', 'no-such-category')).to eq(nil)
+    end
+
+    it "produces nil if the parent doesn't exist and the requested category is a root category" do
+      expect(Category.find_by_slug('awesome-category', 'no-such-category')).to eq(nil)
+    end
+
+    it "produces nil if the subcategory doesn't exist" do
+      expect(Category.find_by_slug('no-such-category', 'awesome-category')).to eq(nil)
     end
   end
 
   describe "validate email_in" do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
 
     it "works with a valid email" do
       expect(Category.new(name: 'test', user: user, email_in: 'test@example.com').valid?).to eq(true)
@@ -652,7 +810,7 @@ describe Category do
     end
 
     context "with a duplicate email in a group" do
-      let(:group) { Fabricate(:group, name: 'testgroup', incoming_email: 'test@example.com') }
+      fab!(:group) { Fabricate(:group, name: 'testgroup', incoming_email: 'test@example.com') }
 
       it "adds an error with an invalid email" do
         category = Category.new(name: 'test', user: user, email_in: group.incoming_email)
@@ -661,7 +819,7 @@ describe Category do
     end
 
     context "with duplicate email in a category" do
-      let!(:category) { Fabricate(:category, user: user, name: '<b>cool</b>', email_in: 'test@example.com') }
+      fab!(:category) { Fabricate(:category_with_definition, user: user, name: '<b>cool</b>', email_in: 'test@example.com') }
 
       it "adds an error with an invalid email" do
         category = Category.new(name: 'test', user: user, email_in: "test@example.com")
@@ -673,7 +831,7 @@ describe Category do
   end
 
   describe 'require topic/post approval' do
-    let(:category) { Fabricate(:category) }
+    fab!(:category) { Fabricate(:category_with_definition) }
 
     describe '#require_topic_approval?' do
       before do
@@ -701,7 +859,7 @@ describe Category do
 
     it 'should correctly automatically bump topics' do
       freeze_time 1.second.ago
-      category = Fabricate(:category)
+      category = Fabricate(:category_with_definition)
       category.clear_auto_bump_cache!
 
       freeze_time 1.second.from_now
@@ -748,6 +906,257 @@ describe Category do
       category.save!
 
       expect(Category.auto_bump_topic!).to eq(false)
+    end
+
+    it 'should not automatically bump topics with a bump scheduled' do
+      freeze_time 1.second.ago
+      category = Fabricate(:category_with_definition)
+      category.clear_auto_bump_cache!
+
+      freeze_time 1.second.from_now
+      post1 = create_post(category: category)
+
+      # no limits on post creation or category creation please
+      RateLimiter.enable
+
+      time = 1.month.from_now
+      freeze_time time
+
+      expect(category.auto_bump_topic!).to eq(false)
+      expect(Topic.where(bumped_at: time).count).to eq(0)
+
+      category.num_auto_bump_daily = 2
+      category.save!
+
+      topic = Topic.find_by_id(post1.topic_id)
+
+      TopicTimer.create!(
+        user_id: -1,
+        topic: topic,
+        execute_at: 1.hour.from_now,
+        status_type: TopicTimer.types[:bump]
+      )
+
+      expect(Topic.joins(:topic_timers).where(topic_timers: { status_type: 6, deleted_at: nil }).count).to eq(1)
+
+      expect(category.auto_bump_topic!).to eq(false)
+      expect(Topic.where(bumped_at: time).count).to eq(0)
+      # does not include a bump message
+      expect(post1.topic.reload.posts_count).to eq(1)
+    end
+  end
+
+  describe "validate permissions compatibility" do
+    fab!(:admin) { Fabricate(:admin) }
+    fab!(:group) { Fabricate(:group) }
+    fab!(:group2) { Fabricate(:group) }
+    fab!(:parent_category) { Fabricate(:category_with_definition, name: "parent") }
+    fab!(:subcategory) { Fabricate(:category_with_definition, name: "child1", parent_category_id: parent_category.id) }
+
+    context "when changing subcategory permissions" do
+      it "it is not valid if permissions are less restrictive" do
+        subcategory.set_permissions(group => :readonly)
+        subcategory.save!
+
+        parent_category.set_permissions(group => :readonly)
+        parent_category.save!
+
+        subcategory.set_permissions(group => :full, group2 => :readonly)
+
+        expect(subcategory.valid?).to eq(false)
+        expect(subcategory.errors.full_messages).to contain_exactly(I18n.t("category.errors.permission_conflict", group_names: group2.name))
+      end
+
+      it "is valid if permissions are same or more restrictive" do
+        subcategory.set_permissions(group => :full, group2 => :create_post)
+        subcategory.save!
+
+        parent_category.set_permissions(group => :full, group2 => :create_post)
+        parent_category.save!
+
+        subcategory.set_permissions(group => :create_post, group2 => :full)
+
+        expect(subcategory.valid?).to eq(true)
+      end
+
+      it "is valid if everyone has access to parent category" do
+        parent_category.set_permissions(everyone: :readonly)
+        parent_category.save!
+
+        subcategory.set_permissions(group => :create_post, group2 => :create_post)
+
+        expect(subcategory.valid?).to eq(true)
+      end
+    end
+
+    context "when changing parent category permissions" do
+      fab!(:subcategory2) { Fabricate(:category_with_definition, name: "child2", parent_category_id: parent_category.id) }
+
+      it "is not valid if subcategory permissions are less restrictive" do
+        subcategory.set_permissions(group => :create_post)
+        subcategory.save!
+        subcategory2.set_permissions(group => :create_post, group2 => :create_post)
+        subcategory2.save!
+
+        parent_category.set_permissions(group => :readonly)
+
+        expect(parent_category.valid?).to eq(false)
+        expect(parent_category.errors.full_messages).to contain_exactly(I18n.t("category.errors.permission_conflict", group_names: group2.name))
+      end
+
+      it "is not valid if the subcategory has no category groups, but the parent does" do
+        parent_category.set_permissions(group => :readonly)
+
+        expect(parent_category).not_to be_valid
+      end
+
+      it "is valid if subcategory permissions are same or more restrictive" do
+        subcategory.set_permissions(group => :create_post)
+        subcategory.save!
+        subcategory2.set_permissions(group => :create_post, group2 => :create_post)
+        subcategory2.save!
+
+        parent_category.set_permissions(group => :full, group2 => :create_post)
+
+        expect(parent_category.valid?).to eq(true)
+
+      end
+
+      it "is valid if everyone has access to parent category" do
+        subcategory.set_permissions(group => :create_post)
+        subcategory.save
+        parent_category.set_permissions(everyone: :readonly)
+
+        expect(parent_category.valid?).to eq(true)
+      end
+    end
+  end
+
+  describe "tree metrics" do
+    fab!(:category) do
+      Category.create!(
+        user: user,
+        name: "foo"
+      )
+    end
+
+    fab!(:subcategory) do
+      Category.create!(
+        user: user,
+        name: "bar",
+        parent_category: category
+      )
+    end
+
+    context "with a self-parent" do
+      before_all do
+        DB.exec(<<-SQL, id: category.id)
+          UPDATE categories
+          SET parent_category_id = :id
+          WHERE id = :id
+        SQL
+      end
+
+      context "#depth_of_descendants" do
+        it "should produce max_depth" do
+          expect(category.depth_of_descendants(3)).to eq(3)
+        end
+      end
+
+      context "#height_of_ancestors" do
+        it "should produce max_height" do
+          expect(category.height_of_ancestors(3)).to eq(3)
+        end
+      end
+    end
+
+    context "with a prospective self-parent" do
+      before do
+        category.parent_category_id = category.id
+      end
+
+      context "#depth_of_descendants" do
+        it "should produce max_depth" do
+          expect(category.depth_of_descendants(3)).to eq(3)
+        end
+      end
+
+      context "#height_of_ancestors" do
+        it "should produce max_height" do
+          expect(category.height_of_ancestors(3)).to eq(3)
+        end
+      end
+    end
+
+    context "with a prospective loop" do
+      before do
+        category.parent_category_id = subcategory.id
+      end
+
+      context "#depth_of_descendants" do
+        it "should produce max_depth" do
+          expect(category.depth_of_descendants(3)).to eq(3)
+        end
+      end
+
+      context "#height_of_ancestors" do
+        it "should produce max_height" do
+          expect(category.height_of_ancestors(3)).to eq(3)
+        end
+      end
+    end
+
+    context "#depth_of_descendants" do
+      it "should be 0 when the category has no descendants" do
+        expect(subcategory.depth_of_descendants).to eq(0)
+      end
+
+      it "should be 1 when the category has a descendant" do
+        expect(category.depth_of_descendants).to eq(1)
+      end
+    end
+
+    context "#height_of_ancestors" do
+      it "should be 0 when the category has no ancestors" do
+        expect(category.height_of_ancestors).to eq(0)
+      end
+
+      it "should be 1 when the category has an ancestor" do
+        expect(subcategory.height_of_ancestors).to eq(1)
+      end
+    end
+  end
+
+  describe "#ensure_consistency!" do
+    it "creates category topic" do
+
+      # corrupt a category topic
+      uncategorized = Category.find(SiteSetting.uncategorized_category_id)
+      uncategorized.create_category_definition
+      uncategorized.topic.posts.first.destroy!
+
+      # make stuff extra broken
+      uncategorized.topic.trash!
+
+      category = Fabricate(:category_with_definition)
+      category_destroyed = Fabricate(:category_with_definition)
+      category_trashed = Fabricate(:category_with_definition)
+
+      category_topic_id = category.topic.id
+      category_destroyed.topic.destroy!
+      category_trashed.topic.trash!
+
+      Category.ensure_consistency!
+      # step one fix corruption
+      expect(uncategorized.reload.topic_id).to eq(nil)
+
+      Category.ensure_consistency!
+      # step two don't create a category definition for uncategorized
+      expect(uncategorized.reload.topic_id).to eq(nil)
+
+      expect(category.reload.topic_id).to eq(category_topic_id)
+      expect(category_destroyed.reload.topic).to_not eq(nil)
+      expect(category_trashed.reload.topic).to_not eq(nil)
     end
   end
 

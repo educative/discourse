@@ -1,21 +1,28 @@
-import computed from "ember-addons/ember-computed-decorators";
+import discourseComputed from "discourse-common/utils/decorators";
+import { makeArray } from "discourse-common/lib/helpers";
+import { alias } from "@ember/object/computed";
+import Component from "@ember/component";
 
 const PAGES_LIMIT = 8;
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNameBindings: ["sortable", "twoColumns"],
   classNames: ["admin-report-table"],
   sortable: false,
   sortDirection: 1,
-  perPage: Ember.computed.alias("options.perPage"),
+  perPage: alias("options.perPage"),
   page: 0,
 
-  @computed("model.computedLabels.length")
+  @discourseComputed("model.computedLabels.length")
   twoColumns(labelsLength) {
     return labelsLength === 2;
   },
 
-  @computed("totalsForSample", "options.total", "model.dates_filtering")
+  @discourseComputed(
+    "totalsForSample",
+    "options.total",
+    "model.dates_filtering"
+  )
   showTotalForSample(totalsForSample, total, datesFiltering) {
     // check if we have at least one cell which contains a value
     const sum = totalsForSample
@@ -26,17 +33,36 @@ export default Ember.Component.extend({
     return sum >= 1 && total && datesFiltering;
   },
 
-  @computed("model.total", "options.total", "twoColumns")
+  @discourseComputed("model.total", "options.total", "twoColumns")
   showTotal(reportTotal, total, twoColumns) {
     return reportTotal && total && twoColumns;
   },
 
-  @computed("model.data.length")
+  @discourseComputed(
+    "model.{average,data}",
+    "totalsForSample.1.value",
+    "twoColumns"
+  )
+  showAverage(model, sampleTotalValue, hasTwoColumns) {
+    return (
+      model.average &&
+      model.data.length > 0 &&
+      sampleTotalValue &&
+      hasTwoColumns
+    );
+  },
+
+  @discourseComputed("totalsForSample.1.value", "model.data.length")
+  averageForSample(totals, count) {
+    return (totals / count).toFixed(0);
+  },
+
+  @discourseComputed("model.data.length")
   showSortingUI(dataLength) {
     return dataLength >= 5;
   },
 
-  @computed("totalsForSampleRow", "model.computedLabels")
+  @discourseComputed("totalsForSampleRow", "model.computedLabels")
   totalsForSample(row, labels) {
     return labels.map(label => {
       const computedLabel = label.compute(row);
@@ -46,7 +72,7 @@ export default Ember.Component.extend({
     });
   },
 
-  @computed("model.data", "model.computedLabels")
+  @discourseComputed("model.data", "model.computedLabels")
   totalsForSampleRow(rows, labels) {
     if (!rows || !rows.length) return {};
 
@@ -72,15 +98,15 @@ export default Ember.Component.extend({
     return totalsRow;
   },
 
-  @computed("sortLabel", "sortDirection", "model.data.[]")
+  @discourseComputed("sortLabel", "sortDirection", "model.data.[]")
   sortedData(sortLabel, sortDirection, data) {
-    data = Ember.makeArray(data);
+    data = makeArray(data);
 
     if (sortLabel) {
       const compare = (label, direction) => {
         return (a, b) => {
-          let aValue = label.compute(a).value;
-          let bValue = label.compute(b).value;
+          const aValue = label.compute(a, { useSortProperty: true }).value;
+          const bValue = label.compute(b, { useSortProperty: true }).value;
           const result = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
           return result * direction;
         };
@@ -92,7 +118,7 @@ export default Ember.Component.extend({
     return data;
   },
 
-  @computed("sortedData.[]", "perPage", "page")
+  @discourseComputed("sortedData.[]", "perPage", "page")
   paginatedData(data, perPage, page) {
     if (perPage < data.length) {
       const start = perPage * page;
@@ -102,7 +128,7 @@ export default Ember.Component.extend({
     return data;
   },
 
-  @computed("model.data", "perPage", "page")
+  @discourseComputed("model.data", "perPage", "page")
   pages(data, perPage, page) {
     if (!data || data.length <= perPage) return [];
 
@@ -134,8 +160,8 @@ export default Ember.Component.extend({
     },
 
     sortByLabel(label) {
-      if (this.get("sortLabel") === label) {
-        this.set("sortDirection", this.get("sortDirection") === 1 ? -1 : 1);
+      if (this.sortLabel === label) {
+        this.set("sortDirection", this.sortDirection === 1 ? -1 : 1);
       } else {
         this.set("sortLabel", label);
       }

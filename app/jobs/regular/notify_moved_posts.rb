@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module Jobs
 
-  class NotifyMovedPosts < Jobs::Base
+  class NotifyMovedPosts < ::Jobs::Base
 
     def execute(args)
       raise Discourse::InvalidParameters.new(:post_ids) if args[:post_ids].blank?

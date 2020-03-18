@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # since all the rescue from clauses are not caught by the application controller for matches
 # we need to handle certain exceptions here
 module Middleware
@@ -27,7 +29,14 @@ module Middleware
         begin
           fake_controller = ApplicationController.new
           fake_controller.response = response
-          fake_controller.request = ActionDispatch::Request.new(env)
+          fake_controller.request = request = ActionDispatch::Request.new(env)
+
+          # We can not re-dispatch bad mime types
+          begin
+            request.format
+          rescue Mime::Type::InvalidMimeType
+            return [400, {}, ["Invalid MIME type"]]
+          end
 
           if ApplicationController.rescue_with_handler(exception, object: fake_controller)
             body = response.body

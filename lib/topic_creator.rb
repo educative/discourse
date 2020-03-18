@@ -1,4 +1,4 @@
-require_dependency 'has_errors'
+# frozen_string_literal: true
 
 class TopicCreator
 
@@ -36,6 +36,10 @@ class TopicCreator
     topic = Topic.new(setup_topic_params)
     setup_tags(topic)
 
+    if fields = @opts[:custom_fields]
+      topic.custom_fields.merge!(fields)
+    end
+
     DiscourseEvent.trigger(:before_create_topic, topic, self)
 
     setup_auto_close_time(topic)
@@ -44,6 +48,7 @@ class TopicCreator
     create_warning(topic)
     watch_topic(topic)
     create_shared_draft(topic)
+    UserActionManager.topic_created(topic)
 
     topic
   end
@@ -78,21 +83,8 @@ class TopicCreator
       topic.notifier.watch!(tau.user_id)
     end
 
-    topic.reload.topic_allowed_groups.each do |tag|
-      tag.group.group_users.each do |gu|
-        next if gu.user_id == -1 || gu.user_id == topic.user_id
-
-        action =
-          case gu.notification_level
-          when TopicUser.notification_levels[:tracking] then "track!"
-          when TopicUser.notification_levels[:regular]  then "regular!"
-          when TopicUser.notification_levels[:muted]    then "mute!"
-          when TopicUser.notification_levels[:watching] then "watch!"
-          else "track!"
-          end
-
-        topic.notifier.send(action, gu.user_id)
-      end
+    topic.reload.topic_allowed_groups.each do |topic_allowed_group|
+      topic_allowed_group.group.set_message_default_notification_levels!(topic)
     end
   end
 
@@ -118,8 +110,11 @@ class TopicCreator
     topic_params[:subtype] = TopicSubtype.moderator_warning if @opts[:is_warning]
 
     category = find_category
-
     @guardian.ensure_can_create!(Topic, category) unless (@opts[:skip_validations] || @opts[:archetype] == Archetype.private_message)
+
+    if @opts[:category].present? && category.nil?
+      raise Discourse::InvalidParameters.new(:category)
+    end
 
     topic_params[:category_id] = category.id if category.present?
 
@@ -136,30 +131,27 @@ class TopicCreator
   end
 
   def find_category
-    # PM can't have a category
-    @opts.delete(:category) if @opts[:archetype].present? && @opts[:archetype] == Archetype.private_message
+    @category ||= begin
+      # PM can't have a category
+      @opts.delete(:category) if @opts[:archetype].present? && @opts[:archetype] == Archetype.private_message
 
-    if @opts[:shared_draft]
-      return Category.find(SiteSetting.shared_drafts_category)
-    end
+      if @opts[:shared_draft]
+        return Category.find(SiteSetting.shared_drafts_category)
+      end
 
-    # Temporary fix to allow older clients to create topics.
-    # When all clients are updated the category variable should
-    # be set directly to the contents of the if statement.
-    if (@opts[:category].is_a? Integer) || (@opts[:category] =~ /^\d+$/)
-      Category.find_by(id: @opts[:category])
-    else
-      Category.find_by(name_lower: @opts[:category].try(:downcase))
+      if (@opts[:category].is_a? Integer) || (@opts[:category] =~ /^\d+$/)
+        Category.find_by(id: @opts[:category])
+      end
     end
   end
 
   def setup_tags(topic)
     if @opts[:tags].blank?
       unless @guardian.is_staff? || !guardian.can_tag?(topic)
-        # Validate minimum required tags for a category
         category = find_category
-        if category.present? && category.minimum_required_tags > 0
-          topic.errors[:base] << I18n.t("tags.minimum_required_tags", count: category.minimum_required_tags)
+
+        if !DiscourseTagging.validate_min_required_tags_for_category(@guardian, topic, category) ||
+            !DiscourseTagging.validate_required_tags_from_group(@guardian, topic, category)
           rollback_from_errors!(topic)
         end
       end

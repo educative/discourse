@@ -1,16 +1,24 @@
+import { cancel } from "@ember/runloop";
+import { scheduleOnce } from "@ember/runloop";
+import Component from "@ember/component";
 import { diff, patch } from "virtual-dom";
 import { WidgetClickHook } from "discourse/widgets/hooks";
 import { queryRegistry } from "discourse/widgets/widget";
 import { getRegister } from "discourse-common/lib/get-owner";
 import DirtyKeys from "discourse/lib/dirty-keys";
+import { camelize } from "@ember/string";
 
-const _cleanCallbacks = {};
+let _cleanCallbacks = {};
 export function addWidgetCleanCallback(widgetName, fn) {
   _cleanCallbacks[widgetName] = _cleanCallbacks[widgetName] || [];
   _cleanCallbacks[widgetName].push(fn);
 }
 
-export default Ember.Component.extend({
+export function resetWidgetCleanCallbacks() {
+  _cleanCallbacks = {};
+}
+
+export default Component.extend({
   _tree: null,
   _rootNode: null,
   _timeout: null,
@@ -22,7 +30,7 @@ export default Ember.Component.extend({
 
   init() {
     this._super(...arguments);
-    const name = this.get("widget");
+    const name = this.widget;
 
     this.register = getRegister(this);
 
@@ -45,11 +53,11 @@ export default Ember.Component.extend({
 
     this._rootNode = document.createElement("div");
     this.element.appendChild(this._rootNode);
-    this._timeout = Ember.run.scheduleOnce("render", this, this.rerenderWidget);
+    this._timeout = scheduleOnce("render", this, this.rerenderWidget);
   },
 
   willClearRender() {
-    const callbacks = _cleanCallbacks[this.get("widget")];
+    const callbacks = _cleanCallbacks[this.widget];
     if (callbacks) {
       callbacks.forEach(cb => cb());
     }
@@ -61,9 +69,9 @@ export default Ember.Component.extend({
   willDestroyElement() {
     this._dispatched.forEach(evt => {
       const [eventName, caller] = evt;
-      this.appEvents.off(eventName, caller);
+      this.appEvents.off(eventName, this, caller);
     });
-    Ember.run.cancel(this._timeout);
+    cancel(this._timeout);
   },
 
   afterRender() {},
@@ -73,7 +81,7 @@ export default Ember.Component.extend({
   afterPatch() {},
 
   eventDispatched(eventName, key, refreshArg) {
-    const onRefresh = Ember.String.camelize(eventName.replace(/:/, "-"));
+    const onRefresh = camelize(eventName.replace(/:/, "-"));
     this.dirtyKeys.keyDirty(key, { onRefresh, refreshArg });
     this.queueRerender();
   },
@@ -84,7 +92,7 @@ export default Ember.Component.extend({
     const caller = refreshArg =>
       this.eventDispatched(eventName, key, refreshArg);
     this._dispatched.push([eventName, caller]);
-    this.appEvents.on(eventName, caller);
+    this.appEvents.on(eventName, this, caller);
   },
 
   queueRerender(callback) {
@@ -92,13 +100,13 @@ export default Ember.Component.extend({
       this._renderCallback = callback;
     }
 
-    Ember.run.scheduleOnce("render", this, this.rerenderWidget);
+    scheduleOnce("render", this, this.rerenderWidget);
   },
 
   buildArgs() {},
 
   rerenderWidget() {
-    Ember.run.cancel(this._timeout);
+    cancel(this._timeout);
 
     if (this._rootNode) {
       if (!this._widgetClass) {
@@ -106,9 +114,9 @@ export default Ember.Component.extend({
       }
 
       const t0 = new Date().getTime();
-      const args = this.get("args") || this.buildArgs();
+      const args = this.args || this.buildArgs();
       const opts = {
-        model: this.get("model"),
+        model: this.model,
         dirtyKeys: this.dirtyKeys
       };
       const newTree = new this._widgetClass(args, this.register, opts);

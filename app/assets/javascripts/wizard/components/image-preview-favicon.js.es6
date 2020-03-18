@@ -1,5 +1,4 @@
-import { observes } from "ember-addons/ember-computed-decorators";
-
+import { observes } from "discourse-common/utils/decorators";
 import { createPreviewComponent } from "wizard/lib/preview";
 
 export default createPreviewComponent(371, 124, {
@@ -22,7 +21,7 @@ export default createPreviewComponent(371, 124, {
     ctx.font = `20px 'Arial'`;
     ctx.fillStyle = "#000";
 
-    let title = this.get("wizard").getTitle();
+    let title = this.wizard.getTitle();
     if (title.length > 20) {
       title = title.substring(0, 20) + "...";
     }

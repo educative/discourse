@@ -2,6 +2,7 @@ import { iconNode } from "discourse-common/lib/icon-library";
 import { createWidget, applyDecorators } from "discourse/widgets/widget";
 import { h } from "virtual-dom";
 import { formatUsername } from "discourse/lib/utilities";
+import { prioritizeNameInUx } from "discourse/lib/settings";
 
 let sanitizeName = function(name) {
   return name.toLowerCase().replace(/[\s\._-]/g, "");
@@ -17,7 +18,7 @@ createWidget("poster-name-title", {
   html(attrs) {
     let titleContents = attrs.title;
     if (attrs.primaryGroupName) {
-      const href = Discourse.getURL(`/groups/${attrs.primaryGroupName}`);
+      const href = Discourse.getURL(`/g/${attrs.primaryGroupName}`);
       titleContents = h(
         "a.user-group",
         {
@@ -66,9 +67,7 @@ export default createWidget("poster-name", {
     const name = attrs.name;
     const nameFirst =
       this.siteSettings.display_name_on_posts &&
-      !this.siteSettings.prioritize_username_in_ux &&
-      name &&
-      name.trim().length > 0;
+      prioritizeNameInUx(name, this.siteSettings);
     const classNames = nameFirst
       ? ["first", "full-name"]
       : ["first", "username"];

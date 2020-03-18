@@ -1,4 +1,8 @@
+import { empty, alias } from "@ember/object/computed";
+import Controller from "@ember/controller";
 import ModalFunctionality from "discourse/mixins/modal-functionality";
+import Topic from "discourse/models/topic";
+import Category from "discourse/models/category";
 
 const _buttons = [];
 
@@ -61,20 +65,26 @@ if (Discourse.SiteSettings.tagging_enabled) {
     class: "btn-default"
   });
 }
-addBulkButton("deleteTopics", "delete", { icon: "trash", class: "btn-danger" });
+addBulkButton("deleteTopics", "delete", {
+  icon: "trash-alt",
+  class: "btn-danger"
+});
 
 // Modal for performing bulk actions on topics
-export default Ember.Controller.extend(ModalFunctionality, {
+export default Controller.extend(ModalFunctionality, {
   tags: null,
 
-  emptyTags: Ember.computed.empty("tags"),
-  categoryId: Ember.computed.alias("model.category.id"),
+  emptyTags: empty("tags"),
+  categoryId: alias("model.category.id"),
 
   onShow() {
     const topics = this.get("model.topics");
     // const relistButtonIndex = _buttons.findIndex(b => b.action === 'relistTopics');
 
-    this.set("buttons", _buttons.filter(b => b.buttonVisible(topics)));
+    this.set(
+      "buttons",
+      _buttons.filter(b => b.buttonVisible(topics))
+    );
     this.set("modal.modalClass", "topic-bulk-actions-modal small");
     this.send("changeBulkTemplate", "modal/bulk-actions-buttons");
   },
@@ -83,7 +93,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
     this.set("loading", true);
 
     const topics = this.get("model.topics");
-    return Discourse.Topic.bulkOperation(topics, operation)
+    return Topic.bulkOperation(topics, operation)
       .then(result => {
         this.set("loading", false);
         if (result && result.topic_ids) {
@@ -101,7 +111,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
     this.perform(operation).then(topics => {
       if (topics) {
         topics.forEach(cb);
-        (this.get("refreshClosure") || identity)();
+        (this.refreshClosure || identity)();
         this.send("closeModal");
       }
     });
@@ -109,7 +119,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
 
   performAndRefresh(operation) {
     return this.perform(operation).then(() => {
-      (this.get("refreshClosure") || identity)();
+      (this.refreshClosure || identity)();
       this.send("closeModal");
     });
   },
@@ -124,7 +134,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
     },
 
     changeTags() {
-      this.performAndRefresh({ type: "change_tags", tags: this.get("tags") });
+      this.performAndRefresh({ type: "change_tags", tags: this.tags });
     },
 
     showAppendTagTopics() {
@@ -136,7 +146,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
     },
 
     appendTags() {
-      this.performAndRefresh({ type: "append_tags", tags: this.get("tags") });
+      this.performAndRefresh({ type: "append_tags", tags: this.tags });
     },
 
     showChangeCategory() {
@@ -168,13 +178,13 @@ export default Ember.Controller.extend(ModalFunctionality, {
     },
 
     changeCategory() {
-      const categoryId = parseInt(this.get("newCategoryId"), 10) || 0;
-      const category = Discourse.Category.findById(categoryId);
+      const categoryId = parseInt(this.newCategoryId, 10) || 0;
+      const category = Category.findById(categoryId);
 
       this.perform({ type: "change_category", category_id: categoryId }).then(
         topics => {
           topics.forEach(t => t.set("category", category));
-          (this.get("refreshClosure") || identity)();
+          (this.refreshClosure || identity)();
           this.send("closeModal");
         }
       );

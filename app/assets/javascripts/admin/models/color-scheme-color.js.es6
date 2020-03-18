@@ -1,48 +1,64 @@
-const ColorSchemeColor = Discourse.Model.extend({
-  init: function() {
-    this._super(...arguments);
-    this.startTrackingChanges();
-  },
+import discourseComputed, {
+  observes,
+  on
+} from "discourse-common/utils/decorators";
+import { propertyNotEqual } from "discourse/lib/computed";
+import EmberObject from "@ember/object";
 
-  startTrackingChanges: function() {
-    this.set("originals", { hex: this.get("hex") || "FFFFFF" });
-    this.notifyPropertyChange("hex"); // force changed property to be recalculated
+const ColorSchemeColor = EmberObject.extend({
+  @on("init")
+  startTrackingChanges() {
+    this.set("originals", { hex: this.hex || "FFFFFF" });
+
+    // force changed property to be recalculated
+    this.notifyPropertyChange("hex");
   },
 
   // Whether value has changed since it was last saved.
-  changed: function() {
+  @discourseComputed("hex")
+  changed(hex) {
     if (!this.originals) return false;
-    if (this.get("hex") !== this.originals["hex"]) return true;
+    if (hex !== this.originals.hex) return true;
+
     return false;
-  }.property("hex"),
+  },
 
   // Whether the current value is different than Discourse's default color scheme.
-  overridden: function() {
-    return this.get("hex") !== this.get("default_hex");
-  }.property("hex", "default_hex"),
+  overridden: propertyNotEqual("hex", "default_hex"),
 
   // Whether the saved value is different than Discourse's default color scheme.
-  savedIsOverriden: function() {
-    return this.get("originals").hex !== this.get("default_hex");
-  }.property("hex", "default_hex"),
-
-  revert: function() {
-    this.set("hex", this.get("default_hex"));
+  @discourseComputed("default_hex", "hex")
+  savedIsOverriden(defaultHex) {
+    return this.originals.hex !== defaultHex;
   },
 
-  undo: function() {
-    if (this.originals) this.set("hex", this.originals["hex"]);
+  revert() {
+    this.set("hex", this.default_hex);
   },
 
-  translatedName: function() {
-    return I18n.t("admin.customize.colors." + this.get("name") + ".name");
-  }.property("name"),
+  undo() {
+    if (this.originals) {
+      this.set("hex", this.originals.hex);
+    }
+  },
 
-  description: function() {
-    return I18n.t(
-      "admin.customize.colors." + this.get("name") + ".description"
-    );
-  }.property("name"),
+  @discourseComputed("name")
+  translatedName(name) {
+    if (!this.is_advanced) {
+      return I18n.t(`admin.customize.colors.${name}.name`);
+    } else {
+      return name;
+    }
+  },
+
+  @discourseComputed("name")
+  description(name) {
+    if (!this.is_advanced) {
+      return I18n.t(`admin.customize.colors.${name}.description`);
+    } else {
+      return "";
+    }
+  },
 
   /**
     brightness returns a number between 0 (darkest) to 255 (brightest).
@@ -50,8 +66,8 @@ const ColorSchemeColor = Discourse.Model.extend({
 
     @property brightness
   **/
-  brightness: function() {
-    var hex = this.get("hex");
+  @discourseComputed("hex")
+  brightness(hex) {
     if (hex.length === 6 || hex.length === 3) {
       if (hex.length === 3) {
         hex =
@@ -63,28 +79,25 @@ const ColorSchemeColor = Discourse.Model.extend({
           hex.substr(2, 1);
       }
       return Math.round(
-        (parseInt("0x" + hex.substr(0, 2)) * 299 +
-          parseInt("0x" + hex.substr(2, 2)) * 587 +
-          parseInt("0x" + hex.substr(4, 2)) * 114) /
+        (parseInt(hex.substr(0, 2), 16) * 299 +
+          parseInt(hex.substr(2, 2), 16) * 587 +
+          parseInt(hex.substr(4, 2), 16) * 114) /
           1000
       );
     }
-  }.property("hex"),
+  },
 
-  hexValueChanged: function() {
-    if (this.get("hex")) {
-      this.set(
-        "hex",
-        this.get("hex")
-          .toString()
-          .replace(/[^0-9a-fA-F]/g, "")
-      );
+  @observes("hex")
+  hexValueChanged() {
+    if (this.hex) {
+      this.set("hex", this.hex.toString().replace(/[^0-9a-fA-F]/g, ""));
     }
-  }.observes("hex"),
+  },
 
-  valid: function() {
-    return this.get("hex").match(/^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/) !== null;
-  }.property("hex")
+  @discourseComputed("hex")
+  valid(hex) {
+    return hex.match(/^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/) !== null;
+  }
 });
 
 export default ColorSchemeColor;

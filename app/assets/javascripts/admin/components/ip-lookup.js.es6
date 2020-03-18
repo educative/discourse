@@ -1,12 +1,15 @@
-import { default as computed } from "ember-addons/ember-computed-decorators";
+import EmberObject from "@ember/object";
+import { later } from "@ember/runloop";
+import Component from "@ember/component";
+import discourseComputed from "discourse-common/utils/decorators";
 import { ajax } from "discourse/lib/ajax";
 import AdminUser from "admin/models/admin-user";
 import copyText from "discourse/lib/copy-text";
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNames: ["ip-lookup"],
 
-  @computed("other_accounts.length", "totalOthersWithSameIP")
+  @discourseComputed("other_accounts.length", "totalOthersWithSameIP")
   otherAccountsToDelete(otherAccountsLength, totalOthersWithSameIP) {
     // can only delete up to 50 accounts at a time
     const total = Math.min(50, totalOthersWithSameIP || 0);
@@ -18,18 +21,18 @@ export default Ember.Component.extend({
     lookup() {
       this.set("show", true);
 
-      if (!this.get("location")) {
-        ajax("/admin/users/ip-info", { data: { ip: this.get("ip") } }).then(
-          location => this.set("location", Ember.Object.create(location))
+      if (!this.location) {
+        ajax("/admin/users/ip-info", { data: { ip: this.ip } }).then(location =>
+          this.set("location", EmberObject.create(location))
         );
       }
 
-      if (!this.get("other_accounts")) {
+      if (!this.other_accounts) {
         this.set("otherAccountsLoading", true);
 
         const data = {
-          ip: this.get("ip"),
-          exclude: this.get("userId"),
+          ip: this.ip,
+          exclude: this.userId,
           order: "trust_level DESC"
         };
 
@@ -51,8 +54,8 @@ export default Ember.Component.extend({
     },
 
     copy() {
-      let text = `IP: ${this.get("ip")}\n`;
-      const location = this.get("location");
+      let text = `IP: ${this.ip}\n`;
+      const location = this.location;
       if (location) {
         if (location.hostname) {
           text += `${I18n.t("ip_lookup.hostname")}: ${location.hostname}\n`;
@@ -76,7 +79,7 @@ export default Ember.Component.extend({
       $(document.body).append($copyRange);
       if (copyText(text, $copyRange[0])) {
         this.set("copied", true);
-        Ember.run.later(() => this.set("copied", false), 2000);
+        later(() => this.set("copied", false), 2000);
       }
       $copyRange.remove();
     },
@@ -97,8 +100,8 @@ export default Ember.Component.extend({
             ajax("/admin/users/delete-others-with-same-ip.json", {
               type: "DELETE",
               data: {
-                ip: this.get("ip"),
-                exclude: this.get("userId"),
+                ip: this.ip,
+                exclude: this.userId,
                 order: "trust_level DESC"
               }
             }).then(() => this.send("lookup"));

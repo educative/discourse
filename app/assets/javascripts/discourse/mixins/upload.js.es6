@@ -1,10 +1,12 @@
 import {
   displayErrorForUpload,
   validateUploadedFiles
-} from "discourse/lib/utilities";
+} from "discourse/lib/uploads";
 import getUrl from "discourse-common/lib/get-url";
+import { on } from "@ember/object/evented";
+import Mixin from "@ember/object/mixin";
 
-export default Ember.Mixin.create({
+export default Mixin.create({
   uploading: false,
   uploadProgress: 0,
 
@@ -23,8 +25,6 @@ export default Ember.Mixin.create({
       getUrl(this.getWithDefault("uploadUrl", "/uploads")) +
       ".json?client_id=" +
       (this.messageBus && this.messageBus.clientId) +
-      "&authenticity_token=" +
-      encodeURIComponent(Discourse.Session.currentProp("csrfToken")) +
       this.uploadUrlParams
     );
   },
@@ -35,8 +35,8 @@ export default Ember.Mixin.create({
     return {};
   },
 
-  _initialize: function() {
-    const $upload = this.$();
+  _initialize: on("didInsertElement", function() {
+    const $upload = $(this.element);
     const reset = () =>
       this.setProperties({ uploading: false, uploadProgress: 0 });
     const maxFiles = this.getWithDefault(
@@ -78,14 +78,14 @@ export default Ember.Mixin.create({
 
     $upload.on("fileuploadsubmit", (e, data) => {
       const opts = _.merge(
-        { bypassNewUserRestriction: true },
+        { bypassNewUserRestriction: true, user: this.currentUser },
         this.validateUploadedFilesOptions()
       );
       const isValid = validateUploadedFiles(data.files, opts);
-      const type = this.get("type");
+      const type = this.type;
       let form = type ? { type } : {};
-      if (this.get("data")) {
-        form = $.extend(form, this.get("data"));
+      if (this.data) {
+        form = $.extend(form, this.data);
       }
       data.formData = form;
       this.setProperties({ uploadProgress: 0, uploading: isValid });
@@ -103,18 +103,17 @@ export default Ember.Mixin.create({
       }
       reset();
     });
-  }.on("didInsertElement"),
+  }),
 
-  _destroy: function() {
-    this.messageBus &&
-      this.messageBus.unsubscribe("/uploads/" + this.get("type"));
+  _destroy: on("willDestroyElement", function() {
+    this.messageBus && this.messageBus.unsubscribe("/uploads/" + this.type);
 
-    const $upload = this.$();
+    const $upload = $(this.element);
     try {
       $upload.fileupload("destroy");
     } catch (e) {
       /* wasn't initialized yet */
     }
     $upload.off();
-  }.on("willDestroyElement")
+  })
 });

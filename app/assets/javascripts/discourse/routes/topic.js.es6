@@ -1,5 +1,12 @@
+import { get } from "@ember/object";
+import { isEmpty } from "@ember/utils";
+import { cancel } from "@ember/runloop";
+import { scheduleOnce } from "@ember/runloop";
+import { later } from "@ember/runloop";
+import DiscourseRoute from "discourse/routes/discourse";
 import DiscourseURL from "discourse/lib/url";
 import { ID_CONSTRAINT } from "discourse/models/topic";
+import { EventTarget } from "rsvp";
 
 let isTransitioning = false,
   scheduledReplace = null,
@@ -9,7 +16,7 @@ const SCROLL_DELAY = 500;
 
 import showModal from "discourse/lib/show-modal";
 
-const TopicRoute = Discourse.Route.extend({
+const TopicRoute = DiscourseRoute.extend({
   redirect() {
     return this.redirectIfLoginRequired();
   },
@@ -48,6 +55,31 @@ const TopicRoute = Discourse.Route.extend({
   },
 
   actions: {
+    showInvite() {
+      let invitePanelTitle;
+
+      if (this.isPM) {
+        invitePanelTitle = "topic.invite_private.title";
+      } else if (this.invitingToTopic) {
+        invitePanelTitle = "topic.invite_reply.title";
+      } else {
+        invitePanelTitle = "user.invited.create";
+      }
+
+      showModal("share-and-invite", {
+        modalClass: "share-and-invite",
+        panels: [
+          {
+            id: "invite",
+            title: invitePanelTitle,
+            model: {
+              inviteModel: this.modelFor("topic")
+            }
+          }
+        ]
+      });
+    },
+
     showFlags(model) {
       let controller = showModal("flag", { model });
       controller.setProperties({ flagTopic: false });
@@ -92,20 +124,14 @@ const TopicRoute = Discourse.Route.extend({
       this.controllerFor("feature_topic").reset();
     },
 
-    showInvite() {
-      showModal("invite", { model: this.modelFor("topic") });
-      this.controllerFor("invite").reset();
-    },
-
     showHistory(model, revision) {
-      showModal("history", { model });
-      const historyController = this.controllerFor("history");
-
+      let historyController = showModal("history", {
+        model,
+        modalClass: "history-modal"
+      });
       historyController.refresh(model.get("id"), revision || "latest");
       historyController.set("post", model);
       historyController.set("topicController", this.controllerFor("topic"));
-
-      this.controllerFor("modal").set("modalClass", "history-modal");
     },
 
     showGrantBadgeModal() {
@@ -148,13 +174,13 @@ const TopicRoute = Discourse.Route.extend({
           postUrl += "/" + currentPost;
         }
 
-        Ember.run.cancel(scheduledReplace);
+        cancel(scheduledReplace);
         lastScrollPos = parseInt($(document).scrollTop(), 10);
-        scheduledReplace = Ember.run.later(
+        scheduledReplace = later(
           this,
           "_replaceUnlessScrolling",
           postUrl,
-          SCROLL_DELAY
+          Ember.Test ? 0 : SCROLL_DELAY
         );
       }
     },
@@ -166,7 +192,7 @@ const TopicRoute = Discourse.Route.extend({
 
     willTransition() {
       this._super(...arguments);
-      Ember.run.cancel(scheduledReplace);
+      cancel(scheduledReplace);
       isTransitioning = true;
       return true;
     }
@@ -181,7 +207,7 @@ const TopicRoute = Discourse.Route.extend({
       return;
     }
     lastScrollPos = currentPos;
-    scheduledReplace = Ember.run.later(
+    scheduledReplace = later(
       this,
       "_replaceUnlessScrolling",
       url,
@@ -191,13 +217,13 @@ const TopicRoute = Discourse.Route.extend({
 
   setupParams(topic, params) {
     const postStream = topic.get("postStream");
-    postStream.set("summary", Ember.get(params, "filter") === "summary");
+    postStream.set("summary", get(params, "filter") === "summary");
 
-    const usernames = Ember.get(params, "username_filters"),
+    const usernames = get(params, "username_filters"),
       userFilters = postStream.get("userFilters");
 
     userFilters.clear();
-    if (!Ember.isEmpty(usernames) && usernames !== "undefined") {
+    if (!isEmpty(usernames) && usernames !== "undefined") {
       userFilters.addObjects(usernames.split(","));
     }
 
@@ -206,12 +232,16 @@ const TopicRoute = Discourse.Route.extend({
 
   model(params, transition) {
     if (params.slug.match(ID_CONSTRAINT)) {
-      return DiscourseURL.routeTo(`/t/topic/${params.slug}/${params.id}`, {
+      transition.abort();
+
+      DiscourseURL.routeTo(`/t/topic/${params.slug}/${params.id}`, {
         replaceURL: true
       });
+
+      return;
     }
 
-    const queryParams = transition.queryParams;
+    const queryParams = transition.to.queryParams;
 
     let topic = this.modelFor("topic");
     if (topic && topic.get("id") === parseInt(params.id, 10)) {
@@ -278,11 +308,11 @@ const TopicRoute = Discourse.Route.extend({
     // We reset screen tracking every time a topic is entered
     this.screenTrack.start(model.get("id"), controller);
 
-    Ember.run.scheduleOnce("afterRender", () => {
+    scheduleOnce("afterRender", () => {
       this.appEvents.trigger("header:update-topic", model);
     });
   }
 });
 
-RSVP.EventTarget.mixin(TopicRoute);
+EventTarget.mixin(TopicRoute);
 export default TopicRoute;

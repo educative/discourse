@@ -1,8 +1,12 @@
+import { not } from "@ember/object/computed";
+import EmberObject from "@ember/object";
+import { scheduleOnce } from "@ember/runloop";
+import Component from "@ember/component";
 import LinkLookup from "discourse/lib/link-lookup";
 
 let _messagesCache = {};
 
-export default Ember.Component.extend({
+export default Component.extend({
   classNameBindings: [":composer-popup-container", "hidden"],
   checkedMessages: false,
   messages: null,
@@ -13,7 +17,7 @@ export default Ember.Component.extend({
   _yourselfConfirm: null,
   similarTopics: null,
 
-  hidden: Ember.computed.not("composer.viewOpenOrFullscreen"),
+  hidden: not("composer.viewOpenOrFullscreen"),
 
   didInsertElement() {
     this._super(...arguments);
@@ -22,7 +26,7 @@ export default Ember.Component.extend({
     this.appEvents.on("composer:find-similar", this, this._findSimilar);
     this.appEvents.on("composer-messages:close", this, this._closeTop);
     this.appEvents.on("composer-messages:create", this, this._create);
-    Ember.run.scheduleOnce("afterRender", this, this.reset);
+    scheduleOnce("afterRender", this, this.reset);
   },
 
   willDestroyElement() {
@@ -34,13 +38,13 @@ export default Ember.Component.extend({
   },
 
   _closeTop() {
-    const messages = this.get("messages");
+    const messages = this.messages;
     messages.popObject();
     this.set("messageCount", messages.get("length"));
   },
 
   _removeMessage(message) {
-    const messages = this.get("messages");
+    const messages = this.messages;
     messages.removeObject(message);
     this.set("messageCount", messages.get("length"));
   },
@@ -53,15 +57,15 @@ export default Ember.Component.extend({
     hideMessage(message) {
       this._removeMessage(message);
       // kind of hacky but the visibility depends on this
-      this.get("messagesByTemplate")[message.get("templateName")] = undefined;
+      this.messagesByTemplate[message.get("templateName")] = undefined;
     },
 
     popup(message) {
-      const messagesByTemplate = this.get("messagesByTemplate");
+      const messagesByTemplate = this.messagesByTemplate;
       const templateName = message.get("templateName");
 
       if (!messagesByTemplate[templateName]) {
-        const messages = this.get("messages");
+        const messages = this.messages;
         messages.pushObject(message);
         this.set("messageCount", messages.get("length"));
         messagesByTemplate[templateName] = message;
@@ -91,18 +95,13 @@ export default Ember.Component.extend({
       return;
     }
 
-    const composer = this.get("composer");
+    const composer = this.composer;
     if (composer.get("privateMessage")) {
-      let usernames = composer.get("targetUsernames");
-
-      if (usernames) {
-        usernames = usernames.split(",");
-      }
+      const recipients = composer.targetRecipientsArray;
 
       if (
-        usernames &&
-        usernames.length === 1 &&
-        usernames[0] === this.currentUser.get("username")
+        recipients.length > 0 &&
+        recipients.every(r => r.name === this.currentUser.get("username"))
       ) {
         const message =
           this._yourselfConfirm ||
@@ -116,16 +115,16 @@ export default Ember.Component.extend({
       }
     }
 
-    this.get("queuedForTyping").forEach(msg => this.send("popup", msg));
+    this.queuedForTyping.forEach(msg => this.send("popup", msg));
   },
 
   _create(info) {
     this.reset();
-    this.send("popup", Ember.Object.create(info));
+    this.send("popup", EmberObject.create(info));
   },
 
   _findSimilar() {
-    const composer = this.get("composer");
+    const composer = this.composer;
 
     // We don't care about similar topics unless creating a topic
     if (!composer.get("creatingTopic")) {
@@ -148,7 +147,7 @@ export default Ember.Component.extend({
     }
     this._lastSimilaritySearch = concat;
 
-    const similarTopics = this.get("similarTopics");
+    const similarTopics = this.similarTopics;
     const message =
       this._similarTopicsMessage ||
       composer.store.createRecord("composer-message", {
@@ -174,11 +173,11 @@ export default Ember.Component.extend({
 
   // Figure out if there are any messages that should be displayed above the composer.
   _findMessages() {
-    if (this.get("checkedMessages")) {
+    if (this.checkedMessages) {
       return;
     }
 
-    const composer = this.get("composer");
+    const composer = this.composer;
     const args = { composer_action: composer.get("action") };
     const topicId = composer.get("topic.id");
     const postId = composer.get("post.id");
@@ -204,7 +203,7 @@ export default Ember.Component.extend({
       }
 
       this.set("checkedMessages", true);
-      const queuedForTyping = this.get("queuedForTyping");
+      const queuedForTyping = this.queuedForTyping;
       messages.forEach(msg =>
         msg.wait_for_typing
           ? queuedForTyping.addObject(msg)

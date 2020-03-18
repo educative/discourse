@@ -1,4 +1,4 @@
-require_dependency 'new_post_manager'
+# frozen_string_literal: true
 
 class CurrentUserSerializer < BasicUserSerializer
 
@@ -8,13 +8,13 @@ class CurrentUserSerializer < BasicUserSerializer
              :read_first_notification?,
              :admin?,
              :notification_channel_position,
-             :site_flagged_posts_count,
              :moderator?,
              :staff?,
              :title,
              :reply_count,
              :topic_count,
              :enable_quoting,
+             :enable_defer,
              :external_links_in_new_tab,
              :dynamic_favicon,
              :trust_level,
@@ -25,13 +25,12 @@ class CurrentUserSerializer < BasicUserSerializer
              :can_delete_account,
              :should_be_redirected_to_top,
              :redirected_to_top,
-             :disable_jump_reply,
              :custom_fields,
              :muted_category_ids,
+             :muted_tag_ids,
              :dismissed_banner_key,
              :is_anonymous,
-             :post_queue_new_count,
-             :show_queued_posts,
+             :reviewable_count,
              :read_faq,
              :automatically_unpin_topics,
              :mailing_list_mode,
@@ -43,7 +42,12 @@ class CurrentUserSerializer < BasicUserSerializer
              :external_id,
              :top_category_ids,
              :hide_profile_and_presence,
-             :groups
+             :groups,
+             :second_factor_enabled,
+             :ignored_users,
+             :title_count_mode,
+             :timezone,
+             :featured_topic
 
   def groups
     object.visible_groups.pluck(:id, :name).map { |id, name| { id: id, name: name.downcase } }
@@ -55,10 +59,6 @@ class CurrentUserSerializer < BasicUserSerializer
 
   def can_create_topic
     scope.can_create_topic?(nil)
-  end
-
-  def include_site_flagged_posts_count?
-    object.staff?
   end
 
   def read_faq
@@ -81,8 +81,8 @@ class CurrentUserSerializer < BasicUserSerializer
     object.user_option.enable_quoting
   end
 
-  def disable_jump_reply
-    object.user_option.disable_jump_reply
+  def enable_defer
+    object.user_option.enable_defer
   end
 
   def external_links_in_new_tab
@@ -91,6 +91,10 @@ class CurrentUserSerializer < BasicUserSerializer
 
   def dynamic_favicon
     object.user_option.dynamic_favicon
+  end
+
+  def title_count_mode
+    object.user_option.title_count_mode
   end
 
   def automatically_unpin_topics
@@ -105,8 +109,8 @@ class CurrentUserSerializer < BasicUserSerializer
     object.user_option.redirected_to_top
   end
 
-  def site_flagged_posts_count
-    PostAction.flagged_posts_count
+  def timezone
+    object.user_option.timezone
   end
 
   def can_send_private_email_messages
@@ -166,6 +170,14 @@ class CurrentUserSerializer < BasicUserSerializer
     CategoryUser.lookup(object, :muted).pluck(:category_id)
   end
 
+  def muted_tag_ids
+    TagUser.lookup(object, :muted).pluck(:tag_id)
+  end
+
+  def ignored_users
+    IgnoredUser.where(user: object.id).joins(:ignored_user).pluck(:username)
+  end
+
   def top_category_ids
     omitted_notification_levels = [CategoryUser.notification_levels[:muted], CategoryUser.notification_levels[:regular]]
     CategoryUser.where(user_id: object.id)
@@ -188,20 +200,8 @@ class CurrentUserSerializer < BasicUserSerializer
     object.anonymous?
   end
 
-  def post_queue_new_count
-    QueuedPost.new_count
-  end
-
-  def include_post_queue_new_count?
-    object.staff?
-  end
-
-  def show_queued_posts
-    true
-  end
-
-  def include_show_queued_posts?
-    object.staff? && (NewPostManager.queue_enabled? || QueuedPost.new_count > 0)
+  def reviewable_count
+    Reviewable.list_for(object).count
   end
 
   def mailing_list_mode
@@ -218,5 +218,13 @@ class CurrentUserSerializer < BasicUserSerializer
 
   def include_external_id?
     SiteSetting.enable_sso
+  end
+
+  def second_factor_enabled
+    object.totp_enabled? || object.security_keys_enabled?
+  end
+
+  def featured_topic
+    object.user_profile.featured_topic
   end
 end
