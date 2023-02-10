@@ -34,7 +34,7 @@
   },
   "devDependencies": {
     "babel-eslint": "^8.2",
-    "chrome-launcher": "^0.10",
+    "chrome-launcher": "^0.13",
     "chrome-remote-interface": "^0.25",
     "eslint": "^4.19",
     "pretender": "^1.6",
